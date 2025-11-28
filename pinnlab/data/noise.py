@@ -248,11 +248,3 @@ def get_sG_m(a, xi, w):
     m0 = muz - g1*torch.sqrt(1-muz**2)/2 - torch.sign(a)/2*torch.exp(-2*torch.pi/torch.abs(a))
     m = xi + w*m0
     return m
-            
-
-
-        
-        
-        
-        
-        

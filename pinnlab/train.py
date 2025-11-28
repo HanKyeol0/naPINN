@@ -179,7 +179,7 @@ def main(args):
 
         losses = {
             "res": loss_res,     # PDE residual term
-            **({"data": loss_data} if "loss_data" in locals() else {}),
+            **({"data": loss_data} if "lo-ss_data" in locals() else {}),
         }
 
         if not use_loss_balancer:
@@ -254,6 +254,24 @@ def main(args):
                 model, vid_grid, out_dir, fps=fps,
                 filename=f"eval_ep{ep}.{out_fmt}"
             )
+            
+    if enable_video:
+        vid_grid = exp_cfg.get("video", {}).get("grid", base_cfg["eval"]["grid"])
+        fps      = exp_cfg.get("video", {}).get("fps", 10)
+        out_fmt  = exp_cfg.get("video", {}).get("format", "mp4")  # "mp4" or "gif"
+        vid_path = exp.make_video(
+            model, vid_grid, out_dir,
+            fps=fps, filename=f"final_evolution.{out_fmt}"
+        )
+        wandb_log({"video/evolution": wandb.Video(vid_path, format=out_fmt)})
+        
+        base, ext = os.path.splitext(os.path.basename(vid_path))
+        noise_true = os.path.join(out_dir, f"{base}_noise_true{ext}")
+        noise_ebm  = os.path.join(out_dir, f"{base}_noise_ebm{ext}")
+        if os.path.exists(noise_true):
+            wandb_log({"video/noise_true": wandb.Video(noise_true, format=out_fmt)})
+        if os.path.exists(noise_ebm):
+            wandb_log({"video/noise_ebm": wandb.Video(noise_ebm, format=out_fmt)})  
             
     if use_phase:
         for ep in pbar2:
@@ -344,6 +362,24 @@ def main(args):
                     model, vid_grid, out_dir, fps=fps,
                     filename=f"eval_ep{ep + phase1_epochs}.{out_fmt}"
                 )
+                
+        if enable_video:
+            vid_grid = exp_cfg.get("video", {}).get("grid", base_cfg["eval"]["grid"])
+            fps      = exp_cfg.get("video", {}).get("fps", 10)
+            out_fmt  = exp_cfg.get("video", {}).get("format", "mp4")  # "mp4" or "gif"
+            vid_path = exp.make_video(
+                model, vid_grid, out_dir,
+                fps=fps, filename=f"final_evolution.{out_fmt}"
+            )
+            wandb_log({"video/evolution": wandb.Video(vid_path, format=out_fmt)})
+            
+            base, ext = os.path.splitext(os.path.basename(vid_path))
+            noise_true = os.path.join(out_dir, f"{base}_noise_true{ext}")
+            noise_ebm  = os.path.join(out_dir, f"{base}_noise_ebm{ext}")
+            if os.path.exists(noise_true):
+                wandb_log({"video/noise_true": wandb.Video(noise_true, format=out_fmt)})
+            if os.path.exists(noise_ebm):
+                wandb_log({"video/noise_ebm": wandb.Video(noise_ebm, format=out_fmt)}) 
 
     training_end_time = time.time()
     
@@ -352,24 +388,6 @@ def main(args):
         "gpu/peak_mem_alloc_mb": float(torch.cuda.max_memory_allocated(device)) / (1024**2),
         "gpu/peak_mem_reserved_mb": float(torch.cuda.max_memory_reserved(device)) / (1024**2),
     }
-
-    if enable_video:
-        vid_grid = exp_cfg.get("video", {}).get("grid", base_cfg["eval"]["grid"])
-        fps      = exp_cfg.get("video", {}).get("fps", 10)
-        out_fmt  = exp_cfg.get("video", {}).get("format", "mp4")  # "mp4" or "gif"
-        vid_path = exp.make_video(
-            model, vid_grid, out_dir,
-            fps=fps, filename=f"final_evolution.{out_fmt}"
-        )
-        wandb_log({"video/evolution": wandb.Video(vid_path, format=out_fmt)})
-        
-        base, ext = os.path.splitext(os.path.basename(vid_path))
-        noise_true = os.path.join(out_dir, f"{base}_noise_true{ext}")
-        noise_ebm  = os.path.join(out_dir, f"{base}_noise_ebm{ext}")
-        if os.path.exists(noise_true):
-            wandb_log({"video/noise_true": wandb.Video(noise_true, format=out_fmt)})
-        if os.path.exists(noise_ebm):
-            wandb_log({"video/noise_ebm": wandb.Video(noise_ebm, format=out_fmt)})    
     
     wandb_log(final_perf)
 

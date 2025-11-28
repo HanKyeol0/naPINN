@@ -106,6 +106,14 @@ class EBM(nn.Module):
         return nll.detach(), nll_mean.detach()
 
     @torch.no_grad()
+    def data_weight(self, res: torch.Tensor, kind: str = "pw") -> torch.Tensor:
+        if kind == "pw":
+            return self.pointwise_weights(res)
+        elif kind == "inverse":
+            return self.inverse_pointwise_weights(res)
+        else:
+            raise ValueError(f"Unknown data weight kind: {kind}")
+    
     def pointwise_weights(self, res: torch.Tensor) -> torch.Tensor:
         """Compute noise-adaptive weights for each residual.
 
@@ -123,4 +131,25 @@ class EBM(nn.Module):
         log_q = log_q - log_q.max()  # shift for stability
         w = torch.exp(log_q)
         w = w / (w.mean() + 1e-8)
+        return w.view(orig_shape)
+    
+    def inverse_pointwise_weights(self, res: torch.Tensor):
+        res = res.detach().to(self.device)
+        eps = 1e-8
+        orig_shape = res.shape
+        res_flat = res.view(-1, 1)
+
+        # log q(r)
+        log_q = self.forward(res_flat).squeeze(-1)          # [N]
+        # 수치 안정화
+        log_q = log_q - log_q.max()
+
+        # q(r) ≈ exp(log_q)
+        q = torch.exp(log_q)                                # [N]
+
+        # 1 / q(r)
+        w_raw = 1.0 / (q + eps)
+
+        # 평균을 1로 정규화
+        w = w_raw / (w_raw.mean() + 1e-8)
         return w.view(orig_shape)

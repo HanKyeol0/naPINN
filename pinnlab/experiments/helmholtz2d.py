@@ -7,6 +7,12 @@ from pinnlab.experiments.base import BaseExperiment, make_leaf, grad_sum
 from pinnlab.data.geometries import Rectangle, linspace_2d
 from pinnlab.data.noise import get_noise
 from pinnlab.utils.ebm import EBM
+from pinnlab.utils.data_loss import (
+    data_loss_mse,
+    data_loss_l1,
+    data_loss_q_gaussian,
+    aggregate_data_loss,
+)
 
 class Helmholtz2D(BaseExperiment):
     """
@@ -64,6 +70,11 @@ class Helmholtz2D(BaseExperiment):
             noise_cfg.get("batch_size", 1000)
         )
         
+        self.extra_noise_cfg = noise_cfg.get("extra_noise", {})
+        self.use_extra_noise = bool(self.extra_noise_cfg.get("enabled", False))
+        self.extra_noise_mask = None
+        print(f"[Helmholtz2D] use_extra_noise = {self.use_extra_noise}")
+        
         self.X_data = None
         self.y_data = None
         self.y_clean = None
@@ -87,8 +98,25 @@ class Helmholtz2D(BaseExperiment):
             )
         else:
             self.ebm = None
+
+        self.use_phase = bool(cfg.get("phase", {}).get("enabled", False))
         
-        self.use_data_loss_balancer = bool(cfg.get("data_loss_balancer", {}).get("use_loss_balancer", False))
+        data_loss_cfg = cfg.get("data_loss", {}) or {}
+        self.data_loss_kind = data_loss_cfg.get("kind", "mse")
+        
+        # q-Gaussian settings
+        self.q_gauss_q = float(data_loss_cfg.get("q", 1.2))
+        beta_val = data_loss_cfg.get("beta", None)
+        self.q_gauss_beta = float(beta_val) if beta_val is not None else None
+        
+        data_lb_cfg = cfg.get("data_loss_balancer", {})
+        self.use_data_loss_balancer = bool(data_lb_cfg.get("use_loss_balancer", False))
+        self.data_loss_balancer_kind = data_lb_cfg.get("kind", "pw")  # 'pw', 'inverse', ...
+        print(f"[Helmholtz2D] use_ebm = {self.use_ebm}, use_nll = {self.use_nll}")
+        print(f"[Helmholtz2D] use_phase = {self.use_phase}")
+        print(f"[Helmholtz2D] data_loss_kind = {self.data_loss_kind}")
+        print(f"[Helmholtz2D] use_data_loss_balancer = {self.use_data_loss_balancer}")
+        print(f"[Helmholtz2D] data_loss_balancer_kind = {self.data_loss_balancer_kind}")
 
         # ----- Optional trainable offset θ0 for non-zero mean noise (PINN-off style) -----
         offset_cfg = cfg.get("offset", {}) or {}
@@ -130,6 +158,8 @@ class Helmholtz2D(BaseExperiment):
 
         with torch.no_grad():
             u_clean = self.u_star(X[:, 0:1], X[:, 1:2], X[:, 2:3])  # [n, 1]
+            
+        base_dtype = u_clean.dtype
 
         # Determine noise scale "f" as in PINN-EBM: a factor times average magnitude of u*
         base_scale = float(self.noise_cfg.get("scale", 0.1))  # relative to mean |u|
@@ -140,13 +170,60 @@ class Helmholtz2D(BaseExperiment):
         self.noise_model = get_noise(kind, f, pars=0)
 
         # In PINN-EBM, sample() often expects a shape list (e.g. [N])
-        eps = self.noise_model.sample(n).to(self.device).view(-1, 1)  # [n, 1]
+        eps = self.noise_model.sample(n).to(self.device, dtype=base_dtype).view(-1, 1)  # [n, 1]
+        
+        self.extra_noise_mask = torch.zeros(n, dtype=torch.bool)
+        if self.use_extra_noise:
+            n_extra = int(self.extra_noise_cfg.get("n_points", 0))
+            print(f"Adding extra noise to {n_extra} points.")
+            idx = torch.randperm(n, device=self.device)[:n_extra]
+            self.extra_noise_mask[idx.cpu()] = True
+            
+            scale_min = float(self.extra_noise_cfg.get("scale_min", 5.0))
+            scale_max = float(self.extra_noise_cfg.get("scale_max", 10.0))
+
+            # scale factor sampling for each noise point: scale factor ~ Uniform(scale_min, scale_max)
+            factors = torch.empty(n_extra, 1, device=self.device, dtype=base_dtype).uniform_(scale_min, scale_max)
+
+            # 기본 noise 스케일 f를 기준으로 outlier amplitude 결정
+            # amplitude_i in [scale_min * f, scale_max * f]
+            amp = factors * f
+
+            signs = torch.randint(0, 2, amp.shape, device=self.device, dtype=amp.dtype) * 2 - 1
+            extra_eps = signs * amp
+
+            # 전략: 해당 포인트의 노이즈를 "완전히 덮어쓰기"
+            # (기존 eps보다 훨씬 크므로 outlier 역할)
+            eps[idx] = extra_eps
 
         y_noisy = u_clean + eps
 
         self.X_data = X
         self.y_clean = u_clean
         self.y_data = y_noisy
+        
+    def _data_loss(self, residual: torch.Tensor) -> torch.Tensor:
+        """
+        Map residuals r = y_noisy - u_pred (maybe with offset)
+        to per-point losses ℓ_i according to data_loss_kind:
+
+            'mse'        → ℓ_i = r_i^2             (vanilla PINN)
+            'l1'         → ℓ_i = |r_i|             (LAD-PINN)
+            'q_gaussian' → Tsallis q-Gaussian NLL  (OrPINN)
+        """
+        kind = self.data_loss_kind
+        if kind == "mse":
+            return data_loss_mse(residual)
+        elif kind == "l1":
+            return data_loss_l1(residual)
+        elif kind == "q_gaussian":
+            return data_loss_q_gaussian(
+                residual,
+                q=self.q_gauss_q,
+                beta=self.q_gauss_beta,
+            )
+        else:
+            raise ValueError(f"Unknown data_loss_kind: {kind}")
 
     # ----- sampling -----
     def sample_batch(self, n_f, n_b, n_0):
@@ -245,8 +322,8 @@ class Helmholtz2D(BaseExperiment):
         if "X_d" not in batch or "y_d" not in batch:
             return torch.tensor(0.0, device=self.device)
 
-        X_d = batch["X_d"]
-        y_d = batch["y_d"]
+        X_d = batch["X_d"] # [N,3]
+        y_d = batch["y_d"] # [N,1] noisy measurements
 
         # Raw PINN prediction (this is what PDE/BC/IC see)
         u_raw = model(X_d)  # [N, 1]
@@ -258,8 +335,8 @@ class Helmholtz2D(BaseExperiment):
             u_data = u_raw
 
         # Residuals for data and for EBM
-        err = u_data - y_d              # [N, 1] (model - noisy data)
         residual = (y_d - u_data)       # [N, 1] (data - model), used as "noise"
+        data_loss_value = self._data_loss(residual) # per-point losses [N, 1]
         
         if phase == 0:
             if self.ebm is not None and residual.numel() > 0:
@@ -268,18 +345,16 @@ class Helmholtz2D(BaseExperiment):
                 batch["ebm_nll"] = nll_ebm_mean
 
                 if self.use_data_loss_balancer:
-                    print("[data_loss] Using EBM-based data loss balancer.")
                     # Per-point reliability weights from EBM (mean ≈ 1)
-                    w = self.ebm.pointwise_weights(residual.detach())  # [N, 1]
+                    w = self.ebm.data_weight(residual.detach(), kind=self.data_loss_balancer_kind)  # [N, 1]
                     
-                    loss_per_sample = (w * err.pow(2)).view(-1)
+                    loss_per_sample = (w * residual.pow(2)).view(-1)
                 else:
-                    print("[data_loss] NOT using EBM-based data loss balancer.")
-                    loss_per_sample = err.pow(2).view(-1)
+                    loss_per_sample = residual.pow(2).view(-1)
                 return loss_per_sample
             
         elif phase == 1:
-            return err.pow(2).view(-1)
+            return residual.pow(2).view(-1)
         
         elif phase == 2:
             if self.ebm is not None and residual.numel() > 0:
@@ -288,19 +363,15 @@ class Helmholtz2D(BaseExperiment):
                 batch["ebm_nll"] = nll_ebm_mean
 
                 if self.use_nll:
-                    print("[data_loss] Using EBM-based NLL data loss.")
                     data_loss = nll_ebm
                 else:
-                    print("[data_loss] Using MSE data loss.")
-                    data_loss = err.pow(2)
+                    data_loss = residual.pow(2)
                 if self.use_data_loss_balancer:
-                    print("[data_loss] Using EBM-based data loss balancer.")
                     # Per-point reliability weights from EBM (mean ≈ 1)
-                    w = self.ebm.pointwise_weights(residual.detach())  # [N, 1]
+                    w = self.ebm.data_weight(residual.detach(), kind=self.data_loss_balancer_kind)  # [N, 1]
 
                     loss_per_sample = (w * data_loss).view(-1)
                 else:
-                    print("[data_loss] NOT using EBM-based data loss balancer.")
                     loss_per_sample = data_loss.view(-1)
 
                 return loss_per_sample

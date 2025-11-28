@@ -1,7 +1,7 @@
 # scripts/mlp/helmholtz2d.sh
 # scripts/mlp/z_helmholtz2d_fore.sh
 
-tag: test11
+tag: extra_noise_naPINN_3
 device: cuda
 
 domain:
@@ -18,9 +18,9 @@ time_dependent: true
 # sampling
 sampling_mode: grid # random / grid
 grid:
-  nx: 100
-  ny: 100
-  nt: 50
+  nx: 80
+  ny: 80
+  nt: 40
 batch:
   n_f: 4096
   n_b: 1024
@@ -29,15 +29,21 @@ batch:
 # noise
 noise:
   enabled: true
-  n_train: 5000
-  batch_size: 1000
+  n_train: 3000
+  batch_size: 700
   kind: 3G # G, Goff, sG, u, 3G, 3G0, mix0, Gmix, rmix, sGtest
+
+  extra_noise:
+    enabled: true
+    n_points: 600
+    scale_min: 30.0
+    scale_max: 50.0
 
 # phase
 phase:
   enabled: true
-  phase1_epochs: 6000
-  phase2_epochs: 15000
+  phase1_epochs: 10000
+  phase2_epochs: 20000
 
 ebm:
   enabled: true
@@ -46,13 +52,14 @@ ebm:
   num_grid: 256
   max_range_factor: 2.5
   lr: 1.0e-3
-  use_nll: true
+  use_nll: false
 
 data_loss_balancer:
   use_loss_balancer: true
+  kind: pw # pw, inverse
 
 offset:
-  enabled: true
+  enabled: false
   init: 0.0
 
 # video
@@ -60,8 +67,8 @@ video:
   enabled: true
   every: 5000
   grid:
-    nx: 100
-    ny: 100
-    nt: 50
+    nx: 150
+    ny: 150
+    nt: 70
   fps: 10
   format: mp4
