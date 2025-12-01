@@ -26,29 +26,26 @@ def main(args):
     out_features = exp_cfg.get("out_features", model_cfg.get("out_features"))
     model_cfg["in_features"]  = in_features
     model_cfg["out_features"] = out_features
-    model_cfg["patch"]["x"] = exp_cfg.get("patch", {}).get("x", None)
-    model_cfg["patch"]["y"] = exp_cfg.get("patch", {}).get("y", None)
-    model_cfg["patch"]["t"] = exp_cfg.get("patch", {}).get("t", None)
 
     seed_everything(base_cfg["seed"])
 
     exp = get_experiment(args.experiment_name)(exp_cfg, device)
     model = get_model(args.model_name)(model_cfg).to(device)
     checkpoint_path = os.path.join(folder_path, "best.pt")
-    model.load_state_dict(torch.load(checkpoint_path, weights_only=True, map_location=device))
+    ckpt = torch.load(checkpoint_path, map_location=device)
+    exp_extra = ckpt.pop("_exp_extra", None)
+    model.load_state_dict(ckpt)
 
     if make_video:
         print("making video...")
         if args.video_grid:
             grid = args.video_grid
-            vid_grid = {'x': grid['x'], 'y': grid['y']}
-            nt_video = grid['t']
+            vid_grid = {'nx': grid['nx'], 'ny': grid['ny'], 'nt': grid['nt']}
         else:
-            vid_grid = {'x': base_cfg["eval"]['nt'], 'y': base_cfg["eval"]['ny']}
-            nt_video = base_cfg["eval"]['nt']
+            vid_grid = {'nx': base_cfg["eval"]['nt'], 'ny': base_cfg["eval"]['ny'], 'nt': base_cfg["eval"]['nt']}
         fps = 10
         vid_path = exp.make_video(model, vid_grid, out_dir=folder_path,
-                                  filename=args.video_file_name, nt_video=nt_video, fps=fps)
+                                  filename=args.video_file_name, fps=fps)
     
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

@@ -1,7 +1,7 @@
 # scripts/mlp/helmholtz2d.sh
 # scripts/mlp/z_helmholtz2d_fore.sh
 
-tag: vaPINN_a2
+tag: naPINN_c1
 device: cuda
 
 domain:
@@ -24,9 +24,9 @@ time_dependent: true
 # sampling
 sampling_mode: grid # random / grid
 grid:
-  nx: 100
-  ny: 100
-  nt: 60
+  nx: 120
+  ny: 120
+  nt: 80
 batch:
   n_f: 4096
   n_b: 1024
@@ -37,8 +37,8 @@ noise:
   enabled: true
   n_train: 5000
   batch_size: 1000
-  kind: G # G, Goff, sG, u, 3G, 3G0, mix0, Gmix, rmix, sGtest
-  scale: 0.2 # default: 0.1
+  kind: 3G # G, Goff, sG, u, 3G, 3G0, mix0, Gmix, rmix, sGtest
+  scale: 0.1 # default: 0.1
 
   extra_noise:
     enabled: true
