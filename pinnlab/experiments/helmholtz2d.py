@@ -6,7 +6,7 @@ import imageio.v2 as imageio
 from pinnlab.experiments.base import BaseExperiment, make_leaf, grad_sum
 from pinnlab.data.geometries import Rectangle, linspace_2d
 from pinnlab.data.noise import get_noise
-from pinnlab.utils.ebm import EBM
+from pinnlab.utils.ebm import EBM, ResidualWeightNet
 from pinnlab.utils.data_loss import (
     data_loss_mse,
     data_loss_l1,
@@ -17,14 +17,15 @@ from pinnlab.utils.data_loss import (
 class Helmholtz2D(BaseExperiment):
     """
     Time-dependent variant using the wave equation:
-        u_tt - c^2 (u_xx + u_yy) = f(x,y,t)
+        u_tt - c^2 (u_xx + u_yy) + λ u = f(x,y,t)
 
     Choose analytic solution:
-        u*(x,y,t) = sin(pi x) sin(pi y) cos(ω t)
+        u*(x,y,t) = sin(a1 pi x) sin(a2 pi y) cos(ω t + φ)
 
     Then:
         u_xx + u_yy = -2 pi^2 u*
         u_tt        = -ω^2 u*
+        f = (-ω^2 + c^2 (a1^2+a2^2) π^2 + λ) u*
         => residual = (-ω^2 + c^2 * 2 pi^2) u* - f
 
     If ω = sqrt(2) * pi * c, we can set f ≡ 0 and the solution satisfies the homogeneous equation.
@@ -34,18 +35,28 @@ class Helmholtz2D(BaseExperiment):
     def __init__(self, cfg, device):
         super().__init__(cfg, device)
         self.device = device
+        
         xa, xb = cfg["domain"]["x"]
         ya, yb = cfg["domain"]["y"]
         self.t0, self.t1 = cfg["domain"]["t"]
 
         self.rect = Rectangle(xa, xb, ya, yb, device)
-        self.c = float(cfg.get("c", 1.0))
 
-        omega_cfg = cfg.get("omega", "auto")
-        if isinstance(omega_cfg, str) and omega_cfg.lower() == "auto":
-            self.omega = math.sqrt(2.0) * math.pi * self.c
-        else:
-            self.omega = float(omega_cfg)
+        # PDE constants
+        self.c   = float(cfg.get("c", 1.0))
+        self.lam = float(cfg.get("lambda", 0.0))
+
+        # Analytic u* params
+        self.a1   = float(cfg.get("a1", 1.0))
+        self.a2   = float(cfg.get("a2", 1.0))
+        self.omega= float(cfg.get("omega", 2.0))
+        self.phi  = float(cfg.get("phi", 0.0))
+
+        # omega_cfg = cfg.get("omega", "auto")
+        # if isinstance(omega_cfg, str) and omega_cfg.lower() == "auto":
+        #     self.omega = math.sqrt(2.0) * math.pi * self.c
+        # else:
+        #     self.omega = float(omega_cfg)
         
         self.sampling_mode = cfg.get("sampling_mode", "random") # random / grid
         if self.sampling_mode == "grid":
@@ -112,6 +123,21 @@ class Helmholtz2D(BaseExperiment):
         data_lb_cfg = cfg.get("data_loss_balancer", {})
         self.use_data_loss_balancer = bool(data_lb_cfg.get("use_loss_balancer", False))
         self.data_loss_balancer_kind = data_lb_cfg.get("kind", "pw")  # 'pw', 'inverse', ...
+        
+        # --- Learnable per-point data weights via auxiliary MLP ----
+        self.weight_net = None
+        if self.use_data_loss_balancer and self.data_loss_balancer_kind == "mlp":
+            wn_cfg = data_lb_cfg.get("weight_net", {}) or {}
+            dlb_hidden_dim = int(wn_cfg.get("hidden_dim", 32)) # dlb: data loss balancer
+            dlb_depth = int(wn_cfg.get("depth", 2))
+            self.weight_net = ResidualWeightNet(
+                hidden_dim=dlb_hidden_dim,
+                depth=dlb_depth,
+                device=device,
+            )
+            print(f"[Helmholtz2D] Using learnable per-point data weights "
+                  f"with MLP(hidden_dim={dlb_hidden_dim}, depth={dlb_depth}).")
+        
         print(f"[Helmholtz2D] use_ebm = {self.use_ebm}, use_nll = {self.use_nll}")
         print(f"[Helmholtz2D] use_phase = {self.use_phase}")
         print(f"[Helmholtz2D] data_loss_kind = {self.data_loss_kind}")
@@ -133,12 +159,12 @@ class Helmholtz2D(BaseExperiment):
 
     # ----- analytic fields -----
     def u_star(self, x, y, t):
-        return torch.sin(math.pi * x) * torch.sin(math.pi * y) * torch.cos(self.omega * t)
+        return torch.sin(self.a1 * math.pi * x) * torch.sin(self.a2 * math.pi * y) * torch.cos(self.omega * t + self.phi)
 
     def f(self, x, y, t):
         # General forcing for arbitrary omega:
         # f = (-ω^2 + c^2*2π^2) u*, so residual == 0 for the chosen u*.
-        coeff = (-self.omega ** 2 + (self.c ** 2) * (2.0 * math.pi ** 2))
+        coeff = (-self.omega ** 2) + (self.c ** 2) * (self.a1 ** 2 + self.a2 ** 2) * (math.pi ** 2) + self.lam
         return coeff * self.u_star(x, y, t)
     
     def _init_noisy_dataset(self):
@@ -214,7 +240,7 @@ class Helmholtz2D(BaseExperiment):
         kind = self.data_loss_kind
         if kind == "mse":
             return data_loss_mse(residual)
-        elif kind == "l1":
+        elif kind == "L1":
             return data_loss_l1(residual)
         elif kind == "q_gaussian":
             return data_loss_q_gaussian(
@@ -305,7 +331,7 @@ class Helmholtz2D(BaseExperiment):
         u_xx, u_yy, u_tt = d2ux[:, 0:1], d2uy[:, 1:2], d2ut[:, 2:3]
 
         x, y, t = X[:, 0:1], X[:, 1:2], X[:, 2:3]
-        res = u_tt - (self.c ** 2) * (u_xx + u_yy) - self.f(x, y, t)
+        res = u_tt - (self.c ** 2) * (u_xx + u_yy) + self.lam * u - self.f(x, y, t)
         return res.pow(2)
 
     def boundary_loss(self, model, batch):
@@ -345,16 +371,20 @@ class Helmholtz2D(BaseExperiment):
                 batch["ebm_nll"] = nll_ebm_mean
 
                 if self.use_data_loss_balancer:
-                    # Per-point reliability weights from EBM (mean ≈ 1)
-                    w = self.ebm.data_weight(residual.detach(), kind=self.data_loss_balancer_kind)  # [N, 1]
+                    if self.data_loss_balancer_kind == "mlp" and self.weight_net is not None:
+                        # Use learnable auxiliary network; residual is detached so gradients do NOT flow back into the PINN through w(r).
+                        w = self.weight_net(residual.detach())  # [N,1]
+                    else:
+                        # Default: deterministic weights from EBM pdf
+                        w = self.ebm.data_weight(residual.detach(), kind=self.data_loss_balancer_kind)  # [N,1]
                     
-                    loss_per_sample = (w * residual.pow(2)).view(-1)
+                    loss_per_sample = (w * data_loss_value).view(-1)
                 else:
-                    loss_per_sample = residual.pow(2).view(-1)
+                    loss_per_sample = data_loss_value.view(-1)
                 return loss_per_sample
             
         elif phase == 1:
-            return residual.pow(2).view(-1)
+            return data_loss_value.view(-1)
         
         elif phase == 2:
             if self.ebm is not None and residual.numel() > 0:
@@ -365,10 +395,12 @@ class Helmholtz2D(BaseExperiment):
                 if self.use_nll:
                     data_loss = nll_ebm
                 else:
-                    data_loss = residual.pow(2)
+                    data_loss = data_loss_value
                 if self.use_data_loss_balancer:
-                    # Per-point reliability weights from EBM (mean ≈ 1)
-                    w = self.ebm.data_weight(residual.detach(), kind=self.data_loss_balancer_kind)  # [N, 1]
+                    if self.data_loss_balancer_kind == "mlp" and self.weight_net is not None:
+                        w = self.weight_net(residual.detach())  # [N,1]
+                    else:
+                        w = self.ebm.data_weight(residual.detach(), kind=self.data_loss_balancer_kind)  # [N,1]
 
                     loss_per_sample = (w * data_loss).view(-1)
                 else:
@@ -380,10 +412,13 @@ class Helmholtz2D(BaseExperiment):
             raise ValueError(f"Invalid phase for data_loss: {phase}")
     
     def extra_params(self):
-        """Experiment-specific trainable parameters (e.g., θ0)."""
+        """Experiment-specific trainable parameters (e.g., θ0, weight_net)."""
+        params = []
         if isinstance(getattr(self, "offset", None), torch.nn.Parameter):
-            return [self.offset]
-        return []
+            params.append(self.offset)
+        if getattr(self, "weight_net", None) is not None:
+            params.extend(list(self.weight_net.parameters()))
+        return params
 
     # ----- eval & plots -----
     def relative_l2_on_grid(self, model, grid_cfg):

@@ -259,9 +259,13 @@ def main(args):
         vid_grid = exp_cfg.get("video", {}).get("grid", base_cfg["eval"]["grid"])
         fps      = exp_cfg.get("video", {}).get("fps", 10)
         out_fmt  = exp_cfg.get("video", {}).get("format", "mp4")  # "mp4" or "gif"
+        if use_phase:
+            vid_filename = f"phase1_result.{out_fmt}"
+        else:
+            vid_filename = f"final_evolution.{out_fmt}"
         vid_path = exp.make_video(
             model, vid_grid, out_dir,
-            fps=fps, filename=f"final_evolution.{out_fmt}"
+            fps=fps, filename=vid_filename
         )
         wandb_log({"video/evolution": wandb.Video(vid_path, format=out_fmt)})
         

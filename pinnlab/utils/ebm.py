@@ -153,3 +153,47 @@ class EBM(nn.Module):
         # 평균을 1로 정규화
         w = w_raw / (w_raw.mean() + 1e-8)
         return w.view(orig_shape)
+
+class ResidualWeightNet(nn.Module):
+    """
+    Small auxiliary network that maps residuals r -> per-point positive weights w(r).
+
+    - Input:  residual tensor of shape [N, 1] or [N]
+    - Output: weights of shape [N, 1], positive and normalized to mean ≈ 1
+    """
+    def __init__(self, hidden_dim: int = 32, depth: int = 2, device: str | torch.device = "cpu"):
+        super().__init__()
+        self.device = torch.device(device)
+
+        layers = []
+        in_dim = 1
+        for _ in range(max(depth - 1, 0)):
+            layers.append(nn.Linear(in_dim, hidden_dim))
+            layers.append(nn.Tanh())
+            in_dim = hidden_dim
+        layers.append(nn.Linear(in_dim, 1))
+        self.net = nn.Sequential(*layers)
+
+        self.to(self.device)
+
+    def forward(self, res: torch.Tensor) -> torch.Tensor:
+        """
+        res: [N] or [N,1] residuals (can be detached in the caller).
+
+        Returns w: [N,1] positive weights with mean ≈ 1.
+        """
+        if res.dim() == 1:
+            res = res.unsqueeze(-1)  # [N] -> [N,1]
+        r = res.to(self.device, dtype=torch.float32)
+
+        # free-form MLP
+        w_raw = self.net(r)
+
+        # Ensure positivity and avoid zero:
+        w_pos = F.softplus(w_raw) + 1e-6  # [N,1]
+
+        # Normalize to mean ~1, but don't send gradients through the denominator
+        denom = w_pos.mean().detach() + 1e-8
+        w_norm = w_pos / denom
+
+        return w_norm

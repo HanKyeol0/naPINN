@@ -1,12 +1,12 @@
 # run: scripts/mlp/helmholtz2d.sh
-# tmux attach: tmux attach -t train_helmholtz2d_mlp_tag
+# tmux attach: tmux attach -t vaPINN_a1
 
 #!/usr/bin/env bash
 set -euo pipefail
 
 MODEL_NAME=mlp
 EXPERIMENT_NAME=helmholtz2d
-TAG=0
+TAG=vaPINN_a0
 SESSION_NAME="train_${EXPERIMENT_NAME}_${MODEL_NAME}_${TAG}"
 
 # ==== Check tmux ====

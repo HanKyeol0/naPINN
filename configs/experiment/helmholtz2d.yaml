@@ -1,16 +1,22 @@
 # scripts/mlp/helmholtz2d.sh
 # scripts/mlp/z_helmholtz2d_fore.sh
 
-tag: extra_noise_naPINN_3
+tag: vaPINN_a2
 device: cuda
 
 domain:
   x: [-1.0, 1.0]
   y: [-1.0, 1.0]
-  t: [-1.0, 1.0]
-k: 2.0
+  t: [0.0, 2.0]
+
+# wave equation parameters
 c: 1.0
-omega: auto
+lambda: 0.0      # damping coefficient
+a1: 2.0          # frequency in x direction
+a2: 1.0          # frequency in y direction
+omega: 2.0       # temporal frequency
+phi: 0.0         # phase shift
+
 in_features: 3 # (x,y,t) or (x,y); here steady: use (x,y)
 out_features: 1
 time_dependent: true
@@ -18,9 +24,9 @@ time_dependent: true
 # sampling
 sampling_mode: grid # random / grid
 grid:
-  nx: 80
-  ny: 80
-  nt: 40
+  nx: 100
+  ny: 100
+  nt: 60
 batch:
   n_f: 4096
   n_b: 1024
@@ -29,21 +35,22 @@ batch:
 # noise
 noise:
   enabled: true
-  n_train: 3000
-  batch_size: 700
-  kind: 3G # G, Goff, sG, u, 3G, 3G0, mix0, Gmix, rmix, sGtest
+  n_train: 5000
+  batch_size: 1000
+  kind: G # G, Goff, sG, u, 3G, 3G0, mix0, Gmix, rmix, sGtest
+  scale: 0.2 # default: 0.1
 
   extra_noise:
     enabled: true
-    n_points: 600
+    n_points: 1000
     scale_min: 30.0
     scale_max: 50.0
 
 # phase
 phase:
-  enabled: true
+  enabled: false # true / false
   phase1_epochs: 10000
-  phase2_epochs: 20000
+  phase2_epochs: 40000
 
 ebm:
   enabled: true
@@ -54,9 +61,18 @@ ebm:
   lr: 1.0e-3
   use_nll: false
 
+data_loss:
+  kind: mse # mse, L1, q_gaussian
+  # q-Gaussian settings
+  q: 1.2
+  beta: null
+
 data_loss_balancer:
-  use_loss_balancer: true
-  kind: pw # pw, inverse
+  use_loss_balancer: false # true / false
+  kind: mlp # pw, inverse, mlp
+  weight_net:
+    hidden_dim: 32
+    depth: 3
 
 offset:
   enabled: false
@@ -65,10 +81,10 @@ offset:
 # video
 video:
   enabled: true
-  every: 5000
+  every: 10000
   grid:
-    nx: 150
-    ny: 150
-    nt: 70
+    nx: 120
+    ny: 120
+    nt: 80
   fps: 10
   format: mp4

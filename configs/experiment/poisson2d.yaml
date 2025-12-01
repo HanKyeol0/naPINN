@@ -1,10 +1,15 @@
-# Toggle this:
+# scripts/mlp/poisson2d.sh
+# scripts/mlp/z_poisson2d_fore.sh
+
+tag: vaPINN_mse_1
+device: cuda
+
 time_dependent: true   # false -> Poisson; true -> Heat (time-dependent)
 
 domain:
   x: [0.0, 1.0]
   y: [0.0, 1.0]
-  t: [0.0, 1.0]
+  t: [0.0, 0.6]
 
 # --- Steady Poisson (ignored if time_dependent=true) ---
 # u*(x,y) = sin(pi x) sin(pi y)  ->  -∇²u* = 2π² u*  => f(x,y) = 2π² u*
@@ -15,7 +20,7 @@ poisson_ground_truth: "sin_sin"
 # Heat: u_t - kappa ∇²u = f. Choose u* = sin(pi x) sin(pi y) exp(-lambda t)
 # ∇²u* = -2π² u*, u_t = -lambda u*, so residual = (-lambda + 2 kappa π²) u* - f.
 # If lambda = 2 kappa π², then f ≡ 0 (homogeneous).
-kappa: 1.0
+kappa: 0.2
 lambda: auto            # "auto" -> lambda = 2*kappa*pi^2 (f=0); or set a number
 
 # IMPORTANT: Set input dimension to match the toggle
@@ -23,12 +28,65 @@ in_features: 3          # set 3 when time_dependent: true
 out_features: 1
 
 # sampling
-sampling_mode: random # random / grid
+sampling_mode: grid # random / grid
 grid:
-  nx: 256
-  ny: 256
-  nt: 256
+  nx: 80
+  ny: 80
+  nt: 40
 batch:
   n_f: 4096
   n_b: 1024
   n_0: 1024
+
+# noise
+noise:
+  enabled: true
+  n_train: 3000
+  batch_size: 700
+  kind: 3G # G, Goff, sG, u, 3G, 3G0, mix0, Gmix, rmix, sGtest
+
+  extra_noise:
+    enabled: true
+    n_points: 600
+    scale_min: 30.0
+    scale_max: 50.0
+
+# phase
+phase:
+  enabled: false
+  phase1_epochs: 1000
+  phase2_epochs: 3000
+
+ebm:
+  enabled: true
+  hidden_dim: 32
+  depth: 3
+  num_grid: 256
+  max_range_factor: 2.5
+  lr: 1.0e-3
+  use_nll: false
+
+data_loss:
+  kind: mse # mse, L1, q_gaussian
+  # q-Gaussian settings
+  q: 1.2
+  beta: null
+
+data_loss_balancer:
+  use_loss_balancer: false
+  kind: pw # pw, inverse
+
+offset:
+  enabled: false
+  init: 0.0
+
+# video
+video:
+  enabled: true
+  every: 5000
+  grid:
+    nx: 150
+    ny: 150
+    nt: 70
+  fps: 10
+  format: mp4
