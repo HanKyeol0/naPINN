@@ -6,12 +6,12 @@ import imageio.v2 as imageio
 from pinnlab.experiments.base import BaseExperiment, make_leaf, grad_sum
 from pinnlab.data.geometries import Rectangle, linspace_2d
 from pinnlab.data.noise import get_noise
+from pinnlab.utils.plotting import save_plots_2d
 from pinnlab.utils.ebm import EBM, ResidualWeightNet
 from pinnlab.utils.data_loss import (
     data_loss_mse,
     data_loss_l1,
     data_loss_q_gaussian,
-    aggregate_data_loss,
 )
 
 class Helmholtz2D(BaseExperiment):
@@ -211,15 +211,13 @@ class Helmholtz2D(BaseExperiment):
             # scale factor sampling for each noise point: scale factor ~ Uniform(scale_min, scale_max)
             factors = torch.empty(n_extra, 1, device=self.device, dtype=base_dtype).uniform_(scale_min, scale_max)
 
-            # 기본 noise 스케일 f를 기준으로 outlier amplitude 결정
             # amplitude_i in [scale_min * f, scale_max * f]
             amp = factors * f
 
             signs = torch.randint(0, 2, amp.shape, device=self.device, dtype=amp.dtype) * 2 - 1
             extra_eps = signs * amp
 
-            # 전략: 해당 포인트의 노이즈를 "완전히 덮어쓰기"
-            # (기존 eps보다 훨씬 크므로 outlier 역할)
+            # overwrite outliers to the base noise
             eps[idx] = extra_eps
 
         y_noisy = u_clean + eps
@@ -304,7 +302,7 @@ class Helmholtz2D(BaseExperiment):
 
             batch = {"X_f": X_f, "X_b": X_b, "u_b": u_b, "X_0": X_0, "u0": u0}
 
-        # --- NEW: attach noisy data mini-batch for data loss ---
+        # attach noisy data mini-batch for data loss
         if self.use_data and self.X_data is not None and self.n_data_batch > 0:
             n = self.X_data.size(0)
             k = min(self.n_data_batch, n)
@@ -439,8 +437,6 @@ class Helmholtz2D(BaseExperiment):
         return float(np.mean(rels))
 
     def plot_final(self, model, grid_cfg, out_dir):
-        from pinnlab.utils.plotting import save_plots_2d
-
         nx, ny, nt = grid_cfg["nx"], grid_cfg["ny"], grid_cfg["nt"]
         Xg, Yg = linspace_2d(self.rect.xa, self.rect.xb, self.rect.ya, self.rect.yb, nx, ny, self.rect.device)
         ts = torch.linspace(self.t0, self.t1, nt, device=self.rect.device)

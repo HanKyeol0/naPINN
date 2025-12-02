@@ -1,12 +1,13 @@
 # scripts/mlp/allencahn2d.sh
+# scripts/mlp/z_allencahn2d_fore.sh
 
-tag: test0
-devide: cuda:0
+tag: vaPINN_b1
+device: cuda
 
 domain:
-  x: [0.0, 4.0]
-  y: [0.0, 4.0]
-  t: [0.0, 4.0]
+  x: [0.0, 2.0]
+  y: [0.0, 2.0]
+  t: [0.0, 2.0]
 eps: 0.01
 omega: 8.0
 in_features: 3
@@ -15,10 +16,67 @@ out_features: 1
 # sampling
 sampling_mode: grid # random / grid
 grid:
-  nx: 256
-  ny: 256
-  nt: 256
+  nx: 120
+  ny: 120
+  nt: 80
 batch:
   n_f: 4096
   n_b: 1024
   n_0: 1024
+
+# noise
+noise:
+  enabled: true
+  n_train: 5000
+  batch_size: 1000
+  kind: G # G, Goff, sG, u, 3G, 3G0, mix0, Gmix, rmix, sGtest
+  scale: 0.1 # default: 0.1
+
+  extra_noise:
+    enabled: true
+    n_points: 1000
+    scale_min: 5.0
+    scale_max: 10.0
+
+# phase
+phase:
+  enabled: false # true / false
+  phase1_epochs: 10000
+  phase2_epochs: 40000
+
+ebm:
+  enabled: true
+  hidden_dim: 32
+  depth: 3
+  num_grid: 256
+  max_range_factor: 2.5
+  lr: 1.0e-3
+  use_nll: false
+
+data_loss:
+  kind: mse # mse, L1, q_gaussian
+  # q-Gaussian settings
+  q: 1.2
+  beta: null
+
+data_loss_balancer:
+  use_loss_balancer: false # true / false
+  kind: pw # pw, inverse, mlp
+  weight_net:
+    hidden_dim: 32
+    depth: 3
+
+offset:
+  enabled: false
+  init: 0.0
+
+# video
+video:
+  enabled: true
+  every: 10000
+  grid:
+    nx: 120
+    ny: 120
+    nt: 80
+  fps: 10
+  format: mp4
