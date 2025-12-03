@@ -174,7 +174,7 @@ class Helmholtz2D(BaseExperiment):
             y_clean = u_star(X_data)
             y_data  = y_clean + epsilon,     epsilon ~ noise distribution (from PINN-EBM)
         """
-        kind = self.noise_cfg.get("kind", "3G")     # 'G', 'u', '3G', ...
+        kind = self.noise_cfg.get("kind", "G")     # 'G', 'u', '3G', ...
         n = self.n_data_total
 
         # Sample input locations

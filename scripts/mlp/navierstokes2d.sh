@@ -1,12 +1,12 @@
 # run: scripts/mlp/navierstokes2d.sh
-# tmux attach: tmux attach -t train_navierstokes2d_mlp_tag
+# tmux attach: tmux attach -t train_navierstokes2d_mlp_{tag}
 
 #!/usr/bin/env bash
 set -euo pipefail
 
 MODEL_NAME=mlp
 EXPERIMENT_NAME=navierstokes2d
-TAG=0
+TAG=naPINN_test
 SESSION_NAME="train_${EXPERIMENT_NAME}_${MODEL_NAME}_${TAG}"
 
 # ==== Check tmux ====

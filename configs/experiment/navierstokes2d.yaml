@@ -1,6 +1,7 @@
 # scripts/mlp/navierstokes2d.sh
+# scripts/mlp/z_navierstokes2d_fore.sh
 
-tag: test0
+tag: naPINN_test3
 device: cuda
 
 # 2D incompressible Navier–Stokes (Taylor–Green vortex), periodic in x,y
@@ -12,7 +13,7 @@ domain:
   t: [0.0, 1.0]
 
 # Fluid params
-nu: 0.01         # kinematic viscosity
+nu: 0.2         # kinematic viscosity
 rho: 1.0         # density
 U0: 1.0          # initial velocity amplitude
 k: 1.0           # wavenumber
@@ -29,21 +30,67 @@ out_features: 3  # (u,v,p)
 # sampling
 sampling_mode: grid # random / grid
 grid:
-  nx: 128
-  ny: 128
-  nt: 64
+  nx: 120
+  ny: 120
+  nt: 80
 batch:
   n_f: 4096
   n_b: 1024
   n_0: 1024
+
+# noise
+noise:
+  enabled: true
+  n_train: 5000
+  batch_size: 1000
+  kind: G # G, Goff, sG, u, 3G, 3G0, mix0, Gmix, rmix, sGtest
+  scale: 0.1 # default: 0.1
+
+  extra_noise:
+    enabled: true
+    n_points: 1000
+    scale_min: 30.0
+    scale_max: 50.0
+
+# phase
+phase:
+  enabled: true # true / false
+  phase1_epochs: 3000
+  phase2_epochs: 7000
+
+ebm:
+  enabled: true
+  hidden_dim: 32
+  depth: 3
+  num_grid: 256
+  max_range_factor: 2.5
+  lr: 1.0e-3
+  use_nll: false
+
+data_loss:
+  kind: mse # mse, L1, q_gaussian
+  # q-Gaussian settings
+  q: 1.2
+  beta: null
+
+data_loss_balancer:
+  use_loss_balancer: true # true / false
+  kind: pw # pw, inverse, mlp
+  weight_net:
+    hidden_dim: 32
+    depth: 3
+
+offset:
+  enabled: false
+  init: 0.0
 
 # video
 video:
   enabled: true
   every: 10000
   grid:
-    nx: 128
-    ny: 128
-    nt: 64
+    nx: 120
+    ny: 120
+    nt: 80
   fps: 10
   format: mp4

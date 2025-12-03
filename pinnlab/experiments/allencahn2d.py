@@ -36,6 +36,8 @@ class AllenCahn2D(BaseExperiment):
 
     def __init__(self, cfg, device):
         super().__init__(cfg, device)
+        self.device = device
+        
         xa, xb = cfg["domain"]["x"]; ya, yb = cfg["domain"]["y"]
         self.t0, self.t1 = cfg["domain"]["t"]
         self.rect  = Rectangle(xa, xb, ya, yb, device)
