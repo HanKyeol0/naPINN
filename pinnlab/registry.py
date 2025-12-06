@@ -9,6 +9,7 @@ from pinnlab.experiments.helmholtz2d import Helmholtz2D
 from pinnlab.experiments.helmholtz2d_steady import Helmholtz2DSteady
 from pinnlab.experiments.poisson2d import Poisson2D
 from pinnlab.experiments.navierstokes2d import NavierStokes2D
+from pinnlab.experiments.navierstokes2d_cylinder_flow import NavierStokesCylinderFlow
 from pinnlab.experiments.convection1d import Convection1D
 from pinnlab.experiments.reactiondiffusion1d import ReactionDiffusion1D
 from pinnlab.experiments.reactiondiffusion2d import ReactionDiffusion2D
@@ -27,6 +28,7 @@ _EXP_REG = {
     "helmholtz2d_steady": Helmholtz2DSteady,
     "poisson2d": Poisson2D,
     "navierstokes2d": NavierStokes2D,
+    "navierstokes2d_cylinder_flow": NavierStokesCylinderFlow,
     "convection1d": Convection1D,
     "reactiondiffusion1d": ReactionDiffusion1D,
     "reactiondiffusion2d": ReactionDiffusion2D,

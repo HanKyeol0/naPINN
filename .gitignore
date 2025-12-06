@@ -6,3 +6,6 @@ experimental_result_memo.txt
 idea_memo.txt
 .gitignore
 __pycache__/
+navier_stokes_cylinder/
+.npz
+simulation_result/

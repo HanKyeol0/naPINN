@@ -3,3 +3,12 @@
 wandb
 imageio
 imageio-ffmpeg
+
+# apt update
+# apt install --no-install-recommends software-properties-common
+# add-apt-repository ppa:fenics-packages/fenics
+# apt update
+
+# apt install fenics
+# apt install python3-mshr
+# apt install python3-dolfin python3-mshr

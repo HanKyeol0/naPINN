@@ -1,0 +1,83 @@
+# scripts/mlp/navierstokes2d_cylinder_flow.sh
+# scripts/mlp/z_navierstokes2d_cylinder_flow_fore.sh
+
+tag: naPINN_test0
+device: cuda
+
+npz_path: cylinder_random_data.npz
+
+# Fluid params
+nu: 3.0e-4        # kinematic viscosity
+rho: 1.0         # density
+
+# Loss weights inside PDE residual (you can tune)
+weights:
+  continuity: 1.0
+  momentum: 1.0
+
+# Model I/O
+in_features: 3   # (x,y,t)
+out_features: 3  # (u,v,p)
+
+# sampling
+batch:
+  n_f: 2000
+  n_b: 1024
+  n_0: 1024
+
+# noise
+noise:
+  enabled: true
+  n_train: 5000
+  batch_size: 1000
+  kind: G # G, Goff, sG, u, 3G, 3G0, mix0, Gmix, rmix, sGtest
+  scale: 0.1 # default: 0.1
+
+  extra_noise:
+    enabled: true
+    n_points: 1000
+    scale_min: 30.0
+    scale_max: 50.0
+
+# phase
+phase:
+  enabled: true # true / false
+  phase1_epochs: 3000
+  phase2_epochs: 7000
+
+ebm:
+  enabled: true
+  hidden_dim: 32
+  depth: 3
+  num_grid: 256
+  max_range_factor: 2.5
+  lr: 1.0e-3
+  use_nll: false
+
+data_loss:
+  kind: mse # mse, L1, q_gaussian
+  # q-Gaussian settings
+  q: 1.2
+  beta: null
+
+data_loss_balancer:
+  use_loss_balancer: true # true / false
+  kind: pw # pw, inverse, mlp
+  weight_net:
+    hidden_dim: 32
+    depth: 3
+
+offset:
+  enabled: false
+  init: 0.0
+
+# video
+video:
+  enabled: true
+  every: 10000
+  grid:
+    nx: 120
+    ny: 120
+    nt: 80
+  fps: 10
+  format: mp4

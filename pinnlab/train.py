@@ -172,7 +172,7 @@ def main(args):
         batch = exp.sample_batch(n_f=n_f, n_b=n_b, n_0=n_0)
 
         loss_res = exp.pde_residual_loss(model, batch).mean() if batch.get("X_f") is not None else torch.tensor(0., device=device)
-        loss_data = exp.data_loss(model, batch, phase).mean()        if batch.get("X_d") is not None else torch.tensor(0., device=device)
+        loss_data = exp.data_loss(model, batch, phase).mean() if batch.get("X_d") is not None else torch.tensor(0., device=device)
         
         loss_res_s = loss_res.mean() if torch.is_tensor(loss_res) and loss_res.dim() > 0 else loss_res # scalar
         loss_data_s = loss_data.mean() if torch.is_tensor(loss_data) and loss_data.dim() > 0 else loss_data
@@ -285,7 +285,7 @@ def main(args):
             
             loss_res = exp.pde_residual_loss(model, batch).mean() if batch.get("X_f") is not None else torch.tensor(0., device=device)
             loss_data = exp.data_loss(model, batch, phase).mean()        if batch.get("X_d") is not None else torch.tensor(0., device=device)
-            
+
             loss_res_s = loss_res.mean() if torch.is_tensor(loss_res) and loss_res.dim() > 0 else loss_res # scalar
             loss_data_s = loss_data.mean() if torch.is_tensor(loss_data) and loss_data.dim() > 0 else loss_data
             

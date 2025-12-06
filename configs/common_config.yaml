@@ -39,7 +39,7 @@ log:
   out_dir: "outputs"
   wandb:
     enabled: true
-    project: "naPINN"
+    project: "naPINN_NS_test"
     entity: null      # or your team
     mode: "online"      # "auto" | "offline" | "disabled"
 eval:
