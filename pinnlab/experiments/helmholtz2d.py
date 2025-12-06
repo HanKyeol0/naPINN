@@ -420,6 +420,7 @@ class Helmholtz2D(BaseExperiment):
 
     # ----- eval & plots -----
     def relative_l2_on_grid(self, model, grid_cfg):
+        model.eval()
         nx, ny, nt = grid_cfg["nx"], grid_cfg["ny"], grid_cfg["nt"]
         Xg, Yg = linspace_2d(self.rect.xa, self.rect.xb, self.rect.ya, self.rect.yb, nx, ny, self.rect.device)
         ts = torch.linspace(self.t0, self.t1, nt, device=self.rect.device)

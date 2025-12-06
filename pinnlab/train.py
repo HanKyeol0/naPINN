@@ -223,6 +223,7 @@ def main(args):
 
         # Simple validation metric (relative L2 on a fixed grid)
         if (ep % eval_every == 0 or ep == epochs-1) and (ep > 0):
+            print("Evaluating...")
             with torch.no_grad():
                 rel_l2 = exp.relative_l2_on_grid(model, base_cfg["eval"]["grid"])
             wandb_log({"eval/rel_l2": rel_l2, "epoch": ep})
@@ -247,6 +248,7 @@ def main(args):
                 break
             
         if enable_video and (ep % make_video_every == 0 and ep > 0):
+            print(f"Making video...")
             vid_grid = exp_cfg.get("video", {}).get("grid", base_cfg["eval"]["grid"])
             fps      = exp_cfg.get("video", {}).get("fps", 10)
             out_fmt  = exp_cfg.get("video", {}).get("format", "mp4")  # "mp4" or "gif"
@@ -410,9 +412,9 @@ def main(args):
 
     # Final evaluation & plots
     model.eval()
-    figs = exp.plot_final(model, base_cfg["eval"]["grid"], out_dir)
-    for name, path in figs.items():
-        wandb_log({f"fig/{name}": wandb.Image(path)})
+    # figs = exp.plot_final(model, base_cfg["eval"]["grid"], out_dir)
+    # for name, path in figs.items():
+    #     wandb_log({f"fig/{name}": wandb.Image(path)})
 
     wandb_finish()
     print(f"Artifacts saved to: {out_dir}")

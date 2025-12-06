@@ -57,6 +57,9 @@ class NavierStokesCylinderFlow(BaseExperiment):
         #     print(f"  nanmin={np.nanmin(arr)}, nanmax={np.nanmax(arr)}")
 
         self.x_grid, self.y_grid, self.t_grid = data["x_grid"], data["y_grid"], data["t_grid"]
+        
+        self.xa, self.xb = float(self.x_grid.min()), float(self.x_grid.max())
+        self.ya, self.yb = float(self.y_grid.min()), float(self.y_grid.max())
 
         print("grid sizes:", len(self.x_grid), len(self.y_grid), len(self.t_grid))
 
@@ -447,16 +450,16 @@ class NavierStokesCylinderFlow(BaseExperiment):
         from the FEniCS simulation. Points inside the cylinder are NaN in the
         stored fields and are excluded from the norm.
         """
-        import numpy as np  # ensure np is imported at top of file too
-
+        model.eval()
         # Simulation grid shapes
         Nt, Ny, Nx = self.u_res.shape  # [Nt_snap, Ny, Nx]
 
         # Time indices to evaluate: t0, mid, t1 (like other experiments)
-        if Nt >= 3:
-            idxs = [0, Nt // 2, Nt - 1]
-        else:
-            idxs = list(range(Nt))
+        # if Nt >= 3:
+        #     idxs = [0, Nt // 2, Nt - 1]
+        # else:
+        #     idxs = list(range(Nt))
+        idxs = list(range(Nt))
 
         # Build (x, y) grid to match [Ny, Nx] layout used in u_res/v_res/p_res
         # y = rows (Ny), x = columns (Nx)
@@ -478,8 +481,7 @@ class NavierStokesCylinderFlow(BaseExperiment):
 
                 # Build input (x, y, t) for the model: [Ny*Nx, 3]
                 XYT = torch.stack(
-                    [Xg.reshape(-1), Yg.reshape(-1), T.reshape(-1)],
-                    dim=1,
+                    [Xg.reshape(-1), Yg.reshape(-1), T.reshape(-1)], dim=1,
                 )  # [Ny*Nx, 3]
 
                 # Model prediction: (u, v, p)
@@ -544,45 +546,71 @@ class NavierStokesCylinderFlow(BaseExperiment):
 
     def make_video(self, model, grid, out_dir, fps=10, filename="evolution.mp4"):
         os.makedirs(out_dir, exist_ok=True)
-        nx = int(grid.get("nx", 100))
-        ny = int(grid.get("ny", 100))
-        nt = int(grid.get("nt", 100))
+        nt, ny, nx = self.u_res.shape
+        idxs = list(range(nt))
 
         # Build spatial grid
-        Xg, Yg = linspace_2d(
-            self.rect.xa, self.rect.xb,
-            self.rect.ya, self.rect.yb,
-            nx, ny, self.rect.device
-        )
-        ts = torch.linspace(self.t0, self.t1, nt, device=self.rect.device)
-
-        extent = [
-            float(self.rect.xa), float(self.rect.xb),
-            float(self.rect.ya), float(self.rect.yb),
-        ]
+        x = self.x_grid  # [Nx]
+        y = self.y_grid  # [Ny]
+        if isinstance(x, np.ndarray):
+            x = torch.tensor(x, dtype=torch.float32, device=self.device)
+            self.x_grid = x
+        if isinstance(y, np.ndarray):
+            y = torch.tensor(y, dtype=torch.float32, device=self.device)
+            self.y_grid = y
+        Yg, Xg = torch.meshgrid(y, x, indexing="ij")  # each [Ny, Nx]
 
         # ---------- First pass: determine global color ranges ----------
         u_min, u_max = None, None
         v_min, v_max = None, None
         p_min, p_max = None, None
         err_max = 0.0
+        
+        extent = [
+            float(self.xa), float(self.xb),
+            float(self.ya), float(self.yb),
+        ]
 
+        frames = []
         model.eval()
         with torch.no_grad():
-            for tval in ts:
-                T = torch.full_like(Xg, tval)
+            for i, tval in enumerate(self.T_res):
+                T = torch.full_like(Xg, tval) # [Ny, Nx]
                 XYT = torch.stack(
                     [Xg.reshape(-1), Yg.reshape(-1), T.reshape(-1)], dim=1
                 )  # [nx*ny, 3]
 
-                out = model(XYT).reshape(nx, ny, 3)
-                U_pred = out[:, :, 0]
-                V_pred = out[:, :, 1]
-                P_pred = out[:, :, 2]
+                out = model(XYT).reshape(ny, nx, 3)
+                U_pred = out[..., 0]
+                V_pred = out[..., 1]
+                P_pred = out[..., 2]
 
-                U_true = self.u_star(Xg, Yg, T)
-                V_true = self.v_star(Xg, Yg, T)
-                P_true = self.p_star(Xg, Yg, T)
+                U_true = self.u_res[i] # [Ny, Nx]
+                V_true = self.v_res[i]
+                P_true = self.p_res[i]
+                
+                # Mask out NaNs (inside cylinder)
+                mask = (
+                    torch.isfinite(U_true)
+                    & torch.isfinite(V_true)
+                    & torch.isfinite(P_true)
+                )
+                
+                if mask.sum() == 0:
+                    continue  # skip if something went wrong
+                
+                U_err = np.abs((U_true - U_pred).cpu().numpy())
+                V_err = np.abs((V_true - V_pred).cpu().numpy())
+                P_err = np.abs((P_true - P_pred).cpu().numpy())
+                
+                def rel_l2(pred, true):
+                    num = torch.linalg.norm((pred - true)[mask].reshape(-1))
+                    den = torch.linalg.norm(true[mask].reshape(-1)) + 1e-12
+                    return float((num / den).detach().cpu())
+                
+                rel_u = rel_l2(U_pred, U_true)
+                rel_v = rel_l2(V_pred, V_true)
+                rel_p = rel_l2(P_pred, P_true)
 
                 # For each variable, include both true and predicted in global range
                 u_min_t = float(torch.min(torch.stack([U_true.min(), U_pred.min()])).detach().cpu())
@@ -600,49 +628,9 @@ class NavierStokesCylinderFlow(BaseExperiment):
                 p_max = p_max_t if p_max is None else max(p_max, p_max_t)
                 
                 err_max = max(err_max,
-                              float(torch.max(torch.abs(U_true - U_pred)).detach().cpu()),
-                              float(torch.max(torch.abs(V_true - V_pred)).detach().cpu()),
-                              float(torch.max(torch.abs(P_true - P_pred)).detach().cpu()))
-
-        # Safety
-        if err_max <= 0:
-            err_max = 1e-6
-
-        if u_min is None:
-            # No frames (e.g. nt == 0)
-            return None
-
-        # ---------- Second pass: generate frames ----------
-        frames = []
-        with torch.no_grad():
-            for tval in ts:
-                T = torch.full_like(Xg, tval)
-                XYT = torch.stack(
-                    [Xg.reshape(-1), Yg.reshape(-1), T.reshape(-1)], dim=1
-                )  # [nx*ny, 3]
-
-                out = model(XYT).reshape(nx, ny, 3)
-                U_pred = out[:, :, 0]
-                V_pred = out[:, :, 1]
-                P_pred = out[:, :, 2]
-
-                U_true = self.u_star(Xg, Yg, T)
-                V_true = self.v_star(Xg, Yg, T)
-                P_true = self.p_star(Xg, Yg, T)
-                
-                U_err = np.abs((U_true - U_pred).cpu().numpy())
-                V_err = np.abs((V_true - V_pred).cpu().numpy())
-                P_err = np.abs((P_true - P_pred).cpu().numpy())
-
-                # Relative L2 errors per component
-                def rel_l2(pred, true):
-                    num = torch.linalg.norm((pred - true).reshape(-1))
-                    den = torch.linalg.norm(true.reshape(-1)) + 1e-12
-                    return float((num / den).detach().cpu())
-
-                rel_u = rel_l2(U_pred, U_true)
-                rel_v = rel_l2(V_pred, V_true)
-                rel_p = rel_l2(P_pred, P_true)
+                              float(np.max(U_err)),
+                              float(np.max(V_err)),
+                              float(np.max(P_err)))
 
                 # Convert to numpy for plotting
                 U_true_np = U_true.cpu().numpy().T
@@ -651,8 +639,8 @@ class NavierStokesCylinderFlow(BaseExperiment):
                 U_pred_np = U_pred.cpu().numpy().T
                 V_pred_np = V_pred.cpu().numpy().T
                 P_pred_np = P_pred.cpu().numpy().T
-
-                fig, axes = plt.subplots(3, 3, figsize=(18, 18), dpi=120)
+                
+                fig, axes = plt.subplots(3, 3, figsize=(30, 18), dpi=120)
                 fig.suptitle(
                     f"2D Navier–Stokes (Taylor–Green) at t = {float(tval):.4f}\n"
                     f"rel L2: u={rel_u:.2e}, v={rel_v:.2e}, p={rel_p:.2e}"
@@ -745,6 +733,14 @@ class NavierStokesCylinderFlow(BaseExperiment):
 
         if not frames:
             return None
+                
+        # Safety
+        if err_max <= 0:
+            err_max = 1e-6
+
+        if u_min is None:
+            # No frames (e.g. nt == 0)
+            return None
 
         # ---------- Write video ----------
         ext = os.path.splitext(filename)[1].lower()
@@ -759,10 +755,10 @@ class NavierStokesCylinderFlow(BaseExperiment):
         else:
             raise ValueError(f"Unsupported video format: {ext}")
         
-        try:
-            self._make_noise_videos(model, grid, out_dir, fps, filename)
-        except Exception as e:
-            print(f"[make_video] Warning: noise video failed with error: {e}")
+        # try:
+        #     self._make_noise_videos(model, grid, out_dir, fps, filename)
+        # except Exception as e:
+        #     print(f"[make_video] Warning: noise video failed with error: {e}")
 
         return path
     
@@ -780,28 +776,29 @@ class NavierStokesCylinderFlow(BaseExperiment):
 
         os.makedirs(out_dir, exist_ok=True)
 
-        nx = int(grid.get("nx", 50))
-        ny = int(grid.get("ny", 50))
-        nt = int(grid.get("nt", 50))
+        nt, ny, nx = self.u_res.shape
 
-        # Spatial grid
-        Xg, Yg = linspace_2d(
-            self.rect.xa, self.rect.xb,
-            self.rect.ya, self.rect.yb,
-            nx, ny, self.rect.device
-        )
-        ts = torch.linspace(self.t0, self.t1, nt, device=self.rect.device)
+        # Build spatial grid
+        x = self.x_grid  # [Nx]
+        y = self.y_grid  # [Ny]
+        if isinstance(x, np.ndarray):
+            x = torch.tensor(x, dtype=torch.float32, device=self.device)
+            self.x_grid = x
+        if isinstance(y, np.ndarray):
+            y = torch.tensor(y, dtype=torch.float32, device=self.device)
+            self.y_grid = y
+        Yg, Xg = torch.meshgrid(y, x, indexing="ij")  # each [Ny, Nx]
 
         extent = [
-            float(self.rect.xa), float(self.rect.xb),
-            float(self.rect.ya), float(self.rect.yb),
+            float(self.xa), float(self.xb),
+            float(self.ya), float(self.yb),
         ]
 
         frames = []
 
         model.eval()
         with torch.no_grad():
-            for tval in ts:
+            for i, tval in enumerate(self.T_res):
                 # Full space-time grid
                 T = torch.full_like(Xg, tval)
                 XYT = torch.stack(
@@ -809,14 +806,14 @@ class NavierStokesCylinderFlow(BaseExperiment):
                 )  # [nx*ny, 3]
 
                 # True solution and prediction on full grid (u-component only)
-                U_true = self.u_star(Xg, Yg, T)                 # [nx, ny]
-                V_true = self.v_star(Xg, Yg, T)
-                P_true = self.p_star(Xg, Yg, T)
-                out = model(XYT).reshape(nx, ny, 3)
-                U_pred, V_pred, P_pred = out[:, :, 0], out[:, :, 1], out[:, :, 2] # [nx, ny]
+                U_true = self.u_res[i] # [Ny, Nx]
+                V_true = self.v_res[i]
+                P_true = self.p_res[i]
+                out = model(XYT).reshape(ny, nx, 3)
+                U_pred, V_pred, P_pred = out[..., 0], out[..., 1], out[..., 2] # [nx, ny]
 
                 # Sample true noise on full grid (whole domain)
-                eps_true_flat = self.noise_model.sample(nx * ny).to(self.rect.device)
+                eps_true_flat = self.noise_model.sample(nx * ny).to(self.device)
                 eps_true = eps_true_flat.view(nx, ny)           # [nx, ny]
 
                 # Noisy observations and residuals
