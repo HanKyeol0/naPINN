@@ -1,29 +1,43 @@
+# --- run experiment ---
 # scripts/mlp/navierstokes2d_cylinder.sh
 # scripts/mlp/z_navierstokes2d_cylinder_fore.sh
 
-tag: vaPINN_0
+# --- run simulation ---
+# scripts/simulation/navierstokes_cylinder.sh
+
+tag: vaPINN_3
 device: cuda
 
-batch_size_f: 5000
+simulation_tag: ns_data_1
+dir_path: pinnlab/simulation/simulation_result/
 
-# 2D incompressible Navier–Stokes (Taylor–Green vortex), periodic in x,y
-time_dependent: true
+# --- Simulation config ---
+domain: # domain size
+  x: 2.0
+  y: 1.0
+  t: 0.4 # 0 ~ T_MAX
 
-domain:
-  x: [0.0, 6.283185307179586]   # 0 .. 2π
-  y: [0.0, 6.283185307179586]   # 0 .. 2π
-  t: [0.0, 1.0]
+grid:
+  nx: 200
+  ny: 100
+  dt: 0.001
 
 cylinder:
   x: 0.5
   y: 0.5
   r: 0.1
 
+n_collocation: 20000
+n_measurement: 7000
+batch_size_f: 5000
+
 # Fluid params
-nu: 0.2         # kinematic viscosity
+nu: 0.01         # kinematic viscosity
 rho: 1.0         # density
 U0: 1.0          # initial velocity amplitude
 k: 1.0           # wavenumber
+
+# --- Experiment config---
 
 # Loss weights inside PDE residual (you can tune)
 weights:
@@ -36,10 +50,6 @@ out_features: 3  # (u,v,p)
 
 # sampling
 sampling_mode: grid # random / grid
-grid:
-  nx: 120
-  ny: 120
-  nt: 80
 batch:
   n_f: 4096
   n_b: 1024
@@ -48,9 +58,9 @@ batch:
 # noise
 noise:
   enabled: true
-  n_train: 5000
+  n_train: 7000
   batch_size: 1000
-  kind: G # G, Goff, sG, u, 3G, 3G0, mix0, Gmix, rmix, sGtest
+  kind: 3G # G, Goff, sG, u, 3G, 3G0, mix0, Gmix, rmix, sGtest
   scale: 0.1 # default: 0.1
 
   extra_noise:
@@ -62,8 +72,8 @@ noise:
 # phase
 phase:
   enabled: false # true / false
-  phase1_epochs: 10000
-  phase2_epochs: 30000
+  phase1_epochs: 20000
+  phase2_epochs: 20000
 
 ebm:
   enabled: true

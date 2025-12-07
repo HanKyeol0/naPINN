@@ -199,7 +199,9 @@ class NavierStokesCylinder(BaseExperiment):
         self.device = device
         
         # Load Simulation Data
-        data_path = cfg.get("data_path", "ns_data.npz")
+        dir_path = cfg["dir_path"]
+        simulation_tag = cfg["simulation_tag"]
+        data_path = os.path.join(dir_path, simulation_tag, "data.npz")
         if not os.path.exists(data_path):
             raise FileNotFoundError(f"Could not find generated data: {data_path}")
         
