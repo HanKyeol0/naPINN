@@ -179,7 +179,7 @@ def main(args):
 
         losses = {
             "res": loss_res,     # PDE residual term
-            **({"data": loss_data} if "lo-ss_data" in locals() else {}),
+            "data": loss_data,
         }
 
         if not use_loss_balancer:

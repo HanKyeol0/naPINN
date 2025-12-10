@@ -9,7 +9,7 @@ import imageio.v2 as imageio
 
 from pinnlab.experiments.base import BaseExperiment, make_leaf, grad_sum
 from pinnlab.data.noise import get_noise
-from pinnlab.utils.ebm import EBM, ResidualWeightNet
+from pinnlab.utils.ebm import EBM, ResidualWeightNet, EBM2D
 from pinnlab.utils.data_loss import (
     data_loss_mse,
     data_loss_l1,
@@ -229,9 +229,7 @@ class NavierStokesCylinder(BaseExperiment):
         self.cylinder_y = cfg.get("cylinder").get("y", 0.5)
         self.cylinder_r = cfg.get("cylinder").get("r", 0.1)
         
-        # --- Config Setup (Same as Helmholtz) ---
-        self.batch_size_f = int(cfg.get("batch_size_f", 5000))
-        
+        # Noise Configuration
         noise_cfg = cfg.get("noise", None)
         self.use_data = bool(noise_cfg.get("enabled", False))
         self.noise_cfg = noise_cfg
@@ -255,12 +253,13 @@ class NavierStokesCylinder(BaseExperiment):
         self.use_nll = bool(ebm_cfg.get("use_nll", False))
         
         if self.use_ebm:
-            self.ebm = EBM(
+            self.ebm = EBM2D(
                 hidden_dim=ebm_cfg.get("hidden_dim", 32),
                 depth=ebm_cfg.get("depth", 3),
                 num_grid=ebm_cfg.get("num_grid", 256),
                 max_range_factor=ebm_cfg.get("max_range_factor", 2.5),
                 lr=ebm_cfg.get("lr", 1e-3),
+                input_dim=2,
                 device=device,
             )
         else:
@@ -314,8 +313,11 @@ class NavierStokesCylinder(BaseExperiment):
         
         # Sample noise for u and v independently
         # Flattening to sample, then reshaping
-        eps_flat = self.noise_model.sample(n * 2).float().to(self.device)
-        eps = eps_flat.view(n, 2)
+        if kind in ['MG2D']:
+            eps = self.noise_model.sample(n).float().to(self.device) # 2D vectors [n, 2]
+        else:
+            eps_flat = self.noise_model.sample(n * 2).float().to(self.device)
+            eps = eps_flat.view(n, 2)
         
         # 3. Add Outliers
         if self.use_extra_noise:
@@ -351,8 +353,7 @@ class NavierStokesCylinder(BaseExperiment):
         
         # Sample Collocation Points from loaded fixed grid
         n_col = self.X_f_all.shape[0]
-        n_batch_f = self.batch_size_f if n_f is None else n_f
-        idx_f = torch.randint(0, n_col, (n_batch_f,), device=self.device)
+        idx_f = torch.randint(0, n_col, (n_f,), device=self.device)
         batch["X_f"] = self.X_f_all[idx_f]
 
         # Sample Measurement Data
@@ -417,7 +418,7 @@ class NavierStokesCylinder(BaseExperiment):
             y_pred = y_pred + self.offset
             
         # Flatten residuals: treat u and v errors as samples from the same noise distribution
-        residual = (y_d - y_pred).view(-1, 1) # [2N, 1]
+        residual = y_d - y_pred # [N, 2]
 
         data_loss_value = self._data_loss(residual) # [2N, 1]
 

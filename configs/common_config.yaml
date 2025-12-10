@@ -1,9 +1,9 @@
 seed: 40
 device: "cuda"            # "cuda" or "cpu"
 train:
-  epochs: 40000
+  epochs: 90000
   batch:
-    n_f: 4096             # collocation points
+    n_f: 8192             # collocation points
     n_b: 1024             # boundary points
     n_0: 1024             # initial points (if applicable)
   optimizer:
@@ -17,10 +17,10 @@ train:
     res: 1.0    # PDE residual
     bc: 10.0   # boundary
     ic: 10.0  # initial
-    data: 10.0  # data loss
+    data: 1.0  # data loss
   loss_balancer:
-    use_loss_balancer: false
-    kind: softadapt        # one of: none | uncertainty | dwa | softadapt | gradnorm
+    use_loss_balancer: true
+    kind: dwa        # one of: none | uncertainty | dwa | softadapt | gradnorm
     terms: [res, data] # bc, ic
     # DWA:
     T: 2.0

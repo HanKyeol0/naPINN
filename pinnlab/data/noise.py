@@ -2,6 +2,7 @@
 import numpy as np
 import torch
 import random
+import torch.distributions as distributions
 
 from scipy.stats import skewnorm
 from scipy.special import erf
@@ -41,8 +42,10 @@ def get_noise(n_opt, f, pars=0):
     if n_opt == 'sGtest': #specific skewed Gaussian
         return n_sG(n_opt, 1, pars=[18.8, -2.3, 4.6])
         #return n_sG(n_opt, 1, pars=[1, -10.3, 1])
+    if n_opt == 'MG2D': # Multivariate Gaussian 2D
+        return n_MG(n_opt, f, pars)
     print('error! noise not defined!')
-    
+
     
 class Noise():
     def __init__(self, n_opt, f, pars=[]):
@@ -61,6 +64,55 @@ class Noise():
     def init_pars(self):
         #initializes the noise distribution either with the argument pars, if given, or with standard values
         print('not implemented!')
+
+class n_MG(Noise):
+    # Multivariate Gaussian (2D) noise
+    
+    def __init__(self, n_opt, f, pars):
+        # pars: [mu_u, mu_v, sig_u, sig_v, rho] (rho is correlation [-1, 1])
+        if type(pars) == int: pars = self.init_pars(pars)
+        Noise.__init__(self, n_opt, f, pars)
+        self.mu_u, self.mu_v, self.sig_u, self.sig_v, self.rho = pars
+        
+        # Scale the parameters by 'f'
+        scaled_mu = torch.tensor([self.mu_u * self.f, self.mu_v * self.f], dtype=torch.float32)
+        
+        # Calculate the covariance matrix (using scaled standard deviations)
+        sig_u_scaled = self.sig_u * self.f
+        sig_v_scaled = self.sig_v * self.f
+        
+        scaled_cov = torch.tensor([
+            [sig_u_scaled**2, self.rho * sig_u_scaled * sig_v_scaled],
+            [self.rho * sig_u_scaled * sig_v_scaled, sig_v_scaled**2]
+        ], dtype=torch.float32)
+        
+        # Create the Torch distribution object (loc=mean vector, covariance_matrix=Sigma)
+        self.dist = distributions.multivariate_normal.MultivariateNormal(
+            loc=scaled_mu, 
+            covariance_matrix=scaled_cov
+        )
+        
+    def sample(self, Ns):
+        # Ns is the number of 2D vectors to sample (i.e., N_u points)
+        # Returns [Ns, 2]
+        return self.dist.sample((Ns,))
+    
+    def pdf(self, x):
+        # x is expected to be [N, 2]
+        # Calculate probability density function values
+        return torch.exp(self.dist.log_prob(x))
+        
+    def init_pars(self, pars):
+        # Default: Zero-mean, unit-variance, positive correlation (0.5)
+        if pars == 0:
+            pars = [0.0, 0.0, 1.0, 1.0, 0.5] # 0.5 correlation is a good starting point
+        else:
+            # Custom initialization logic if pars is not 0
+            # Example: [mu_u, mu_v, sig_u, sig_v, rho]
+            pars = [5*(np.random.rand()-1), 5*(np.random.rand()-1), 
+                    4*np.abs(np.random.rand()), 4*np.abs(np.random.rand()), 
+                    2*np.random.rand()-1] # Random rho in [-1, 1]
+        return pars
 
 class n_G(Noise):
     #Gaussian noise

@@ -16,21 +16,25 @@ def main(args):
     cfg = load_yaml(args.config)
     
     # --- 1. Simulation Configuration ---
-    DOMAIN_SIZE = (cfg["domain"]["x"], cfg["domain"]["y"])
-    N_POINTS = (cfg["grid"]["nx"], cfg["grid"]["ny"])
+    XA, XB = cfg["domain"]["x"]
+    YA, YB = cfg["domain"]["y"]
+    TA, TB = cfg["domain"]["t"]
+    DOMAIN_SIZE = XB - XA, YB - YA
+    N_POINTS = (cfg["simulation_points"]["nx"]+1, cfg["simulation_points"]["ny"]+1)
     CYLINDER_CENTER = (cfg["cylinder"]["x"], cfg["cylinder"]["y"])
     CYLINDER_RADIUS = cfg["cylinder"]["r"]
     VISCOSITY = cfg["nu"]
     DENSITY = cfg["rho"]
 
     # --- CHANGE THESE LINES ---
-    DT = cfg["grid"]["dt"]                # Reduced from 0.01 to 0.001 for stability
-    T_MAX = cfg["domain"]["t"]
-    N_STEPS = int(T_MAX / DT)
+    DT = cfg["simulation_points"]["dt"]                # Reduced from 0.01 to 0.001 for stability
+    N_STEPS = int(TB / DT)+1
     # --------------------------
 
     # Output configuration
-    N_COLLOCATION = cfg["n_collocation"]
+    COLLOCATION_NX = cfg["n_collocation"]["nx"]
+    COLLOCATION_NY = cfg["n_collocation"]["ny"]
+    COLLOCATION_NT = cfg["n_collocation"]["nt"]
     N_MEASUREMENT = cfg["n_measurement"]
     
     DIR_PATH = cfg["dir_path"]
@@ -130,13 +134,9 @@ def main(args):
         interp_u = RegularGridInterpolator((t_sol, y_grid, x_grid), u_sol, method='linear', bounds_error=False, fill_value=None)
         interp_v = RegularGridInterpolator((t_sol, y_grid, x_grid), v_sol, method='linear', bounds_error=False, fill_value=None)
         interp_p = RegularGridInterpolator((t_sol, y_grid, x_grid), p_sol, method='linear', bounds_error=False, fill_value=None)
-        
-        # A. Collocation (Fixed Grid)
-        t_idx = np.linspace(0, len(t_sol)-1, int(N_COLLOCATION**(1/3))).astype(int)
-        y_idx = np.linspace(0, len(y_grid)-1, int(N_COLLOCATION**(1/3))).astype(int)
-        x_idx = np.linspace(0, len(x_grid)-1, int(N_COLLOCATION**(1/3))).astype(int)
-        
-        T_mesh, Y_mesh, X_mesh = np.meshgrid(t_sol[t_idx], y_grid[y_idx], x_grid[x_idx], indexing='ij')
+
+        T_mesh, Y_mesh, X_mesh = np.meshgrid(t_sol, y_grid, x_grid, indexing='ij')
+
         X_col = X_mesh.flatten()[:, None]
         Y_col = Y_mesh.flatten()[:, None]
         T_col = T_mesh.flatten()[:, None]
