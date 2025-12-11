@@ -37,7 +37,7 @@ def render_frame_worker(args):
     """
     # Unpack arguments (notice added X_meas_slice, mag_meas_slice)
     (t_val, u_true, v_true, u_pred, v_pred, X_grid, Y_grid, 
-     X_meas_slice, mag_meas_slice, vmin, vmax, error_max) = args
+     X_meas_slice, mag_meas_slice, vmin, vmax, error_max, cylinder_x, cylinder_y, cylinder_r) = args
 
     # Use 2x2 layout, slightly larger figure size
     fig, ax = plt.subplots(2, 2, figsize=(12, 10))
@@ -45,8 +45,8 @@ def render_frame_worker(args):
 
     # --- Pre-processing ---
     # Masks for grid data
-    dist = np.sqrt((X_grid - 0.5)**2 + (Y_grid - 0.5)**2)
-    mask_cyl = dist < 0.1
+    dist = np.sqrt((X_grid - cylinder_x)**2 + (Y_grid - cylinder_y)**2)
+    mask_cyl = dist < cylinder_r
 
     # Magnitudes
     mag_pred = np.sqrt(u_pred**2 + v_pred**2)
@@ -224,19 +224,19 @@ class NavierStokesCylinder(BaseExperiment):
         self.val_y = raw_data['y_grid']
         self.val_u = raw_data['u_full']
         self.val_v = raw_data['v_full']
-        
-        self.cylinder_x = cfg.get("cylinder").get("x", 0.5)
-        self.cylinder_y = cfg.get("cylinder").get("y", 0.5)
-        self.cylinder_r = cfg.get("cylinder").get("r", 0.1)
-        
+
+        self.cylinder_x = cfg["cylinder"]["x"]
+        self.cylinder_y = cfg["cylinder"]["y"]
+        self.cylinder_r = cfg["cylinder"]["r"]
+
         # Noise Configuration
         noise_cfg = cfg.get("noise", None)
-        self.use_data = bool(noise_cfg.get("enabled", False))
+        self.use_data = bool(noise_cfg["enabled"])
         self.noise_cfg = noise_cfg
-        self.n_data_batch = int(noise_cfg.get("batch_size", 1000))
-        
+        self.n_data_batch = int(noise_cfg["batch_size"])
+
         self.extra_noise_cfg = noise_cfg.get("extra_noise", {})
-        self.use_extra_noise = bool(self.extra_noise_cfg.get("enabled", False))
+        self.use_extra_noise = bool(self.extra_noise_cfg["enabled"])
         
         self.X_data = None
         self.y_data = None
@@ -297,53 +297,81 @@ class NavierStokesCylinder(BaseExperiment):
     def _init_noisy_dataset(self):
         """
         Takes the loaded CLEAN random measurements (self.Y_u_clean) and adds 
-        synthetic noise + outliers based on config.
+        SIGNAL-DEPENDENT synthetic noise + GLOBAL outliers.
         """
         y_clean = self.Y_u_clean # [N, 2] (u, v)
         n = y_clean.shape[0]
         
-        # 1. Determine base noise scale
-        base_scale = float(self.noise_cfg.get("scale", 0.1))
+        # --- 1. CONFIGURATION ---
+        # "relative_scale": fraction of the signal value (e.g., 0.05 = 5%)
+        # "floor_scale": fraction of global mean to serve as noise floor (e.g., 0.01)
+        # If these keys don't exist in config, we approximate your old behavior 
+        # or set reasonable defaults.
+        
+        # Fallback to 'scale' if new keys aren't present to maintain backward compatibility
+        legacy_scale = float(self.noise_cfg.get("scale", 0.1))
+        
+        alpha = float(self.noise_cfg.get("relative_scale", legacy_scale)) 
+        beta = float(self.noise_cfg.get("floor_scale", 0.005)) # Small floor
+        
         mean_level = float(y_clean.abs().mean().detach().cpu())
-        f = base_scale * (mean_level if mean_level > 0 else 1.0)
+        if mean_level == 0: mean_level = 1.0
+
+        # --- 2. CALCULATE LOCAL NOISE SCALE (Heteroscedastic) ---
+        # shape: [N, 2]
+        # Noise Sigma_i = alpha * |y_i| + beta * mean_global
+        sigma_local = alpha * y_clean.abs() + beta * mean_level
         
-        # 2. Base Noise Model
+        # --- 3. GENERATE BASE NOISE (Standard Distribution) ---
         kind = self.noise_cfg.get("kind", "G")
-        self.noise_model = get_noise(kind, f, pars=0)
         
-        # Sample noise for u and v independently
-        # Flattening to sample, then reshaping
+        # Initialize noise model with scale=1.0 to get standard distribution (Z-scores)
+        self.noise_model = get_noise(kind, f=1.0, pars=0)
+        
+        # Sample standard noise (Z)
         if kind in ['MG2D']:
-            eps = self.noise_model.sample(n).float().to(self.device) # 2D vectors [n, 2]
+            z = self.noise_model.sample(n).float().to(self.device) 
         else:
-            eps_flat = self.noise_model.sample(n * 2).float().to(self.device)
-            eps = eps_flat.view(n, 2)
+            z_flat = self.noise_model.sample(n * 2).float().to(self.device)
+            z = z_flat.view(n, 2)
+            
+        # Apply local scaling
+        eps = z * sigma_local
         
-        # 3. Add Outliers
+        # --- 4. ADD OUTLIERS (Keep Global Scaling) ---
+        # Outliers represent sensor failures, so they should NOT be scaled 
+        # by local values (a glitch at the wall can still be huge).
         if self.use_extra_noise:
             n_extra = int(self.extra_noise_cfg.get("n_points", 0))
-            print(f"[NavierStokes2D] Injecting outliers into {n_extra} points.")
-            
-            # Select random indices
-            idx = torch.randperm(n, device=self.device)[:n_extra]
-            
-            scale_min = float(self.extra_noise_cfg.get("scale_min", 5.0))
-            scale_max = float(self.extra_noise_cfg.get("scale_max", 10.0))
-            
-            # Scale factors
-            factors = torch.empty(n_extra, 2, device=self.device).uniform_(scale_min, scale_max)
-            amp = factors * f
-            signs = torch.randint(0, 2, amp.shape, device=self.device).float() * 2 - 1
-            extra_eps = signs * amp
-            
-            # Apply outlier noise
-            eps[idx] = extra_eps
+            if n_extra > 0:
+                print(f"[NavierStokes2D] Injecting outliers into {n_extra} points.")
+                
+                # Outlier reference scale (Global)
+                f_outlier = legacy_scale * mean_level
+                
+                idx = torch.randperm(n, device=self.device)[:n_extra]
+                
+                scale_min = float(self.extra_noise_cfg.get("scale_min", 5.0))
+                scale_max = float(self.extra_noise_cfg.get("scale_max", 10.0))
+                
+                factors = torch.empty(n_extra, 2, device=self.device).uniform_(scale_min, scale_max)
+                
+                # Outliers replace the noise at these points with massive errors
+                amp = factors * f_outlier
+                signs = torch.randint(0, 2, amp.shape, device=self.device).float() * 2 - 1
+                extra_eps = signs * amp
+                
+                eps[idx] = extra_eps
 
         y_noisy = y_clean + eps
         
         self.X_data = self.X_u_clean
         self.y_clean = y_clean
         self.y_data = y_noisy
+        
+        # Stats for debugging
+        print(f"[Noise Init] Global Mean |u|: {mean_level:.4f}")
+        print(f"[Noise Init] Local Sigma range: [{sigma_local.min():.4f}, {sigma_local.max():.4f}]")
 
     def sample_batch(self, n_f=None, n_b=None, n_0=None):
         # Note: n_b and n_0 are unused here as we use pre-generated file points 
@@ -402,7 +430,7 @@ class NavierStokesCylinder(BaseExperiment):
         loss = res_u.pow(2).mean() + res_v.pow(2).mean() + res_c.pow(2).mean()
         return loss
 
-    def data_loss(self, model, batch, phase=1):
+    def data_loss(self, model, batch, phase=1, epoch=None):
         if "X_d" not in batch or "y_d" not in batch:
             return torch.tensor(0.0, device=self.device)
             
@@ -449,6 +477,9 @@ class NavierStokesCylinder(BaseExperiment):
                 if self.use_data_loss_balancer:
                     w = self._get_weights(residual.detach())
                     loss_per_sample = (w * loss_metric).view(-1)
+                    # if epoch > 1000:
+                    #     print("w: ", w)
+                    #     breakpoint()
                 else:
                     loss_per_sample = loss_metric.view(-1)
                 return loss_per_sample
@@ -533,9 +564,9 @@ class NavierStokesCylinder(BaseExperiment):
         ny, nx = X_grid.shape
         
         # Pre-calculate cylinder mask for error checking on grid
-        dist = np.sqrt((X_grid - 0.5)**2 + (Y_grid - 0.5)**2)
-        mask_cyl_grid = dist < 0.1
-        
+        dist = np.sqrt((X_grid - self.cylinder_x)**2 + (Y_grid - self.cylinder_y)**2)
+        mask_cyl_grid = dist < self.cylinder_r
+
         # 2. Precompute Global Limits for Velocity colorbars
         vmin = 0.0
         # Use true validation data to establish global velocity max
@@ -631,7 +662,8 @@ class NavierStokesCylinder(BaseExperiment):
                 res['u_pred'], res['v_pred'], 
                 X_grid.copy(), Y_grid.copy(), 
                 res['X_meas_slice'], res['mag_meas_slice'],
-                vmin, vmax, global_error_max
+                vmin, vmax, global_error_max,
+                self.cylinder_x, self.cylinder_y, self.cylinder_r
             )
             render_args_list.append(args)
 

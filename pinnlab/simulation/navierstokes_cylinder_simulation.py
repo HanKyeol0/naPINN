@@ -18,7 +18,6 @@ def main(args):
     # --- 1. Simulation Configuration ---
     XA, XB = cfg["domain"]["x"]
     YA, YB = cfg["domain"]["y"]
-    TA, TB = cfg["domain"]["t"]
     DOMAIN_SIZE = XB - XA, YB - YA
     N_POINTS = (cfg["simulation_points"]["nx"]+1, cfg["simulation_points"]["ny"]+1)
     CYLINDER_CENTER = (cfg["cylinder"]["x"], cfg["cylinder"]["y"])
@@ -26,15 +25,16 @@ def main(args):
     VISCOSITY = cfg["nu"]
     DENSITY = cfg["rho"]
 
-    # --- CHANGE THESE LINES ---
-    DT = cfg["simulation_points"]["dt"]                # Reduced from 0.01 to 0.001 for stability
-    N_STEPS = int(TB / DT)+1
+    DT = cfg["simulation_points"]["dt"]
     # --------------------------
+    
+    BURN_IN_TIME = cfg["domain"]["burn_in_time"]
+    RECORD_TIME = cfg["domain"]["record_time"]
+    N_STEPS_BURN = int(BURN_IN_TIME / DT)
+    N_STEPS_RECORD = int(RECORD_TIME / DT)
+    RECORD_EVERY = cfg["simulation_points"].get("every", 1)
 
     # Output configuration
-    COLLOCATION_NX = cfg["n_collocation"]["nx"]
-    COLLOCATION_NY = cfg["n_collocation"]["ny"]
-    COLLOCATION_NT = cfg["n_collocation"]["nt"]
     N_MEASUREMENT = cfg["n_measurement"]
     
     DIR_PATH = cfg["dir_path"]
@@ -70,9 +70,18 @@ def main(args):
         # Storage
         u_hist, v_hist, p_hist, t_hist = [], [], [], []
 
-        print(f"Starting CFD Simulation ({N_STEPS} steps)...")
+        print(f"1. Burn-in Phase ({N_STEPS_BURN} steps)... Developing instability...")
+        print(f"2. Recording Phase ({N_STEPS_RECORD} steps)...")
         
-        for n in tqdm(range(N_STEPS)):
+        total_steps = N_STEPS_BURN + N_STEPS_RECORD
+        
+        for n in tqdm(range(total_steps)):
+            # --- PERTURBATION TO BREAK SYMMETRY ---
+            if n == 10: 
+                # Add small noise to v-velocity to trigger Karman Vortex Street
+                noise = np.random.normal(0, 0.1, u.shape) * np.exp(-((X-0.5)**2 + (Y-0.5)**2)/0.1)
+                v += noise
+
             # Laplacian
             lap_u = (np.roll(u, 1, axis=0) + np.roll(u, -1, axis=0) - 2*u) / dy**2 + \
                     (np.roll(u, 1, axis=1) + np.roll(u, -1, axis=1) - 2*u) / dx**2
@@ -90,9 +99,10 @@ def main(args):
             v_star = v + DT * (VISCOSITY * lap_v - (u * dv_dx + v * dv_dy))
 
             # BCs
-            u_star[:, 0] = 4 * 1.0 * y * (1.0 - y); v_star[:, 0] = 0 # Inlet
-            u_star[:, -1] = u_star[:, -2]; v_star[:, -1] = v_star[:, -2] # Outlet
-            u_star[0, :] = 0; u_star[-1, :] = 0; v_star[0, :] = 0; v_star[-1, :] = 0 # Walls
+            # Slow down inlet (multiplier 2.0 instead of 4.0)
+            u_star[:, 0] = 2.0 * y * (1.0 - y); v_star[:, 0] = 0 
+            u_star[:, -1] = u_star[:, -2]; v_star[:, -1] = v_star[:, -2]
+            u_star[0, :] = 0; u_star[-1, :] = 0; v_star[0, :] = 0; v_star[-1, :] = 0
             u_star[cylinder_mask == 1] = 0; v_star[cylinder_mask == 1] = 0
 
             # Pressure Poisson
@@ -100,7 +110,8 @@ def main(args):
                         (np.roll(v_star, -1, axis=0) - np.roll(v_star, 1, axis=0)) / (2*dy)
             b = (DENSITY / DT) * div_u_star
 
-            for _ in range(50): 
+            # Reduced iterations for speed (since DT is small, pressure doesn't change much)
+            for _ in range(10): 
                 p = ((np.roll(p, 1, axis=1) + np.roll(p, -1, axis=1)) * dy**2 + 
                     (np.roll(p, 1, axis=0) + np.roll(p, -1, axis=0)) * dx**2 - 
                     b * dx**2 * dy**2) / (2 * (dx**2 + dy**2))
@@ -114,16 +125,19 @@ def main(args):
             v = v_star - (DT / DENSITY) * dp_dy
 
             # BCs & Mask
-            u[:, 0] = 4 * 1.0 * y * (1.0 - y); v[:, 0] = 0
+            u[:, 0] = 2.0 * y * (1.0 - y); v[:, 0] = 0
             u[:, -1] = u[:, -2]; v[:, -1] = v[:, -2]
             u[0, :] = 0; u[-1, :] = 0; v[0, :] = 0; v[-1, :] = 0
             u[cylinder_mask == 1] = 0; v[cylinder_mask == 1] = 0
 
-            if n % 5 == 0: 
-                u_hist.append(u.copy())
-                v_hist.append(v.copy())
-                p_hist.append(p.copy())
-                t_hist.append(n * DT)
+            # Recording logic
+            if n > N_STEPS_BURN:
+                # Save every RECORD_EVERY step (approx every 0.02s simulation time)
+                if n % RECORD_EVERY == 0: 
+                    u_hist.append(u.copy())
+                    v_hist.append(v.copy())
+                    p_hist.append(p.copy())
+                    t_hist.append((n - N_STEPS_BURN) * DT)
 
         return np.array(u_hist), np.array(v_hist), np.array(p_hist), np.array(t_hist), x, y
 

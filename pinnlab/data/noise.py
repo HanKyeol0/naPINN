@@ -123,7 +123,7 @@ class n_G(Noise):
         self.mu, self.sig = pars
         
     def sample(self, Ns):
-        return torch.tensor(np.random.normal(self.mu*self.f, self.sig*self.f, Ns))   #4 for exp
+        return torch.tensor(np.random.normal(self.mu*self.f, self.sig*self.f, Ns))   # f: scaling factor
     
     def pdf(self, x):
         q = torch.distributions.normal.Normal(self.mu*self.f,self.sig*self.f)

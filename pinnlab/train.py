@@ -286,7 +286,7 @@ def main(args):
             phase = 2
             
             loss_res = exp.pde_residual_loss(model, batch).mean() if batch.get("X_f") is not None else torch.tensor(0., device=device)
-            loss_data = exp.data_loss(model, batch, phase).mean()        if batch.get("X_d") is not None else torch.tensor(0., device=device)
+            loss_data = exp.data_loss(model, batch, phase, epoch=ep).mean()        if batch.get("X_d") is not None else torch.tensor(0., device=device)
 
             loss_res_s = loss_res.mean() if torch.is_tensor(loss_res) and loss_res.dim() > 0 else loss_res # scalar
             loss_data_s = loss_data.mean() if torch.is_tensor(loss_data) and loss_data.dim() > 0 else loss_data

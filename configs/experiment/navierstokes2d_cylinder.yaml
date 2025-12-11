@@ -5,38 +5,40 @@
 # --- run simulation ---
 # scripts/simulation/navierstokes_cylinder.sh
 
-tag: vaPINN_12
+tag: naPINN_struggle5
 device: cuda
 
-simulation_tag: ns_data_2
+simulation_tag: ns_data_3
 dir_path: pinnlab/simulation/simulation_result/
 
 # --- Simulation config ---
 domain:
   x: [0.0, 2.0]
   y: [0.0, 1.0]
-  t: [0.0, 0.4]
+  burn_in_time: 14
+  record_time: 4
 
 simulation_points:
   nx: 200
   ny: 100
-  dt: 0.001
+  dt: 0.002
+  every: 8
 
 grid:
   nx: 200
   ny: 100
-  dt: 0.001
+  dt: 0.002
 
 cylinder:
-  x: 0.5
+  x: 0.3
   y: 0.5
-  r: 0.15
+  r: 0.12
 
 n_collocation:
   nx: 200
   ny: 100
   nt: 400
-n_measurement: 20000
+n_measurement: 30000
 
 # Fluid params
 nu: 0.001         # kinematic viscosity
@@ -65,22 +67,25 @@ batch:
 # noise
 noise:
   enabled: true
-  n_train: 20000
+  n_train: 30000
   batch_size: 3000
   kind: G # G, Goff, sG, u, 3G, 3G0, mix0, Gmix, rmix, sGtest
-  scale: 0.1 # default: 0.1
+  
+  scale: 0.2 # not used in the recent version
+  relative_scale: 0.10  # 10% relative error proportional to velocity
+  floor_scale: 0.01     # 1% of global mean as minimum noise floor
 
   extra_noise:
     enabled: true
-    n_points: 4000
+    n_points: 3000
     scale_min: 30.0
     scale_max: 50.0
 
 # phase
 phase:
   enabled: false # true / false
-  phase1_epochs: 40000
-  phase2_epochs: 50000
+  phase1_epochs: 25000
+  phase2_epochs: 25000
 
 ebm:
   enabled: true
@@ -94,7 +99,7 @@ ebm:
 data_loss:
   kind: mse # mse, L1, q_gaussian
   # q-Gaussian settings
-  q: 1.2
+  q: 2.0
   beta: null
 
 data_loss_balancer:
