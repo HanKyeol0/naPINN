@@ -1,4 +1,4 @@
-# generate_ns_data.py
+# navierstokes_cylinder_simulation.py
 import numpy as np
 from tqdm import tqdm
 from scipy.interpolate import RegularGridInterpolator

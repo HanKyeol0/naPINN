@@ -9,7 +9,7 @@ import imageio.v2 as imageio
 
 from pinnlab.experiments.base import BaseExperiment, make_leaf, grad_sum
 from pinnlab.data.noise import get_noise
-from pinnlab.utils.ebm import EBM, ResidualWeightNet, EBM2D
+from pinnlab.utils.ebm import EBM, ResidualWeightNet, EBM2D, TrainableLikelihoodGate
 from pinnlab.utils.data_loss import (
     data_loss_mse,
     data_loss_l1,
@@ -274,6 +274,15 @@ class NavierStokesCylinder(BaseExperiment):
         data_lb_cfg = cfg.get("data_loss_balancer", {})
         self.use_data_loss_balancer = bool(data_lb_cfg.get("use_loss_balancer", False))
         self.data_loss_balancer_kind = data_lb_cfg.get("kind", "pw")
+        print(f"[NavierStokes2D] Data Loss Balancer: {self.data_loss_balancer_kind}, Enabled: {self.use_data_loss_balancer}")
+        
+        self.gate_module = None
+        if self.data_loss_balancer_kind == "gated_trainable":
+            self.gate_module = TrainableLikelihoodGate(
+                init_cutoff_sigma=2.0, 
+                init_steepness=5.0, 
+                device=device
+            )
         
         self.weight_net = None
         if self.use_data_loss_balancer and self.data_loss_balancer_kind == "mlp":
@@ -496,8 +505,20 @@ class NavierStokesCylinder(BaseExperiment):
         return residual.pow(2)
 
     def _get_weights(self, residual):
+        # 1. MLP weighting
         if self.data_loss_balancer_kind == "mlp" and self.weight_net is not None:
             return self.weight_net(residual)
+        
+        # 2. Trainable Gating
+        elif self.data_loss_balancer_kind == "gated_trainable" and self.ebm is not None:
+            # Get raw log-probabilities from EBM (don't need gradients for EBM here usually)
+            # We detach residual because EBM training is separate, 
+            # but we DO want gradients flowing back to gate_module parameters
+            with torch.no_grad():
+                log_q = self.ebm(residual.detach()) # [N, 1]
+            
+            # Pass through our trainable gate
+            return self.gate_module(log_q)
         else:
             return self.ebm.data_weight(residual, kind=self.data_loss_balancer_kind)
             
@@ -507,6 +528,8 @@ class NavierStokesCylinder(BaseExperiment):
             params.append(self.offset)
         if getattr(self, "weight_net", None) is not None:
             params.extend(list(self.weight_net.parameters()))
+        if getattr(self, "gate_module", None) is not None:
+            params.extend(list(self.gate_module.parameters()))
         return params
 
     # --- Evaluation ---
