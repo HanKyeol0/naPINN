@@ -26,38 +26,55 @@ def import_multiprocessing():
     import multiprocessing as mp
     return mp
 
+def create_obstacle_mask(X, Y, obstacles):
+    """
+    Generates a boolean mask where True indicates point is INSIDE an obstacle.
+    """
+    # Initialize mask as all False (no obstacles)
+    combined_mask = np.zeros(X.shape, dtype=bool)
+    
+    for obs in obstacles:
+        # Support dict keys from config
+        cx = obs.get('x', 0.5)
+        cy = obs.get('y', 0.5)
+        r  = obs.get('r', 0.1)
+        
+        dist = np.sqrt((X - cx)**2 + (Y - cy)**2)
+        # Logical OR to combine masks
+        combined_mask = np.logical_or(combined_mask, dist < r)
+        
+    return combined_mask
+
 def render_frame_worker(args):
     """
     Worker function to render a single 2x2 frame.
-    LAYOUT:
-        Top-Left: True Magnitude
-        Top-Right: Predicted Magnitude
-        Bottom-Left: Noisy Measurements (Scatter)
-        Bottom-Right: Absolute Error (Fixed Scale)
+    Updated to accept a list of 'obstacles' instead of single cylinder params.
     """
-    # Unpack arguments (notice added X_meas_slice, mag_meas_slice)
+    # Unpack arguments
     (t_val, u_true, v_true, u_pred, v_pred, X_grid, Y_grid, 
-     X_meas_slice, mag_meas_slice, vmin, vmax, error_max, cylinder_x, cylinder_y, cylinder_r) = args
+     X_meas_slice, mag_meas_slice, vmin, vmax, error_max, obstacles) = args
 
-    # Use 2x2 layout, slightly larger figure size
+    # Use 2x2 layout
     fig, ax = plt.subplots(2, 2, figsize=(12, 10))
     plt.suptitle(f"Time t={t_val:.2f}", y=0.95)
 
     # --- Pre-processing ---
-    # Masks for grid data
-    dist = np.sqrt((X_grid - cylinder_x)**2 + (Y_grid - cylinder_y)**2)
-    mask_cyl = dist < cylinder_r
+    # Generate Composite Mask
+    mask_cyl = create_obstacle_mask(X_grid, Y_grid, obstacles)
 
     # Magnitudes
     mag_pred = np.sqrt(u_pred**2 + v_pred**2)
     mag_true = np.sqrt(u_true**2 + v_true**2)
 
-    # Mask cylinder area on grid plots to avoid visual artifacts
+    # Mask obstacle area on grid plots (Set to NaN or 0)
     mag_pred[mask_cyl] = 0
     mag_true[mask_cyl] = 0
     
     error = np.abs(mag_true - mag_pred)
-    extent = [0, 2, 0, 1]
+    # Ensure error inside cylinders is 0 so it doesn't mess up the plot colorbar
+    error[mask_cyl] = 0
+    
+    extent = [0, 2, 0, 1] # You might want to pass DOMAIN bounds in args if they change
 
     # --- PLOT 1 (Top-Left): True Magnitude ---
     im0 = ax[0, 0].imshow(mag_true, origin='lower', extent=extent, vmin=vmin, vmax=vmax, cmap='jet')
@@ -71,13 +88,11 @@ def render_frame_worker(args):
     plt.colorbar(im1, ax=ax[0, 1], fraction=0.046, pad=0.04)
 
     # --- PLOT 3 (Bottom-Left): Noisy Measurement Data ---
-    # 1. Plot faint gray background of true flow to show cylinder context
+    # 1. Plot faint gray background of true flow
     ax[1, 0].imshow(mag_true, origin='lower', extent=extent, vmin=vmin, vmax=vmax, cmap='gray', alpha=0.2)
     
-    # 2. Scatter plot noisy measurements if any exist in this slice
+    # 2. Scatter plot noisy measurements
     if X_meas_slice is not None and len(X_meas_slice) > 0:
-        # X_meas_slice is [N, 3] -> (x, y, t). We need x and y.
-        # Color based on noisy magnitude, using same vmin/vmax as flow plots
         sc = ax[1, 0].scatter(X_meas_slice[:, 0], X_meas_slice[:, 1], c=mag_meas_slice, 
                               vmin=vmin, vmax=vmax, cmap='jet', s=30, edgecolors='k', linewidth=0.5)
         plt.colorbar(sc, ax=ax[1, 0], fraction=0.046, pad=0.04)
@@ -90,23 +105,19 @@ def render_frame_worker(args):
     ax[1, 0].set_ylabel("Y")
     ax[1, 0].set_xlabel("X")
 
-
-    # --- PLOT 4 (Bottom-Right): Absolute Error (Fixed Scale) ---
-    # Use vmin=0 and vmax=error_max for consistent error comparison over time
+    # --- PLOT 4 (Bottom-Right): Absolute Error ---
     im2 = ax[1, 1].imshow(error, origin='lower', extent=extent, vmin=0, vmax=error_max, cmap='inferno')
     ax[1, 1].set_title(f"Absolute Error (Max over video: {error_max:.4f})")
     ax[1, 1].set_xlabel("X")
     plt.colorbar(im2, ax=ax[1, 1], fraction=0.046, pad=0.04)
 
     # --- Finalize ---
-    plt.tight_layout(rect=[0, 0.03, 1, 0.95]) # Adjust for suptitle
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
     
-    # Rasterize
     fig.canvas.draw()
     w, h = fig.canvas.get_width_height()
     buf = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
     frame = buf.reshape(h, w, 3)
-    
     plt.close(fig)
     return frame
 
@@ -224,6 +235,16 @@ class NavierStokesCylinder(BaseExperiment):
         self.val_y = raw_data['y_grid']
         self.val_u = raw_data['u_full']
         self.val_v = raw_data['v_full']
+        
+        if "obstacles" in cfg:
+            self.obstacles = cfg["obstacles"]
+        elif "cylinder" in cfg:
+            # Backward compatibility: Convert single cylinder dict to list
+            self.obstacles = [cfg["cylinder"]]
+        else:
+            self.obstacles = [] # Empty domain
+            
+        print(f"[NavierStokes2D] Loaded {len(self.obstacles)} obstacles.")
 
         self.cylinder_x = cfg["cylinder"]["x"]
         self.cylinder_y = cfg["cylinder"]["y"]
@@ -439,7 +460,7 @@ class NavierStokesCylinder(BaseExperiment):
         loss = res_u.pow(2).mean() + res_v.pow(2).mean() + res_c.pow(2).mean()
         return loss
 
-    def data_loss(self, model, batch, phase=1, epoch=None):
+    def data_loss(self, model, batch, phase=1):
         if "X_d" not in batch or "y_d" not in batch:
             return torch.tensor(0.0, device=self.device)
             
@@ -486,9 +507,6 @@ class NavierStokesCylinder(BaseExperiment):
                 if self.use_data_loss_balancer:
                     w = self._get_weights(residual.detach())
                     loss_per_sample = (w * loss_metric).view(-1)
-                    # if epoch > 1000:
-                    #     print("w: ", w)
-                    #     breakpoint()
                 else:
                     loss_per_sample = loss_metric.view(-1)
                 return loss_per_sample
@@ -552,6 +570,9 @@ class NavierStokesCylinder(BaseExperiment):
         dist = np.sqrt((X_flat - self.cylinder_x)**2 + (Y_flat - self.cylinder_y)**2)
         mask = dist >= self.cylinder_r
         
+        mask_cyl = create_obstacle_mask(X_flat, Y_flat, self.obstacles)
+        mask_valid = ~mask_cyl
+        
         inputs = np.stack([X_flat, Y_flat, T_flat], axis=1)
         inputs_torch = torch.from_numpy(inputs).float().to(self.device)
         
@@ -564,8 +585,8 @@ class NavierStokesCylinder(BaseExperiment):
         v_true = self.val_v[t_idx].flatten()
         
         # Calc Velocity Magnitude Error (only outside cylinder)
-        mag_pred = np.sqrt(u_pred**2 + v_pred**2)[mask]
-        mag_true = np.sqrt(u_true**2 + v_true**2)[mask]
+        mag_pred = np.sqrt(u_pred**2 + v_pred**2)[mask_valid]
+        mag_true = np.sqrt(u_true**2 + v_true**2)[mask_valid]
         
         num = np.linalg.norm(mag_true - mag_pred)
         den = np.linalg.norm(mag_true)
@@ -587,8 +608,7 @@ class NavierStokesCylinder(BaseExperiment):
         ny, nx = X_grid.shape
         
         # Pre-calculate cylinder mask for error checking on grid
-        dist = np.sqrt((X_grid - self.cylinder_x)**2 + (Y_grid - self.cylinder_y)**2)
-        mask_cyl_grid = dist < self.cylinder_r
+        mask_cyl_grid = create_obstacle_mask(X_grid, Y_grid, self.obstacles)
 
         # 2. Precompute Global Limits for Velocity colorbars
         vmin = 0.0
@@ -686,7 +706,7 @@ class NavierStokesCylinder(BaseExperiment):
                 X_grid.copy(), Y_grid.copy(), 
                 res['X_meas_slice'], res['mag_meas_slice'],
                 vmin, vmax, global_error_max,
-                self.cylinder_x, self.cylinder_y, self.cylinder_r
+                self.obstacles
             )
             render_args_list.append(args)
 

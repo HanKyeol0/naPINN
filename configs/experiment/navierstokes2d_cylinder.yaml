@@ -6,10 +6,10 @@
 # scripts/simulation/navierstokes_cylinder_1.sh
 # scripts/simulation/navierstokes_cylinder_2.sh
 
-tag: naPINN_test3_trainablegate
+tag: 2cylinder_vaPINN_test_2
 device: cuda
 
-simulation_tag: ns_data_2
+simulation_tag: ns_data_3
 dir_path: pinnlab/simulation/simulation_result/
 
 # --- Simulation config ---
@@ -17,13 +17,13 @@ domain:
   x: [0.0, 2.0]
   y: [0.0, 1.0]
   burn_in_time: 14
-  record_time: 8
+  record_time: 6
 
 simulation_points:
   nx: 200
   ny: 100
   dt: 0.002
-  every: 16
+  every: 12
 
 grid:
   nx: 200
@@ -38,14 +38,14 @@ cylinder:
 
 # simulation 2
 obstacles:
-  - {x: 0.5, y: 0.5, r: 0.1}   # First cylinder
-  - {x: 1.2, y: 0.5, r: 0.1}   # Second cylinder
+  - {x: 0.3, y: 0.3, r: 0.12}   # First cylinder
+  - {x: 0.8, y: 0.7, r: 0.1}   # Second cylinder
 
 n_collocation:
   nx: 200
   ny: 100
   nt: 400
-n_measurement: 30000
+n_measurement: 50000
 
 # Fluid params
 nu: 0.001         # kinematic viscosity
@@ -90,14 +90,14 @@ noise:
 
 # phase
 phase:
-  enabled: true # true / false
+  enabled: false # true / false
   phase1_epochs: 20000
   phase2_epochs: 30000
 
 ebm:
   enabled: true
   hidden_dim: 32
-  depth: 3
+  depth: 4
   num_grid: 256
   max_range_factor: 2.5
   lr: 1.0e-3
@@ -110,8 +110,8 @@ data_loss:
   beta: null
 
 data_loss_balancer:
-  use_loss_balancer: true # true / false
-  kind: gated_trainable # pw, inverse, mlp, gated, gated_trainable
+  use_loss_balancer: false # true / false
+  kind: gated # pw, inverse, mlp, gated, gated_trainable
   weight_net:
     hidden_dim: 32
     depth: 3

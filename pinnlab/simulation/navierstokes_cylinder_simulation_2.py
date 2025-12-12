@@ -20,8 +20,12 @@ def main(args):
     YA, YB = cfg["domain"]["y"]
     DOMAIN_SIZE = XB - XA, YB - YA
     N_POINTS = (cfg["simulation_points"]["nx"]+1, cfg["simulation_points"]["ny"]+1)
+    
+    # These single cylinder vars are kept for backward compatibility if needed, 
+    # but the loop below relies on the 'obstacles' list.
     CYLINDER_CENTER = (cfg["cylinder"]["x"], cfg["cylinder"]["y"])
     CYLINDER_RADIUS = cfg["cylinder"]["r"]
+    
     VISCOSITY = cfg["nu"]
     DENSITY = cfg["rho"]
 
@@ -153,10 +157,13 @@ def main(args):
 
         return np.array(u_hist), np.array(v_hist), np.array(p_hist), np.array(t_hist), x, y
 
-    # --- 3. Sampling Logic ---
+    # --- 3. Sampling Logic (UPDATED) ---
     def process_and_save_data(u_sol, v_sol, p_sol, t_sol, x_grid, y_grid):
         print("Processing datasets for PINN...")
         
+        # Load obstacles list for masking
+        obstacles = cfg.get("obstacles", [{"x": CYLINDER_CENTER[0], "y": CYLINDER_CENTER[1], "r": CYLINDER_RADIUS}])
+
         interp_u = RegularGridInterpolator((t_sol, y_grid, x_grid), u_sol, method='linear', bounds_error=False, fill_value=None)
         interp_v = RegularGridInterpolator((t_sol, y_grid, x_grid), v_sol, method='linear', bounds_error=False, fill_value=None)
         interp_p = RegularGridInterpolator((t_sol, y_grid, x_grid), p_sol, method='linear', bounds_error=False, fill_value=None)
@@ -167,9 +174,17 @@ def main(args):
         Y_col = Y_mesh.flatten()[:, None]
         T_col = T_mesh.flatten()[:, None]
         
-        # Mask cylinder
-        dist = np.sqrt((X_col - CYLINDER_CENTER[0])**2 + (Y_col - CYLINDER_CENTER[1])**2)
-        valid_mask = (dist >= CYLINDER_RADIUS).flatten()
+        # --- FIX: Use helper function to mask multiple cylinders ---
+        # Note: X_col/Y_col are flattened arrays. We pass them to create_obstacle_mask directly.
+        # The helper returns 1.0 (True) inside obstacle, 0.0 outside.
+        
+        # We need to reshape for the helper if it expects a specific shape, 
+        # but numpy broadcasting works on flat arrays too.
+        flat_mask = create_obstacle_mask(X_col.flatten(), Y_col.flatten(), obstacles)
+        
+        # Keep points where mask == 0 (Outside obstacles)
+        valid_mask = (flat_mask == 0)
+        
         X_f = np.hstack((X_col[valid_mask], Y_col[valid_mask], T_col[valid_mask])) # [x, y, t]
         
         # B. Measurements (Random positions)
@@ -177,8 +192,9 @@ def main(args):
         x_rand = np.random.uniform(x_grid[0], x_grid[-1], N_MEASUREMENT)
         y_rand = np.random.uniform(y_grid[0], y_grid[-1], N_MEASUREMENT)
         
-        dist_rand = np.sqrt((x_rand - CYLINDER_CENTER[0])**2 + (y_rand - CYLINDER_CENTER[1])**2)
-        mask_outside = dist_rand >= CYLINDER_RADIUS
+        # --- FIX: Mask random points too ---
+        rand_mask = create_obstacle_mask(x_rand, y_rand, obstacles)
+        mask_outside = (rand_mask == 0)
         
         t_meas = t_rand[mask_outside]
         x_meas = x_rand[mask_outside]

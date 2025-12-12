@@ -4,7 +4,7 @@
 set -e
 
 MODEL_NAME=mlp
-EXPERIMENT_NAME=helmholtz2d
+EXPERIMENT_NAME=allencahn2d
 
 python -m pinnlab.train \
   --model_name $MODEL_NAME \

@@ -6,7 +6,7 @@ set -euo pipefail
 
 MODEL_NAME=mlp
 EXPERIMENT_NAME=navierstokes2d_cylinder
-TAG=naPINN_test3_trainablegate
+TAG=2cylinder_vaPINN_2
 SESSION_NAME="train_${EXPERIMENT_NAME}_${MODEL_NAME}_${TAG}"
 
 # ==== Check tmux ====

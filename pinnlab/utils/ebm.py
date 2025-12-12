@@ -104,13 +104,63 @@ class EBM(nn.Module):
         nll_mean.backward()
         self.optimizer.step()
         return nll.detach(), nll_mean.detach()
+    
+    def gated_weights(self, res: torch.Tensor, alpha: float = 2.0, steepness: float = 5.0) -> torch.Tensor:
+        """
+        Computes weights using a Soft Sigmoid Gate on Log-Likelihood.
+        
+        Logic:
+           - Standard 'pw' weighting (w ~ p(x)) penalizes tails too aggressively.
+           - This method creates a 'plateau' of trust. If a point's log-likelihood 
+             is within 'alpha' std-devs of the mean, weight is ~1.0. 
+             If it drops below that, weight slides to 0.0.
+             
+        Args:
+            res: Residuals [N, 2]
+            alpha: Threshold factor. Cutoff = Mean_LL - alpha * Std_LL.
+                   Higher alpha = more tolerant (includes more tails).
+            steepness: How sharp the transition is from weight 1 to 0.
+        """
+        res = res.detach().to(device=self.device, dtype=torch.float32)
+        orig_shape = res.shape # [N, 2]
+        
+        # 1. Compute Unnormalized Log-Likelihoods (Energy)
+        # We don't need Z (partition function) because it's constant for the batch
+        log_q = self.forward(res) # [N, 1]
+        log_q = log_q.squeeze(-1) # Flatten to [N] for stats
+        
+        # 2. Compute Dynamic Threshold based on Batch Stats
+        # We use robust stats (median/quantiles) if possible, but mean/std is faster/stable
+        with torch.no_grad():
+            mu_ll = log_q.mean()
+            sigma_ll = log_q.std()
+            
+            # The Cutoff: Points below this likelihood are considered "suspicious"
+            # e.g., if alpha=2.0, we keep the top ~95% of the probability mass (roughly)
+            cutoff = mu_ll - alpha * sigma_ll
 
+        # 3. Apply Sigmoid Gate
+        # w = 1 / (1 + exp(-steepness * (log_q - cutoff)))
+        # If log_q > cutoff, exp is small neg, w -> 1
+        # If log_q < cutoff, exp is large pos, w -> 0
+        w = torch.sigmoid(steepness * (log_q - cutoff))
+        
+        # 4. Normalize?
+        # In this specific 'gating' philosophy, we arguably usually want weights 
+        # to be exactly 1.0 for good data, not scaled to mean=1. 
+        # However, to keep learning rates consistent with your previous code:
+        w = w / (w.mean() + 1e-8)
+        
+        return w.view(-1, 1)  # [N, 1]
+        
     @torch.no_grad()
     def data_weight(self, res: torch.Tensor, kind: str = "pw") -> torch.Tensor:
         if kind == "pw":
             return self.pointwise_weights(res)
         elif kind == "inverse":
             return self.inverse_pointwise_weights(res)
+        elif kind == "gated":
+            return self.gated_weights(res, alpha=2.5, steepness=10.0)
         else:
             raise ValueError(f"Unknown data weight kind: {kind}")
     
