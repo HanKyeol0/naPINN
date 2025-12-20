@@ -1,10 +1,10 @@
-# run: scripts/mlp/z_helmholtz2d_fore.sh
+# run: scripts/mlp/z_burgers1d_fore.sh
 
 #!/usr/bin/env bash
 set -e
 
 MODEL_NAME=mlp
-EXPERIMENT_NAME=helmholtz2d
+EXPERIMENT_NAME=burgers1d
 
 python -m pinnlab.train \
   --model_name $MODEL_NAME \

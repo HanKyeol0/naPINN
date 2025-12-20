@@ -313,30 +313,35 @@ class EBM2D(nn.Module):
         grid = torch.linspace(-R, R, self.num_grid, device=self.device)
         return grid
 
-    def _make_grid_2d(self, res: torch.Tensor, grid_size: int = 100) -> tuple[torch.Tensor, float]:
+    def _make_grid_2d(self, res: torch.Tensor, grid_size: int = 128) -> tuple[torch.Tensor, float]:
         """
         Creates a 2D grid for integration.
-        Returns:
-            grid_flat: [grid_size*grid_size, 2]
-            cell_area: scalar area of one grid cell (dx * dy)
+        Uses Robust Statistics (std dev) to ignore outliers when determining the grid range.
         """
-        # Determine range based on current batch residuals
+        # Determine range based on Standard Deviation (Core distribution)
+        # instead of max() (which is sensitive to outliers).
         with torch.no_grad():
-            res_abs = res.abs()
-            # Use the max extent in either u or v direction to keep aspect ratio or separate
-            R_u = res_abs[:, 0].max().item()
-            R_v = res_abs[:, 1].max().item()
+            # Calculate std per dimension
+            std = res.std(dim=0) # [2]
             
-            # Avoid zero range
-            R_u = max(R_u * self.max_range_factor, 1.0)
-            R_v = max(R_v * self.max_range_factor, 1.0)
+            # Use 4 standard deviations (covers >99.9% of a Gaussian)
+            # This ensures the grid focuses on the density mass, not the outliers.
+            R_u = 4.0 * std[0].item()
+            R_v = 4.0 * std[1].item()
+            
+            # Safety clamp: prevent grid from collapsing if std is too small (e.g. at init)
+            # or exploding if std is huge.
+            R_u = max(R_u, 0.5) 
+            R_v = max(R_v, 0.5)
+
+            # Optional: We can still look at max, but clamp it.
+            # But 4*std is usually the most robust method for Z-estimation.
 
         # Create 1D linspaces
         u_grid = torch.linspace(-R_u, R_u, grid_size, device=self.device)
         v_grid = torch.linspace(-R_v, R_v, grid_size, device=self.device)
 
-        # Create meshgrid
-        # indexing='ij' ensures (u, v) ordering matches standard matrix indexing
+        # Create meshgrid ('ij' indexing matches matrix [row, col] order)
         uu, vv = torch.meshgrid(u_grid, v_grid, indexing='ij') 
         
         # Flatten to [N_grid, 2]
@@ -356,20 +361,16 @@ class EBM2D(nn.Module):
         res = res.detach().to(self.device, dtype=torch.float32) # [N, 2]
         
         # 1. Unnormalized log-probability of data: log q(r)
-        # forward returns [N, 1], squeeze to [N]
         log_q_data = self.forward(res).squeeze(-1) 
         
         # 2. Estimate Partition Function Z via 2D Integration
-        # We need to evaluate the EBM on the whole grid to find the volume
-        grid_flat, cell_area = self._make_grid_2d(res, grid_size=80) # 80x80 is usually enough
+        # Increased grid_size from 80 -> 128 for better resolution on fine features
+        grid_flat, cell_area = self._make_grid_2d(res, grid_size=128) 
         
         log_q_grid = self.forward(grid_flat).squeeze(-1) # [GridSize^2]
         
-        # Log-Sum-Exp trick for numerical stability
-        # Z = sum(exp(log_q)) * area
-        # log Z = log(sum(exp(log_q))) + log(area)
+        # Log-Sum-Exp trick
         m = log_q_grid.max()
-        # sum(exp(x - m))
         sum_exp = torch.sum(torch.exp(log_q_grid - m)) 
         log_Z = m + torch.log(sum_exp) + torch.log(torch.tensor(cell_area, device=self.device))
         

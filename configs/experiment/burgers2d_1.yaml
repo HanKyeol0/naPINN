@@ -1,0 +1,92 @@
+# simulation run: scripts/simulation/burgers_1.sh
+# experiment(back) run: scripts/mlp/burgers2d_1.sh
+# experiment(fore) run: scripts/mlp/z_burgers2d_1_fore.sh
+
+# common
+domain:
+  x: [0.0, 2.0]
+  y: [0.0, 2.0]
+  burn_in_time: 0.1
+  record_time: 4.0
+
+nu: 0.01      # Viscosity
+
+# simulation
+simulation_tag: "Burgers2D_1"
+dir_path: pinnlab/simulation/simulation_result/
+
+simulation_points:
+  nx: 100
+  ny: 100
+  dt: 0.004
+  every: 20  # Save simulation state every 40 steps
+
+n_measurement: 20000
+
+# experiment
+
+tag: naPINN_3
+device: cuda
+
+noise:
+  enabled: true
+  n_train: 20000
+  batch_size: 4000
+  kind: G # G, Goff, sG, u, 3G, 3G0, mix0, Gmix, rmix, sGtest
+  
+  scale: 0.1 # not used in the recent version
+  relative_scale: 0.20  # 20% relative error proportional to velocity
+  floor_scale: 0.05     # 5% of global mean as minimum noise floor
+
+  extra_noise:
+    enabled: true
+    n_points: 4000
+    scale_min: 40.0
+    scale_max: 60.0
+
+# phase
+phase:
+  enabled: true # true / false
+  phase1_epochs: 5000
+  phase2_epochs: 5000
+
+ebm:
+  enabled: true
+  hidden_dim: 32
+  depth: 4
+  num_grid: 256
+  max_range_factor: 2.5
+  lr: 1.0e-3
+  use_nll: false
+
+data_loss:
+  kind: mse # mse, L1, q_gaussian
+  # q-Gaussian settings
+  q: 2.0
+  beta: null
+
+data_loss_balancer:
+  use_loss_balancer: true # true / false
+  kind: gated_trainable # pw, inverse, mlp, gated, gated_trainable
+  weight_net:
+    hidden_dim: 32
+    depth: 3
+
+# Model I/O
+in_features: 3   # (x,y,t)
+out_features: 2  # (u,v)
+
+offset:
+  enabled: false
+  init: 0.0
+
+# video
+video:
+  enabled: true
+  every: 10000
+  grid:
+    nx: 120
+    ny: 120
+    nt: 80
+  fps: 10
+  format: mp4

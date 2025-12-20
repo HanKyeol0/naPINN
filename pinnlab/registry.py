@@ -5,6 +5,7 @@ from pinnlab.models.residual_network import ResidualNetwork
 
 # experiments
 from pinnlab.experiments.burgers1d import Burgers1D
+from pinnlab.experiments.burgers2d import Burgers2D
 from pinnlab.experiments.helmholtz2d import Helmholtz2D
 from pinnlab.experiments.helmholtz2d_steady import Helmholtz2DSteady
 from pinnlab.experiments.poisson2d import Poisson2D
@@ -24,6 +25,7 @@ _MODEL_REG = {
 
 _EXP_REG = {
     "burgers1d": Burgers1D,
+    "burgers2d": Burgers2D,
     "helmholtz2d": Helmholtz2D,
     "helmholtz2d_steady": Helmholtz2DSteady,
     "poisson2d": Poisson2D,

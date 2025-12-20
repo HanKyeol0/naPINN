@@ -1,7 +1,7 @@
 seed: 40
 device: "cuda"            # "cuda" or "cpu"
 train:
-  epochs: 1000
+  epochs: 20000
   batch:
     n_f: 8192             # collocation points
     n_b: 1024             # boundary points
@@ -19,7 +19,7 @@ train:
     ic: 10.0  # initial
     data: 1.0  # data loss
   loss_balancer:
-    use_loss_balancer: true
+    use_loss_balancer: false
     kind: dwa        # one of: none | uncertainty | dwa | softadapt | gradnorm
     terms: [res, data] # bc, ic
     # DWA:
