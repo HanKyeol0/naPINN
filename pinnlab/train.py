@@ -254,7 +254,8 @@ def main(args):
             out_fmt  = exp_cfg.get("video", {}).get("format", "mp4")  # "mp4" or "gif"
             vid_path = exp.make_video(
                 model, vid_grid, out_dir, fps=fps,
-                filename=f"eval_ep{ep}.{out_fmt}"
+                filename=f"eval_ep{ep}.{out_fmt}",
+                phase=phase
             )
             
     if enable_video:
@@ -267,7 +268,8 @@ def main(args):
             vid_filename = f"final_evolution.{out_fmt}"
         vid_path = exp.make_video(
             model, vid_grid, out_dir,
-            fps=fps, filename=vid_filename
+            fps=fps, filename=vid_filename,
+            phase=phase
         )
         wandb_log({"video/evolution": wandb.Video(vid_path, format=out_fmt)})
         
@@ -280,6 +282,7 @@ def main(args):
             wandb_log({"video/noise_ebm": wandb.Video(noise_ebm, format=out_fmt)})  
             
     if use_phase:
+        exp.initialize_EBM(model)
         for ep in pbar2:
             model.train()
             batch = exp.sample_batch(n_f=n_f, n_b=n_b, n_0=n_0)
@@ -366,8 +369,13 @@ def main(args):
                 out_fmt  = exp_cfg.get("video", {}).get("format", "mp4")  # "mp4" or "gif"
                 vid_path = exp.make_video(
                     model, vid_grid, out_dir, fps=fps,
-                    filename=f"eval_ep{ep + phase1_epochs}.{out_fmt}"
+                    filename=f"eval_ep{ep + phase1_epochs}.{out_fmt}",
+                    phase=phase
                 )
+                if hasattr(exp, "evaluate_gate_performance"):
+                    gate_plots = exp.evaluate_gate_performance(model, out_dir, filename_prefix=f"eval_ep{ep + phase1_epochs}")
+                    if gate_plots and base_cfg["log"]["wandb"]["enabled"]:
+                        wandb_log({f"val/{k}": wandb.Image(v) for k, v in gate_plots.items()})
                 
         if enable_video:
             vid_grid = exp_cfg.get("video", {}).get("grid", base_cfg["eval"]["grid"])
@@ -375,7 +383,8 @@ def main(args):
             out_fmt  = exp_cfg.get("video", {}).get("format", "mp4")  # "mp4" or "gif"
             vid_path = exp.make_video(
                 model, vid_grid, out_dir,
-                fps=fps, filename=f"final_evolution.{out_fmt}"
+                fps=fps, filename=f"final_evolution.{out_fmt}",
+                phase=phase
             )
             wandb_log({"video/evolution": wandb.Video(vid_path, format=out_fmt)})
             
@@ -386,6 +395,11 @@ def main(args):
                 wandb_log({"video/noise_true": wandb.Video(noise_true, format=out_fmt)})
             if os.path.exists(noise_ebm):
                 wandb_log({"video/noise_ebm": wandb.Video(noise_ebm, format=out_fmt)}) 
+                
+        if hasattr(exp, "evaluate_gate_performance"):
+            gate_plots = exp.evaluate_gate_performance(model, out_dir, filename_prefix="final")
+            if gate_plots and base_cfg["log"]["wandb"]["enabled"]:
+                wandb_log({f"val/{k}": wandb.Image(v) for k, v in gate_plots.items()})
 
     training_end_time = time.time()
     

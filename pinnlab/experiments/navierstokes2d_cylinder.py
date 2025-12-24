@@ -6,6 +6,8 @@ import torch
 import matplotlib.pyplot as plt
 import matplotlib
 import imageio.v2 as imageio
+import sys
+from tqdm import trange
 
 from pinnlab.experiments.base import BaseExperiment, make_leaf, grad_sum
 from pinnlab.data.noise import get_noise
@@ -17,7 +19,9 @@ from pinnlab.utils.data_loss import (
 )
 
 from concurrent.futures import ProcessPoolExecutor
-import functools
+import seaborn as sns
+from sklearn.metrics import confusion_matrix
+import traceback
 
 matplotlib.use('Agg')
 
@@ -272,17 +276,30 @@ class NavierStokesCylinder(BaseExperiment):
         ebm_cfg = cfg.get("ebm", {}) or {}
         self.use_ebm = bool(ebm_cfg.get("enabled", False))
         self.use_nll = bool(ebm_cfg.get("use_nll", False))
+        self.ebm_kind = ebm_cfg.get("kind", "2D") # 1D / 2D
+        self.ebm_init_train_epochs = int(ebm_cfg["init_train_epochs"])
         
         if self.use_ebm:
-            self.ebm = EBM2D(
-                hidden_dim=ebm_cfg.get("hidden_dim", 32),
-                depth=ebm_cfg.get("depth", 3),
-                num_grid=ebm_cfg.get("num_grid", 256),
-                max_range_factor=ebm_cfg.get("max_range_factor", 2.5),
-                lr=ebm_cfg.get("lr", 1e-3),
-                input_dim=2,
-                device=device,
-            )
+            if self.ebm_kind == "2D":
+                self.ebm = EBM2D(
+                    hidden_dim=ebm_cfg.get("hidden_dim", 32),
+                    depth=ebm_cfg.get("depth", 3),
+                    num_grid=ebm_cfg.get("num_grid", 256),
+                    max_range_factor=ebm_cfg.get("max_range_factor", 2.5),
+                    lr=ebm_cfg.get("lr", 1e-3),
+                    input_dim=2,
+                    device=device,
+                )
+            else: # 1D EBM
+                self.ebm = EBM(
+                    hidden_dim=ebm_cfg.get("hidden_dim", 32),
+                    depth=ebm_cfg.get("depth", 3),
+                    num_grid=ebm_cfg.get("num_grid", 256),
+                    max_range_factor=ebm_cfg.get("max_range_factor", 2.5),
+                    lr=ebm_cfg.get("lr", 1e-3),
+                    input_dim=1,
+                    device=device,
+                )
         else:
             self.ebm = None
 
@@ -340,9 +357,8 @@ class NavierStokesCylinder(BaseExperiment):
         
         # Fallback to 'scale' if new keys aren't present to maintain backward compatibility
         legacy_scale = float(self.noise_cfg.get("scale", 0.1))
-        
-        alpha = float(self.noise_cfg.get("relative_scale", legacy_scale)) 
-        beta = float(self.noise_cfg.get("floor_scale", 0.005)) # Small floor
+        alpha = float(self.noise_cfg.get("relative_scale", 0.0)) 
+        beta = float(self.noise_cfg.get("floor_scale", legacy_scale))
         
         mean_level = float(y_clean.abs().mean().detach().cpu())
         if mean_level == 0: mean_level = 1.0
@@ -368,6 +384,9 @@ class NavierStokesCylinder(BaseExperiment):
         # Apply local scaling
         eps = z * sigma_local
         
+        # Initialize indices list
+        self.outlier_indices = []
+        
         # --- 4. ADD OUTLIERS (Keep Global Scaling) ---
         # Outliers represent sensor failures, so they should NOT be scaled 
         # by local values (a glitch at the wall can still be huge).
@@ -380,6 +399,7 @@ class NavierStokesCylinder(BaseExperiment):
                 f_outlier = legacy_scale * mean_level
                 
                 idx = torch.randperm(n, device=self.device)[:n_extra]
+                self.outlier_indices = idx.cpu().numpy()
                 
                 scale_min = float(self.extra_noise_cfg.get("scale_min", 5.0))
                 scale_max = float(self.extra_noise_cfg.get("scale_max", 10.0))
@@ -390,27 +410,7 @@ class NavierStokesCylinder(BaseExperiment):
                 # Outliers replace the noise at these points with massive errors
                 amp = factors * f_outlier
                 signs = torch.randint(0, 2, amp.shape, device=self.device).float() * 2 - 1
-                extra_eps = signs * amp
-                
-                print("eps")
-                print(eps[idx])
-                print(torch.abs(eps[idx]).mean())
-                eps[idx] = extra_eps
-
-                print("eps after")
-                print(eps[idx])
-                print(torch.abs(eps[idx]).mean())
-                
-                print("y_clean")
-                print(y_clean[idx])
-                print(torch.abs(y_clean[idx]).mean())
-
-                print("shape of eps")
-                print(eps.shape)
-                print("number of y_clean")
-                print(y_clean.shape)
-                print("number of extra_eps")
-                print(extra_eps.shape)
+                eps[idx] = signs * amp
                 
         y_noisy = y_clean + eps
         
@@ -442,6 +442,33 @@ class NavierStokesCylinder(BaseExperiment):
             batch["y_d"] = self.y_data[idx_d] # [k, 2]
             
         return batch
+    
+    def initialize_EBM(self, model):
+        use_tty = sys.stdout.isatty()
+        pbar_ebm = trange(
+            self.ebm_init_train_epochs,
+            desc="Initialize EBM",
+            ncols=120,
+            dynamic_ncols=True,
+            leave=False,
+            disable=not use_tty
+        )
+        n_data = self.X_data.shape[0]
+        k = min(self.n_data_batch, n_data)
+        print("[EBM Init] Training EBM on initial residuals...")
+        for ep in pbar_ebm:
+            idx_d = torch.randint(0, n_data, (k,), device=self.device)
+            X_d = self.X_data[idx_d]
+            y_d = self.y_data[idx_d]
+            pred = model(X_d)
+            residual = y_d - pred
+            if self.ebm_kind == "1D":
+                residual = residual.view(-1, 1)
+            with torch.no_grad():
+                batch_std = residual.std()
+                scale_factor = torch.clamp(batch_std, min=1e-6)
+            residual_scaled = residual / scale_factor
+            nll_ebm, nll_ebm_mean = self.ebm.train_step(residual_scaled.detach())
 
     def pde_residual_loss(self, model, batch):
         X = make_leaf(batch["X_f"]) # [N, 3] (x, y, t)
@@ -496,8 +523,18 @@ class NavierStokesCylinder(BaseExperiment):
             
         # Flatten residuals: treat u and v errors as samples from the same noise distribution
         residual = y_d - y_pred # [N, 2]
-
         data_loss_value = self._data_loss(residual) # [2N, 1]
+        
+        if self.ebm_kind == "1D":
+            residual = residual.view(-1, 1)
+            
+        with torch.no_grad():
+            batch_std = residual.std()
+            scale_factor = torch.clamp(batch_std, min=1e-6)
+            residual_scaled = residual / scale_factor
+            
+        if self.ebm_kind == "1D":
+            data_loss_value = data_loss_value.view(-1, 1) # [2*N, 1]
 
         # --- Phase Logic (EBM Training / Balancing) ---
         # Identical logic to Helmholtz, just operating on the combined u/v residuals
@@ -507,11 +544,12 @@ class NavierStokesCylinder(BaseExperiment):
                 batch["ebm_nll"] = nll_ebm_mean
                 
                 if self.use_data_loss_balancer:
-                    w = self._get_weights(residual.detach())
-                    loss_per_sample = (w * data_loss_value).view(-1)
+                    w, gate_reg_loss = self._get_weights(residual_scaled.detach())
+                    weighted_loss = (w * data_loss_value).mean()
+                    total_loss = weighted_loss + gate_reg_loss
                 else:
-                    loss_per_sample = data_loss_value.view(-1)
-                return loss_per_sample
+                    total_loss = data_loss_value.mean()
+                return total_loss
                 
         elif phase == 1: # Standard PINN training
             return data_loss_value.view(-1)
@@ -524,12 +562,12 @@ class NavierStokesCylinder(BaseExperiment):
                 loss_metric = nll_ebm if self.use_nll else data_loss_value
                 
                 if self.use_data_loss_balancer:
-                    w = self._get_weights(residual.detach())
-                    loss_per_sample = (w * loss_metric).view(-1)
+                    w, gate_reg_loss = self._get_weights(residual.detach())
+                    weighted_loss = (w * loss_metric).mean()
+                    total_loss = weighted_loss + gate_reg_loss
                 else:
-                    loss_per_sample = loss_metric.view(-1)
-                return loss_per_sample
-
+                    total_loss = loss_metric.mean()
+                return total_loss
         return torch.tensor(0.0, device=self.device)
 
     def _data_loss(self, residual):
@@ -544,7 +582,7 @@ class NavierStokesCylinder(BaseExperiment):
     def _get_weights(self, residual):
         # 1. MLP weighting
         if self.data_loss_balancer_kind == "mlp" and self.weight_net is not None:
-            return self.weight_net(residual)
+            return self.weight_net(residual), torch.tensor(0.0, device=self.device)
         
         # 2. Trainable Gating
         elif self.data_loss_balancer_kind == "gated_trainable" and self.ebm is not None:
@@ -557,7 +595,7 @@ class NavierStokesCylinder(BaseExperiment):
             # Pass through our trainable gate
             return self.gate_module(log_q)
         else:
-            return self.ebm.data_weight(residual, kind=self.data_loss_balancer_kind)
+            return self.ebm.data_weight(residual, kind=self.data_loss_balancer_kind), torch.tensor(0.0, device=self.device)
             
     def extra_params(self):
         params = []
@@ -607,14 +645,7 @@ class NavierStokesCylinder(BaseExperiment):
         den = np.linalg.norm(mag_true)
         return float(num / den)
 
-    def make_video(self, model, grid_cfg, out_dir, fps=10, filename="flow_evolution_2x2.mp4"):
-        """ 
-        Generates 2x2 video showing True, Pred, Noisy Data, and Error.
-        Uses parallel processing and fixed error scale.
-        """
-        from concurrent.futures import ProcessPoolExecutor
-        import imageio.v2 as imageio
-        
+    def make_video(self, model, grid_cfg, out_dir, fps=10, filename="flow_evolution_2x2.mp4", phase=0):
         os.makedirs(out_dir, exist_ok=True)
         model.eval()
         
@@ -627,17 +658,11 @@ class NavierStokesCylinder(BaseExperiment):
 
         # 2. Precompute Global Limits for Velocity colorbars
         vmin = 0.0
-        # Use true validation data to establish global velocity max
         vmax = np.max(np.sqrt(self.val_u**2 + self.val_v**2))
-        
-        # Variable to track global max error across all frames
         global_error_max = 0.0
         
-        # Store intermediate results before sending to workers
         temp_inference_results = []
         
-        # Determine time tolerance for slicing measurement data. 
-        # Assuming roughly equidistant time steps, take half the distance.
         if len(self.val_t) > 1:
             dt_window = (self.val_t[1] - self.val_t[0]) / 2.0
         else:
@@ -656,11 +681,8 @@ class NavierStokesCylinder(BaseExperiment):
                 mag_meas_slice = None
                 
                 if self.use_data and self.X_data is not None:
-                    # X_data is [N, 3] (x, y, t). Find points within t_val +/- dt_window
-                    # We use CPU numpy versions for easier masking
                     X_d_cpu = self.X_data.cpu().numpy()
                     y_d_cpu = self.y_data.cpu().numpy()
-                    
                     mask_time = (X_d_cpu[:, 2] >= t_val - dt_window) & \
                                 (X_d_cpu[:, 2] < t_val + dt_window)
                     
@@ -727,11 +749,10 @@ class NavierStokesCylinder(BaseExperiment):
 
         # 5. RENDER IN PARALLEL (CPU part)
         # Use slightly fewer workers than cores to leave room for system processes
-        n_workers = max(1, os.cpu_count() - 2) 
+        n_workers = max(1, os.cpu_count() - 2)
         print(f"[NavierStokes2D] Rendering {len(render_args_list)} frames using {n_workers} workers...")
         
         frames = []
-        # Use fork context for faster process spawning on Linux/Unix
         ctx = import_multiprocessing().get_context("fork") if os.name != 'nt' else None
         with ProcessPoolExecutor(max_workers=n_workers, mp_context=ctx) as executor:
             results = executor.map(render_frame_worker, render_args_list)
@@ -741,28 +762,21 @@ class NavierStokesCylinder(BaseExperiment):
 
         # 6. Save Video
         path = os.path.join(out_dir, filename)
-        # Use macro_block_size=None to allow arbitrary frame sizes if needed
         imageio.mimsave(path, frames, fps=fps, macro_block_size=None)
         print(f"[NavierStokes2D] Video saved to {path}")
         
-        try:
-            self._make_noise_videos(model, out_dir, fps, filename)
-        except Exception as e:
-            print(f"Warning: Failed to create noise analysis video: {e}")
-
+        if phase == 2:
+            try:
+                self._make_noise_videos(model, out_dir, fps, filename)
+            except Exception as e:
+                print(f"Warning: Failed to create noise analysis video: {e}")
+                traceback.print_exc()
         return path
     
     def plot_final(self, model, grid_cfg, out_dir):
         return None
     
     def _make_noise_videos(self, model, out_dir, fps, filename):
-        """
-        Creates a video comparing True Noise vs. Residuals vs. EBM.
-        Parallelized for speed.
-        """
-        from concurrent.futures import ProcessPoolExecutor
-        import imageio.v2 as imageio
-
         if self.noise_model is None or self.ebm is None:
             print("[NavierStokes2D] Skipping noise video (missing noise_model or ebm).")
             return

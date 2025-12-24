@@ -1,7 +1,7 @@
 # scripts/mlp/allencahn2d.sh
 # scripts/mlp/z_allencahn2d_fore.sh
 
-tag: naPINN_d1_gated
+tag: naPINN_demo
 device: cuda
 
 domain:

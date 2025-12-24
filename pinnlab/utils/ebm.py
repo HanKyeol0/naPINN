@@ -15,7 +15,7 @@ class EBM(nn.Module):
     """
     def __init__(
         self,
-        hidden_dim: int = 32,
+        hidden_dim: int = 32, 
         depth: int = 3,
         num_grid: int = 256,
         max_range_factor: float = 2.5,
@@ -40,6 +40,8 @@ class EBM(nn.Module):
 
         self.to(self.device)
         self.optimizer = torch.optim.Adam(self.parameters(), lr=lr)
+        
+        print("[EBM] Initialized 1D EBM")
 
     def forward(self, r: torch.Tensor) -> torch.Tensor:
         """Return unnormalized log-density log q_theta(r).
@@ -61,11 +63,14 @@ class EBM(nn.Module):
         if res.numel() == 0:
             R = 1.0
         else:
-            R = res.abs().max().item()
-            if R <= 0:
-                R = 1.0
-        R = self.max_range_factor * R
-        grid = torch.linspace(-R, R, self.num_grid, device=self.device)
+            lb = (res.min() - 5*res.std()).detach()
+            ub = (res.max() + 5*res.std()).detach()   
+            # R = res.abs().max().item()
+            # if R <= 0:
+            #     R = 1.0
+        # R = self.max_range_factor * R
+        # grid = torch.linspace(-R, R, self.num_grid, device=self.device)
+        grid = torch.linspace(lb, ub, self.num_grid, device=self.device)
         return grid
 
     def mean_nll(self, res: torch.Tensor) -> torch.Tensor:
@@ -76,21 +81,25 @@ class EBM(nn.Module):
         1D trapezoidal integration on a grid.
         """
         res = res.detach().to(device=self.device, dtype=torch.float32).view(-1, 1)
-        
-        # data term: -log q_theta(r)
-        log_q_res = self.forward(res).squeeze(-1) # [N]
 
         # partition term log Z
         grid = self._make_grid(res)
         grid_input = grid.unsqueeze(-1)  # [G,1]
         log_q_grid = self.forward(grid_input).squeeze(-1)
         m = log_q_grid.max()
-        unnorm = torch.exp(log_q_grid - m)
-        Z = torch.trapezoid(unnorm, grid)
-        logZ = torch.log(Z + 1e-12) + m
+        buf_Z = torch.exp(log_q_grid - m).squeeze()
+        # data term: -log q_theta(r)
+        buf_res = self.forward(res).squeeze(-1) # [N]
+        
+        Nres = res.shape[0]
+        Z = torch.trapezoid(buf_Z, grid)
+        nll = (-buf_res + torch.log(Z) + m) / Nres
+        J = -torch.sum(buf_res) + Nres * torch.log(Z) + Nres * m
+        nll_mean = J/Nres
+        # logZ = torch.log(Z + 1e-12) + m
 
-        nll = -log_q_res + logZ
-        nll_mean = nll.mean()
+        # nll = -log_q_res + logZ
+        # nll_mean = nll.mean()
         return nll, nll_mean
 
     def train_step(self, res: torch.Tensor) -> torch.Tensor:
@@ -557,65 +566,51 @@ class TrainableGMM(nn.Module):
         return w.view(-1, 1)
     
 class TrainableLikelihoodGate(nn.Module):
-    """
-    Learns a soft cutoff for outlier rejection based on Log-Likelihood.
-    
-    Forward:
-        1. Takes Log-Likelihoods (log_q) from the EBM.
-        2. Standardizes them (Z-score) using batch statistics.
-        3. Applies a Sigmoid Gate with trainable Cutoff and Steepness.
-        4. Normalizes weights so mean(w) = 1.
-    """
-    def __init__(self, init_cutoff_sigma: float = 2.0, init_steepness: float = 5.0, device="cpu"):
+    def __init__(self, init_cutoff_sigma=2.0, init_steepness=5.0, device="cpu", 
+                 rejection_cost=0.5):
+        """
+        rejection_cost (float): The penalty weight for discarding data.
+                                Higher = harder to reject (conservative).
+                                Lower = easier to reject (aggressive).
+                                Start with 1.0 or 0.5.
+        """
         super().__init__()
         self.device = device
-        
-        # 1. Cutoff (alpha): 
-        # Points below (Mean - alpha * Std) will be rejected.
-        # We initialize it to ~2.0 sigma.
+        # Initialize cutoff deeper (e.g., 2.0 or 2.5 sigma) to prevent initial collapse
         self.cutoff_alpha = nn.Parameter(torch.tensor(float(init_cutoff_sigma), device=device))
-        
-        # 2. Steepness (beta): 
-        # Controls how sharp the transition is from "trust" to "reject".
         self.steepness = nn.Parameter(torch.tensor(float(init_steepness), device=device))
         
+        self.rejection_cost = rejection_cost
         self.to(device)
 
-    def forward(self, log_q: torch.Tensor) -> torch.Tensor:
-        # log_q shape: [N] or [N, 1]
-        
-        # --- 1. Robust Standardization ---
-        # We use batch stats to make the cutoff relative to the current noise level
+    def forward(self, log_q: torch.Tensor):
+        # 1. Robust Standardization (Same as before)
         with torch.no_grad():
             mu = log_q.mean()
             sigma = log_q.std() + 1e-6
-            
-            # Detach stats so we don't try to backprop through the batch mean calculation
-            # We only want to learn WHERE to cut, not move the mean.
             mu = mu.detach()
             sigma = sigma.detach()
 
-        # Z-scored likelihoods
         z_scores = (log_q - mu) / sigma
         
-        # --- 2. Gating Function ---
-        # We want to keep points where z > -alpha
-        # So we want sigmoid( z - (-alpha) ) -> sigmoid( z + alpha )
-        # To make "alpha" intuitive (positive value = std devs below mean), we use:
-        # Gate = Sigmoid( steepness * (z_score + cutoff_alpha) )
-        
-        # If z_score = -2.0 and cutoff_alpha = 2.0 -> input is 0 -> weight 0.5
-        # If z_score = -1.0 (better) -> input is positive -> weight ~1.0
-        # If z_score = -3.0 (worse) -> input is negative -> weight ~0.0
-        
-        # Softplus on params to ensure they stay positive
+        # Softplus guarantees positive parameters
         alpha = torch.nn.functional.softplus(self.cutoff_alpha)
         beta = torch.nn.functional.softplus(self.steepness)
         
+        # 2. Raw Probabilities (The "Gate")
+        # w_raw is the probability that point i is VALID
         raw_w = torch.sigmoid(beta * (z_scores + alpha))
         
-        # --- 3. Normalization (Constraint: Mean=1) ---
-        # This prevents the trivial solution where the model just outputs all zeros.
-        w = raw_w / (raw_w.mean() + 1e-8)
+        # --- NEW REGULARIZATION: Rejection Cost ---
+        # Instead of forcing a mean, we penalize the "mass" of rejection.
+        # Loss = sum(1 - w)  => "Minimizing the number of discarded points"
+        # If the model sets w=0 for everyone, this loss explodes.
+        rejected_mass = (1.0 - raw_w).mean()
+        reg_loss = self.rejection_cost * rejected_mass
         
-        return w
+        # 3. Normalization (Optional but recommended for gradient stability)
+        # We normalize the output weights for the Physics Loss, 
+        # BUT the regularization above acts on the RAW weights.
+        w_normalized = raw_w / (raw_w.mean() + 1e-8)
+        
+        return w_normalized, reg_loss

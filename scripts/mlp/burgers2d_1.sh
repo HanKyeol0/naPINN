@@ -6,7 +6,7 @@ set -euo pipefail
 
 MODEL_NAME=mlp
 EXPERIMENT_NAME=burgers2d
-TAG=naPINN_3
+TAG=1_naPINN_4
 SESSION_NAME="train_${EXPERIMENT_NAME}_${MODEL_NAME}_${TAG}"
 
 # ==== Check tmux ====

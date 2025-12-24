@@ -25,21 +25,21 @@ n_measurement: 20000
 
 # experiment
 
-tag: 2_naPINN_6
+tag: 2_naPINN_1t
 device: cuda
 
 noise:
   enabled: true
   n_train: 20000
   batch_size: 4000
-  kind: G # G, Goff, sG, u, 3G, 3G0, mix0, Gmix, rmix, sGtest
+  kind: 3G # G, Goff, sG, u, 3G, 3G0, mix0, Gmix, rmix, sGtest, MG2D
   
   scale: 0.1 # not used in the recent version
-  relative_scale: 0.01  # 1% relative error proportional to velocity
-  floor_scale: 0.1     # 10% of global mean as minimum noise floor
+  # relative_scale: 0.01  # 1% relative error proportional to velocity
+  # floor_scale: 0.1     # 10% of global mean as minimum noise floor
 
   extra_noise:
-    enabled: false
+    enabled: true
     n_points: 4000
     scale_min: 30.0
     scale_max: 50.0
@@ -52,12 +52,14 @@ phase:
 
 ebm:
   enabled: true
+  kind: 1D # 1D / 2D
   hidden_dim: 32
-  depth: 4
+  depth: 3
   num_grid: 256
   max_range_factor: 2.5
   lr: 1.0e-3
   use_nll: false
+  init_train_epochs: 3000
 
 data_loss:
   kind: mse # mse, L1, q_gaussian
@@ -85,8 +87,8 @@ video:
   enabled: true
   every: 10000
   grid:
-    nx: 120
-    ny: 120
-    nt: 80
+    nx: 128
+    ny: 128
+    nt: 100
   fps: 10
   format: mp4

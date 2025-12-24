@@ -406,7 +406,7 @@ class AllenCahn2D(BaseExperiment):
                 figs.update(save_plots_2d(Xg.cpu().numpy(), Yg.cpu().numpy(), U_true, U_pred, out_dir, f"allencahn2d_{label}"))
         return figs
     
-    def make_video(self, model, grid, out_dir, fps=10, filename="final_evolution.mp4"):
+    def make_video(self, model, grid, out_dir, fps=10, filename="final_evolution.mp4", phase=0):
         """
         Make a video over t ∈ [t0, t1] with 4 panels:
 
@@ -570,12 +570,11 @@ class AllenCahn2D(BaseExperiment):
         else:
             raise ValueError(f"Unsupported video format: {ext}")
 
-        # (optional) still call your noise-distribution video helper if you keep it
-        try:
-            self._make_noise_videos(model, grid, out_dir, fps, filename)
-        except Exception as e:
-            print(f"[make_video] Warning: noise video failed with error: {e}")
-
+        if phase == 2:
+            try:
+                self._make_noise_videos(model, grid, out_dir, fps, filename)
+            except Exception as e:
+                print(f"[make_video] Warning: noise video failed with error: {e}")
         return path
     
     def _make_noise_videos(self, model, grid, out_dir, fps, filename):

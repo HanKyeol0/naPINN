@@ -136,6 +136,7 @@ def main(args):
         y_meas = np.random.uniform(y_grid[0], y_grid[-1], N_MEASUREMENT)
         
         query_points = np.stack([t_meas, y_meas, x_meas], axis=1)
+        print(f"number of query points: {query_points.shape[0]}")
         u_meas = interp_u(query_points)
         v_meas = interp_v(query_points)
         
