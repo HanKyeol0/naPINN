@@ -25,8 +25,8 @@ n_measurement: 5000
 
 # experiment
 
-tag: 1-1_naPINN_5-1
-description: PDE residual loss에서 PDE_loss_on_data를 제외
+tag: 1-1_naPINN_5-2
+description: PDE residual loss에서 PDE_loss_on_data를 제외 + EBM standardization via EMA update
 device: cuda
 
 batch:

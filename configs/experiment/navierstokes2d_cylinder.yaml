@@ -4,7 +4,7 @@
 
 # --- run simulation ---
 # scripts/simulation/navierstokes_cylinder_1.sh
-# scripts/simulation/navierstokes_cylinder_2.sh
+# scripts/simulation/navierstokes_cylinder_2.sh # 이거 사용
 
 tag: naPINN_1
 device: cuda
@@ -88,7 +88,7 @@ noise:
 # phase
 phase:
   enabled: true # true / false
-  phase1_epochs: 20000
+  phase1_epochs: 10000
   phase2_epochs: 30000
 
 ebm:

@@ -1,3 +1,5 @@
+# run: scripts/load_model_exp.sh
+
 import os, yaml, argparse, json, torch
 from pinnlab.registry import get_experiment, get_model
 from pinnlab.utils.seed import seed_everything
@@ -88,7 +90,8 @@ def main(args):
         try:
             vid_path = exp.make_video(
                 model, vid_grid, out_dir=folder_path,
-                filename=args.video_file_name, fps=fps
+                filename=args.video_file_name, fps=fps,
+                phase=2, # for making noise analysis video
             )
             print(f"Video saved to: {vid_path}")
         except Exception as e:

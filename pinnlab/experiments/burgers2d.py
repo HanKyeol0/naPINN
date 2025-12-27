@@ -19,6 +19,7 @@ from pinnlab.utils.data_loss import (
 from concurrent.futures import ProcessPoolExecutor
 import matplotlib.pyplot as plt
 import seaborn as sns
+import scipy.stats as stats
 from sklearn.metrics import confusion_matrix
 import traceback
 
@@ -99,14 +100,14 @@ def render_noise_worker(args):
     """
     (t_val, eps_u_grid, res_u_grid, 
      eps_flat_all, res_flat_all, 
-     r_grid, pdf_true, pdf_ebm, 
+     r_grid, pdf_true, pdf_ebm,
      R_range, extent) = args
 
     fig, axes = plt.subplots(2, 2, figsize=(12, 10), dpi=100)
-    plt.suptitle(f"Noise Distribution Analysis | t={t_val:.3f}", y=0.96, fontsize=14)
+    plt.suptitle(f"Noise Distribution Analysis haha.. | t={t_val:.3f}", y=0.96, fontsize=14)
 
     cmap = 'coolwarm' 
-    vm = R_range 
+    vm = R_range
 
     # --- [0,0] True Noise Field (u-component) ---
     im0 = axes[0, 0].imshow(eps_u_grid, origin='lower', extent=extent, 
@@ -239,6 +240,8 @@ class Burgers2D(BaseExperiment):
                     input_dim=1, 
                     device=device,
                 )
+            self.running_std = torch.tensor(1.0, device=device)
+            self.momentum = 0.05 # Update rate (alpha)
         else:
             self.ebm = None
 
@@ -272,6 +275,54 @@ class Burgers2D(BaseExperiment):
             self.offset = torch.nn.Parameter(torch.tensor([init, init], dtype=torch.float32, device=device))
         else:
             self.offset = None
+
+    def state_dict(self):
+        """
+        Returns a dictionary containing the experiment's optimization state.
+        This includes the running_std, offset, and trainable gate parameters.
+        """
+        state = {
+            'running_std': self.running_std,
+            'offset': self.offset,
+        }
+        
+        # Save EBM state if it exists
+        if self.ebm is not None:
+            state['ebm'] = self.ebm.state_dict()
+            state['ebm_optimizer'] = self.ebm.optimizer.state_dict()
+            
+        # Save Gate state if it exists
+        if self.gate_module is not None:
+            state['gate_module'] = self.gate_module.state_dict()
+            
+        # Save WeightNet state if it exists
+        if self.weight_net is not None:
+            state['weight_net'] = self.weight_net.state_dict()
+            
+        return state
+
+    def load_state_dict(self, state_dict):
+        """
+        Loads the experiment's optimization state.
+        """
+        if 'running_std' in state_dict:
+            self.running_std.copy_(state_dict['running_std'].to(self.device))
+            print(f"[Burgers2D] Loaded running_std: {self.running_std.item():.4f}")
+            
+        if 'offset' in state_dict and self.offset is not None:
+            with torch.no_grad():
+                self.offset.copy_(state_dict['offset'].to(self.device))
+                
+        if 'ebm' in state_dict and self.ebm is not None:
+            self.ebm.load_state_dict(state_dict['ebm'])
+            if 'ebm_optimizer' in state_dict:
+                self.ebm.optimizer.load_state_dict(state_dict['ebm_optimizer'])
+            
+        if 'gate_module' in state_dict and self.gate_module is not None:
+            self.gate_module.load_state_dict(state_dict['gate_module'])
+            
+        if 'weight_net' in state_dict and self.weight_net is not None:
+            self.weight_net.load_state_dict(state_dict['weight_net'])
 
     def _init_noisy_dataset(self):
         y_clean = self.Y_u_clean # [N, 2]
@@ -365,8 +416,10 @@ class Burgers2D(BaseExperiment):
                 residual = residual.view(-1, 1)
             with torch.no_grad():
                 batch_std = residual.std()
-                scale_factor = torch.clamp(batch_std, min=1e-6)
-            residual_scaled = residual / scale_factor
+                currend_std_clamped = torch.clamp(batch_std, min=1e-6, max=self.running_std * 10)
+                self.running_std.mul(1 - self.momentum).add_(currend_std_clamped * self.momentum)
+                scale_factor = self.running_std
+            residual_scaled = residual / (scale_factor + 1e-8)
             nll_ebm, nll_ebm_mean = self.ebm.train_step(residual_scaled.detach())
 
     def pde_residual_loss(self, model, batch):
@@ -426,7 +479,7 @@ class Burgers2D(BaseExperiment):
         
         if self.use_offset and self.offset is not None:
             pred = pred + self.offset
-            
+        
         residual = y_d - pred # [N, 2]
         data_loss_value = self._data_loss(residual)
         
@@ -440,11 +493,16 @@ class Burgers2D(BaseExperiment):
             # Calculate scale per component (u and v might have different scales)
             # or global scale. Global is usually safer to preserve relative structure.
             batch_std = residual.std()
-            # Clamp to avoid division by zero if model perfectly overfits
-            scale_factor = torch.clamp(batch_std, min=1e-6)
+            
+            if model.training and phase!=1:
+                # Robust update: Clamp batch_std to avoid explosions from single bad batches
+                # If running_std is 1.0, don't let batch_std force it to 100.0 instantly.
+                current_std_clamped = torch.clamp(batch_std, min=1e-6, max=self.running_std * 10)
+                self.running_std.mul_(1 - self.momentum).add_(current_std_clamped * self.momentum)
+            scale_factor = self.running_std
             
         # Standardized residuals for the EBM
-        residual_scaled = residual / scale_factor
+        residual_scaled = residual / (scale_factor + 1e-8)
         
         if self.ebm_kind == "1D":
             data_loss_value = data_loss_value.view(-1, 1) # [2*N, 1]
@@ -647,7 +705,7 @@ class Burgers2D(BaseExperiment):
     
     def plot_final(self, model, grid_cfg, out_dir):
         return None
-    
+
     def _make_noise_videos(self, model, out_dir, fps, filename):
         if self.noise_model is None or self.ebm is None:
             return
@@ -659,49 +717,37 @@ class Burgers2D(BaseExperiment):
         X, Y = np.meshgrid(self.val_x, self.val_y)
         ny, nx = X.shape
         
-        # 1. Determine Plotting Range (R)
-        # We assume the residuals will have a similar magnitude to the true noise
-        dummy_sample = self.noise_model.sample(1000)
-        max_val = float(dummy_sample.abs().max().cpu())
-        R_range = max_val * 1.5
+        # 1. Get the "Lens" the EBM uses (EMA Std)
+        # This guarantees the plot matches the training logic exactly.
+        ref_std = self.running_std.item()
         
-        # Calculate a reference 'sigma' for standardization to match training conditions
-        # (Since you train with batch_std, we approximate it using the noise model's std)
-        ref_std = float(dummy_sample.std().cpu())
-        if ref_std < 1e-6: ref_std = 1.0
-
-        # 2. Pre-calculate EBM PDF (1D)
+        # 2. Determine Plotting Range (Visuals Only)
+        R_range = ref_std * 5.0 
+        
+        # --- EBM PDF Generation ---
         # Grid in ORIGINAL (raw) residual space
         r_grid_np = np.linspace(-R_range, R_range, 200).astype(np.float32)
         r_grid_torch = torch.from_numpy(r_grid_np).to(self.device).view(-1, 1)
 
         pdf_ebm = None
         with torch.no_grad():
-            # SCALE the input before feeding to EBM (match training logic)
-            # Input: [N, 1]
-            r_input_scaled = r_grid_torch / ref_std
+            # SCALE using the EMA running_std
+            r_input_scaled = r_grid_torch / (ref_std + 1e-8)
             
             # Get unnormalized log-density
-            log_q = self.ebm(r_grid_torch).flatten() # [200]
-            log_q = log_q - log_q.max() 
+            log_q = self.ebm(r_input_scaled).flatten() # [200]
+            log_q = log_q - log_q.max()
             q_unn = torch.exp(log_q)
             
             # Normalize PDF over the ORIGINAL grid range (r_grid_np)
             # This automatically accounts for the Jacobian 1/sigma scaling
-            Z = torch.trapezoid(q_unn, r_grid_torch.flatten())
+            Z = torch.trapezoid(q_unn, r_input_scaled.flatten())
             pdf_ebm = (q_unn / (Z + 1e-12)).cpu().numpy()
 
         # 3. Pre-calculate True PDF (1D)
-        pdf_true = None
-        if hasattr(self.noise_model, "pdf"):
-            r_cpu = torch.from_numpy(r_grid_np)
-            try:
-                # Standard get_noise returns 1D PDF for scalar input
-                pdf_true = self.noise_model.pdf(r_cpu)
-                if isinstance(pdf_true, torch.Tensor):
-                    pdf_true = pdf_true.detach().cpu().numpy()
-            except:
-                pass
+        r_grid_np = r_grid_np / (ref_std + 1e-8)
+        r_cpu = torch.from_numpy(r_grid_np)
+        pdf_true = self.noise_model.pdf(r_cpu)
 
         render_args_list = []
         
@@ -733,10 +779,18 @@ class Burgers2D(BaseExperiment):
                     eps_u, eps_v = eps_flat[:n_points], eps_flat[n_points:]
                 
                 # Create noisy observations
-                u_noisy, v_noisy = u_true + eps_u, v_true + eps_v
+                u_noisy = u_true + eps_u
+                v_noisy = v_true + eps_v
                 
                 # Calculate Raw Residuals
-                res_u, res_v = u_noisy - u_pred, v_noisy - v_pred
+                res_u = u_noisy - u_pred
+                res_v = v_noisy - v_pred
+                
+                # standardization
+                eps_u = eps_u / (ref_std + 1e-8)
+                eps_v = eps_v / (ref_std + 1e-8)
+                res_u = res_u / (ref_std + 1e-8)
+                res_v = res_v / (ref_std + 1e-8)
                 
                 # C. Prepare Data for Worker
                 eps_u_grid = eps_u.view(ny, nx).cpu().numpy()
@@ -912,125 +966,3 @@ class Burgers2D(BaseExperiment):
             "gate/sigmoid": save_path,
             "gate/confusion": cm_path
         }
-
-"""
-    def _make_noise_videos(self, model, out_dir, fps, filename):
-        if self.noise_model is None or self.ebm is None:
-            return
-
-        print("[Burgers2D] Generating Noise Analysis video...")
-        base, ext = os.path.splitext(filename)
-        vid_filename = f"{base}_noise_analysis{ext}"
-        
-        X, Y = np.meshgrid(self.val_x, self.val_y)
-        ny, nx = X.shape
-        
-        # Determine Plotting Range (R) based on dummy sample
-        dummy_sample = self.noise_model.sample(1000)
-        max_val = float(dummy_sample.abs().max().cpu())
-        R_range = max_val * 1.5
-        
-        # --- Pre-calculate EBM PDF Slice (1D) ---
-        # The EBM is 2D, but we want to plot a 1D curve for the histograms.
-        # We visualize p(r_u, r_v=0) effectively.
-        r_grid_np = np.linspace(-R_range, R_range, 200).astype(np.float32)
-        
-        # Construct [200, 2] tensor: [value, 0.0]
-        # This checks the likelihood along the u-axis.
-        r_grid_2d = torch.zeros((200, 2), device=self.device, dtype=torch.float32)
-        r_grid_2d[:, 0] = torch.from_numpy(r_grid_np)
-        
-        pdf_ebm = None
-        with torch.no_grad():
-            log_q = self.ebm(r_grid_2d).flatten() # [200]
-            log_q = log_q - log_q.max() 
-            q_unn = torch.exp(log_q)
-            # Normalize over the 1D slice
-            Z = torch.trapezoid(q_unn, r_grid_2d[:, 0])
-            pdf_ebm = (q_unn / (Z + 1e-12)).cpu().numpy()
-            
-        print(pdf_ebm)
-
-        pdf_true = None
-        # Handle True Noise PDF (if available)
-        if hasattr(self.noise_model, "pdf"):
-             r_cpu = torch.from_numpy(r_grid_np)
-             # If noise is MG2D (multivariate), check how it handles scalar input
-             # Generally get_noise('G') returns 1D distribution applied component-wise
-             try:
-                 pdf_true = self.noise_model.pdf(r_cpu)
-                 if isinstance(pdf_true, torch.Tensor):
-                     pdf_true = pdf_true.detach().cpu().numpy()
-             except:
-                 pass
-
-        render_args_list = []
-        
-        with torch.no_grad():
-            for i, t_val in enumerate(self.val_t):
-                if i % 2 != 0: continue 
-
-                T = np.full_like(X, t_val)
-                inputs = np.stack([X.flatten(), Y.flatten(), T.flatten()], axis=1)
-                inputs_torch = torch.from_numpy(inputs).float().to(self.device)
-                
-                out = model(inputs_torch)
-                u_pred, v_pred = out[:, 0], out[:, 1]
-                
-                u_true = torch.from_numpy(self.val_u[i].flatten()).to(self.device)
-                v_true = torch.from_numpy(self.val_v[i].flatten()).to(self.device)
-                
-                n_points = u_true.shape[0]
-                
-                # Sample noise for the whole grid
-                # get_noise usually returns flat [N] or [N, D] depending on implementation
-                # Assuming noise is i.i.d per point, or MG2D
-                
-                # Check noise kind to sample correctly
-                kind = self.noise_cfg.get("kind", "G")
-                if kind == 'MG2D':
-                    eps_vec = self.noise_model.sample(n_points).float().to(self.device) # [N, 2]
-                    eps_u, eps_v = eps_vec[:, 0], eps_vec[:, 1]
-                else:
-                    eps_flat = self.noise_model.sample(n_points * 2).float().to(self.device)
-                    eps_u, eps_v = eps_flat[:n_points], eps_flat[n_points:]
-                
-                u_noisy, v_noisy = u_true + eps_u, v_true + eps_v
-                res_u, res_v = u_noisy - u_pred, v_noisy - v_pred
-                
-                # Grids for Heatmaps (Just U component)
-                eps_u_grid = eps_u.view(ny, nx).cpu().numpy()
-                res_u_grid = res_u.view(ny, nx).cpu().numpy()
-                
-                # Flat arrays for Histograms (Combine U and V for statistics)
-                eps_combined = torch.cat([eps_u, eps_v]).cpu().numpy()
-                res_combined = torch.cat([res_u, res_v]).cpu().numpy()
-                
-                # Downsample for histogram plotting speed if needed
-                if eps_combined.shape[0] > 20000:
-                    idx = np.random.choice(eps_combined.shape[0], 20000, replace=False)
-                    eps_combined = eps_combined[idx]
-                    res_combined = res_combined[idx]
-
-                args = (
-                    t_val, 
-                    eps_u_grid, res_u_grid, 
-                    eps_combined, res_combined,
-                    r_grid_np, pdf_true, pdf_ebm,
-                    R_range, self.extent
-                )
-                render_args_list.append(args)
-
-        n_workers = max(1, os.cpu_count() - 2)
-        frames = []
-        ctx = import_multiprocessing().get_context("fork") if os.name != 'nt' else None
-        
-        with ProcessPoolExecutor(max_workers=n_workers, mp_context=ctx) as executor:
-            results = executor.map(render_noise_worker, render_args_list)
-            for frame in results:
-                frames.append(frame)
-
-        path = os.path.join(out_dir, vid_filename)
-        imageio.mimsave(path, frames, fps=fps, macro_block_size=None)
-        print(f"[Burgers2D] Noise video saved to {path}")
-"""

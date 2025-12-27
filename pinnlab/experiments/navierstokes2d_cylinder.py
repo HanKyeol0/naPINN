@@ -460,8 +460,14 @@ class NavierStokesCylinder(BaseExperiment):
             idx_d = torch.randint(0, n_data, (k,), device=self.device)
             X_d = self.X_data[idx_d]
             y_d = self.y_data[idx_d]
-            pred = model(X_d)
-            residual = y_d - pred
+            pred = model(X_d) # [N, 3]
+            u_pred, v_pred = pred[:, 0:1], pred[:, 1:2]
+            y_pred = torch.cat([u_pred, v_pred], dim=1) # [N, 2]
+            
+            if self.use_offset and self.offset is not None:
+                y_pred = y_pred + self.offset
+
+            residual = y_d - y_pred
             if self.ebm_kind == "1D":
                 residual = residual.view(-1, 1)
             with torch.no_grad():
@@ -814,11 +820,11 @@ class NavierStokesCylinder(BaseExperiment):
         # 4. Pre-calculate True PDF (Static curve)
         pdf_true = None
         if hasattr(self.noise_model, "pdf"):
-             # Assuming noise_model.pdf accepts cpu tensor
-             r_cpu = torch.from_numpy(r_grid_np)
-             pdf_true = self.noise_model.pdf(r_cpu)
-             if isinstance(pdf_true, torch.Tensor):
-                 pdf_true = pdf_true.detach().cpu().numpy()
+            # Assuming noise_model.pdf accepts cpu tensor
+            r_cpu = torch.from_numpy(r_grid_np)
+            pdf_true = self.noise_model.pdf(r_cpu)
+            if isinstance(pdf_true, torch.Tensor):
+                pdf_true = pdf_true.detach().cpu().numpy()
 
         # 5. GPU Inference Phase
         render_args_list = []
@@ -834,8 +840,7 @@ class NavierStokesCylinder(BaseExperiment):
                 
                 # Model Prediction
                 out = model(inputs_torch)
-                u_pred = out[:, 0]
-                v_pred = out[:, 1]
+                u_pred, v_pred = out[:, 0], out[:, 1]
                 
                 # True Solution
                 u_true = torch.from_numpy(self.val_u[i].flatten()).to(self.device)
@@ -844,9 +849,13 @@ class NavierStokesCylinder(BaseExperiment):
                 # Sample "True" Noise for this specific grid/time
                 # We sample for u and v separately
                 n_points = u_true.shape[0]
-                eps_flat = self.noise_model.sample(n_points * 2).float().to(self.device)
-                eps_u = eps_flat[:n_points]
-                eps_v = eps_flat[n_points:]
+                kind = self.noise_cfg.get("kind", "G")
+                if kind in ['MG2D']:
+                    eps = self.noise_model.sample(n_points).float().to(self.device)
+                    eps_u, eps_v = eps[:, 0], eps[:, 1]
+                else:
+                    eps_flat = self.noise_model.sample(n_points * 2).float().to(self.device)
+                    eps_u, eps_v = eps_flat[:n_points], eps_flat[n_points:]
                 
                 # Add noise to get "Noisy Observation"
                 u_noisy = u_true + eps_u
@@ -899,3 +908,143 @@ class NavierStokesCylinder(BaseExperiment):
         path = os.path.join(out_dir, vid_filename)
         imageio.mimsave(path, frames, fps=fps, macro_block_size=None)
         print(f"[NavierStokes2D] Noise video saved to {path}")
+        
+    def evaluate_gate_performance(self, model, out_dir, filename_prefix=None):
+        """
+        Evaluates and visualizes the Trainable Gate's ability to distinguish outliers.
+        Generates a Sigmoid Plot and a Confusion Matrix.
+        """
+        if self.gate_module is None or self.ebm is None:
+            print("[Evaluate] Gate or EBM not available. Skipping gate evaluation.")
+            return
+
+        print("[Evaluate] Analyzing Gate Performance on all measurement data...")
+        
+        model.eval()
+        self.gate_module.eval()
+        self.ebm.eval()
+        
+        # 1. Get Residuals for ALL data
+        # We process in one large batch (or chunk if memory is tight, but 5k points is fine)
+        with torch.no_grad():
+            pred = model(self.X_data)
+            u_pred, v_pred = pred[:, 0:1], pred[:, 1:2]
+            y_pred = torch.cat([u_pred, v_pred], dim=1) # [N, 2]
+            if self.use_offset and self.offset is not None:
+                y_pred = y_pred + self.offset
+            
+            # Raw residuals [N, 2]
+            residual = self.y_data - y_pred
+            
+            # Flatten to 1D for EBM [2N, 1]
+            # NOTE: We must track which indices are outliers in the FLATTENED array.
+            # Original outliers are indices `idx` in range [0, N).
+            # In flattened array [u0, v0, u1, v1...], outlier i affects 2*i and 2*i+1.
+            res_flat = residual.view(-1, 1)
+            
+            # 2. Adaptive Standardization (Global Stats)
+            batch_std = res_flat.std()
+            scale_factor = torch.clamp(batch_std, min=1e-6)
+            res_scaled = res_flat / scale_factor
+            
+            # 3. Get EBM Log-Likelihoods (Energy)
+            log_q = self.ebm(res_scaled).squeeze(-1) # [2N]
+            
+            # 4. Get Gate Weights & Z-scores
+            # We access gate internals to reproduce the Z-score logic for plotting
+            mu = log_q.mean()
+            sigma = log_q.std() + 1e-6
+            z_scores = (log_q - mu) / sigma
+            
+            # Learned parameters
+            alpha = torch.nn.functional.softplus(self.gate_module.cutoff_alpha).item()
+            beta = torch.nn.functional.softplus(self.gate_module.steepness).item()
+            
+            # Calculate final weights [2N]
+            # w = sigmoid(beta * (z + alpha))
+            weights = torch.sigmoid(beta * (z_scores + alpha))
+            
+            # Move to CPU
+            z_cpu = z_scores.cpu().numpy()
+            w_cpu = weights.cpu().numpy()
+            
+            # 5. Prepare Labels (Normal vs Outlier)
+            N = self.y_data.shape[0]
+            labels = np.zeros(2 * N, dtype=int) # 0 = Normal
+            
+            if len(self.outlier_indices) > 0:
+                # Mark outlier indices (both u and v components)
+                # idx i corresponds to 2*i and 2*i+1 in flattened array
+                outlier_idx_u = self.outlier_indices * 2
+                outlier_idx_v = self.outlier_indices * 2 + 1
+                labels[outlier_idx_u] = 1 # 1 = Outlier
+                labels[outlier_idx_v] = 1
+        
+        # --- PLOT 1: Sigmoid Decision Boundary ---
+        fig, ax = plt.subplots(figsize=(10, 6))
+        
+        # A. Plot Learned Sigmoid Curve
+        # Generate z range for smooth curve
+        z_grid = np.linspace(z_cpu.min() - 0.5, z_cpu.max() + 0.5, 500)
+        w_curve = 1.0 / (1.0 + np.exp(-beta * (z_grid + alpha)))
+        
+        ax.plot(z_grid, w_curve, 'k--', linewidth=2, label=f'Learned Gate (α={alpha:.2f}, β={beta:.2f})')
+        
+        # B. Scatter Data Points
+        # Normal Points (Green)
+        mask_norm = (labels == 0)
+        ax.scatter(z_cpu[mask_norm], w_cpu[mask_norm], c='green', alpha=0.3, s=10, label='Normal')
+        
+        # Outlier Points (Red)
+        mask_out = (labels == 1)
+        ax.scatter(z_cpu[mask_out], w_cpu[mask_out], c='red', alpha=0.6, s=15, label='Outlier')
+        
+        # Decorate
+        ax.axvline(-alpha, color='gray', linestyle=':', label='Cutoff Threshold')
+        ax.set_xlabel("Log-Likelihood Z-Score")
+        ax.set_ylabel("Assigned Weight (Probability of Validity)")
+        ax.set_title("Gate Optimization Result: Weights vs. Likelihood")
+        ax.legend(loc='lower right')
+        ax.grid(True, alpha=0.3)
+        
+        save_path = os.path.join(out_dir, f"{filename_prefix}_gate_sigmoid_analysis.png")
+        plt.savefig(save_path, dpi=150)
+        plt.close(fig)
+        
+        # --- PLOT 2: Confusion Matrix ---
+        # Classification Rule: Weight < 0.5 => REJECTED (Predicted Outlier)
+        #                      Weight >= 0.5 => ACCEPTED (Predicted Normal)
+        
+        # Map to standard Confusion Matrix format:
+        # Class 0: Negative (Normal Data)
+        # Class 1: Positive (Outlier Data)
+        
+        # Prediction: 1 if w < 0.5 (Rejected), 0 if w >= 0.5 (Accepted)
+        preds = (w_cpu < 0.5).astype(int)
+        
+        cm = confusion_matrix(labels, preds) 
+        # Structure of cm:
+        # [[TN, FP],
+        #  [FN, TP]]
+        # TN: Normal classified as Normal (Accepted)
+        # FP: Normal classified as Outlier (Rejected - False Alarm)
+        # FN: Outlier classified as Normal (Accepted - Missed Detection)
+        # TP: Outlier classified as Outlier (Rejected - Success)
+
+        fig, ax = plt.subplots(figsize=(6, 5))
+        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax,
+                    xticklabels=['Accepted (Normal)', 'Rejected (Outlier)'],
+                    yticklabels=['True Normal', 'True Outlier'])
+        ax.set_xlabel("Gate Prediction")
+        ax.set_ylabel("Ground Truth")
+        ax.set_title("Outlier Rejection Confusion Matrix")
+        
+        cm_path = os.path.join(out_dir, f"{filename_prefix}_gate_confusion_matrix.png")
+        plt.savefig(cm_path, dpi=150)
+        plt.close(fig)
+        
+        print(f"[Evaluate] Plots saved to {out_dir}")
+        return {
+            "gate/sigmoid": save_path,
+            "gate/confusion": cm_path
+        }

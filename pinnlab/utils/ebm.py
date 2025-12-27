@@ -59,17 +59,19 @@ class EBM(nn.Module):
         We use a symmetric interval [-R, R] where R is proportional to the
         max absolute residual in the batch, scaled by max_range_factor.
         """
-        res = res.view(-1)
-        if res.numel() == 0:
-            R = 1.0
-        else:
-            lb = (res.min() - 5*res.std()).detach()
-            ub = (res.max() + 5*res.std()).detach()   
-            # R = res.abs().max().item()
-            # if R <= 0:
-            #     R = 1.0
-        # R = self.max_range_factor * R
-        # grid = torch.linspace(-R, R, self.num_grid, device=self.device)
+        # res = res.view(-1)
+        # if res.numel() == 0:
+        #     R = 1.0
+        # else:
+        #     lb = (res.min() - 5*res.std()).detach()
+        #     ub = (res.max() + 5*res.std()).detach()   
+        #     # R = res.abs().max().item()
+        #     # if R <= 0:
+        #     #     R = 1.0
+        # # R = self.max_range_factor * R
+        # # grid = torch.linspace(-R, R, self.num_grid, device=self.device)
+        lb = -10
+        ub = 10
         grid = torch.linspace(lb, ub, self.num_grid, device=self.device)
         return grid
 
