@@ -419,7 +419,8 @@ class Burgers2D(BaseExperiment):
                 batch_std = residual.std()
                 currend_std_clamped = torch.clamp(batch_std, min=1e-6, max=self.running_std * 10)
                 self.running_std.mul(1 - self.momentum).add_(currend_std_clamped * self.momentum)
-            nll_ebm, nll_ebm_mean = self.ebm.train_step(residual.detach(), self.running_std)
+            residual_scaled = residual / self.running_std
+            nll_ebm, nll_ebm_mean = self.ebm.train_step(residual_scaled.detach())
 
     def pde_residual_loss(self, model, batch):
         X = make_leaf(batch["X_f"]) # [N, 3]
@@ -498,6 +499,9 @@ class Burgers2D(BaseExperiment):
                 # If running_std is 1.0, don't let batch_std force it to 100.0 instantly.
                 current_std_clamped = torch.clamp(batch_std, min=1e-6, max=self.running_std * 10)
                 self.running_std.mul_(1 - self.momentum).add_(current_std_clamped * self.momentum)
+            
+        # Standardized residuals for the EBM
+        residual_scaled = residual / self.running_std
         
         if self.ebm_kind == "1D":
             data_loss_value = data_loss_value.view(-1, 1) # [2*N, 1]
@@ -506,12 +510,12 @@ class Burgers2D(BaseExperiment):
         if phase == 0: # Train EBM only
             if self.ebm is not None:
                 # TRAIN on SCALED residuals
-                nll_ebm, nll_ebm_mean = self.ebm.train_step(residual.detach(), self.running_std)
+                nll_ebm, nll_ebm_mean = self.ebm.train_step(residual_scaled.detach())
                 batch["ebm_nll"] = nll_ebm_mean
                 
                 if self.use_data_loss_balancer:
                     # Query weights using SCALED residuals
-                    w, gate_reg_loss = self._get_weights(residual.detach())
+                    w, gate_reg_loss = self._get_weights(residual_scaled.detach())
                     weighted_loss = (w * data_loss_value).mean()
                     total_loss = weighted_loss + gate_reg_loss
                 else:
@@ -524,14 +528,14 @@ class Burgers2D(BaseExperiment):
         elif phase == 2: # PINN + EBM Weighted
             if self.ebm is not None:
                 # TRAIN on SCALED residuals
-                nll_ebm, nll_ebm_mean = self.ebm.train_step(residual.detach(), self.running_std)
+                nll_ebm, nll_ebm_mean = self.ebm.train_step(residual_scaled.detach())
                 batch["ebm_nll"] = nll_ebm_mean
                 
                 loss_metric = nll_ebm if self.use_nll else data_loss_value
                 
                 if self.use_data_loss_balancer:
                     # Query weights using SCALED residuals
-                    w, gate_reg_loss = self._get_weights(residual.detach())
+                    w, gate_reg_loss = self._get_weights(residual_scaled.detach())
                     weighted_loss = (w * loss_metric).mean()
                     total_loss = weighted_loss + gate_reg_loss
                 else:
@@ -555,7 +559,7 @@ class Burgers2D(BaseExperiment):
             return self.weight_net(residual), torch.tensor(0.0, device=self.device)
         elif self.data_loss_balancer_kind == "gated_trainable" and self.ebm is not None:
             with torch.no_grad():
-                log_q = self.ebm(residual.detach(), self.running_std)
+                log_q = self.ebm(residual.detach())
             return self.gate_module(log_q)
         else:
             return self.ebm.data_weight(residual, kind=self.data_loss_balancer_kind), torch.tensor(0.0, device=self.device)
@@ -717,7 +721,7 @@ class Burgers2D(BaseExperiment):
         ref_std = self.running_std.item()
         
         # 2. Determine Plotting Range (Visuals Only)
-        R_range = ref_std * 5.0 
+        R_range = ref_std * 5.0
         
         # --- EBM PDF Generation ---
         # Grid in ORIGINAL (raw) residual space
@@ -725,19 +729,22 @@ class Burgers2D(BaseExperiment):
         r_grid_torch = torch.from_numpy(r_grid_np).to(self.device).view(-1, 1)
 
         pdf_ebm = None
-        with torch.no_grad():   
+        with torch.no_grad():
+            # SCALE using the EMA running_std
+            r_input_scaled = r_grid_torch / ref_std
+            
             # Get unnormalized log-density
-            log_q = self.ebm(r_grid_torch, ref_std).flatten() # [200]
+            log_q = self.ebm(r_input_scaled).flatten() # [200]
             log_q = log_q - log_q.max()
             q_unn = torch.exp(log_q)
             
             # Normalize PDF over the ORIGINAL grid range (r_grid_np)
             # This automatically accounts for the Jacobian 1/sigma scaling
-            r_grid_scaled = r_grid_torch / ref_std
-            Z = torch.trapezoid(q_unn, r_grid_scaled.flatten())
+            Z = torch.trapezoid(q_unn, r_input_scaled.flatten())
             pdf_ebm = (q_unn / (Z + 1e-12)).cpu().numpy()
 
         # 3. Pre-calculate True PDF (1D)
+        r_grid_np = r_grid_np / ref_std
         r_cpu = torch.from_numpy(r_grid_np)
         pdf_true = self.noise_model.pdf(r_cpu)
 
@@ -852,12 +859,11 @@ class Burgers2D(BaseExperiment):
             # In flattened array [u0, v0, u1, v1...], outlier i affects 2*i and 2*i+1.
             res_flat = residual.view(-1, 1)
             
-            # 2. Adaptive Standardization (Global Stats)
-            scale_factor = self.running_std.item()
-            res_scaled = res_flat / scale_factor
+            # 2. Standardization
+            res_scaled = res_flat / self.running_std
             
             # 3. Get EBM Log-Likelihoods (Energy)
-            log_q = self.ebm(res_flat, scale_factor).squeeze(-1) # [2N]
+            log_q = self.ebm(res_scaled).squeeze(-1) # [2N]
             
             # 4. Get Gate Weights & Z-scores
             # We access gate internals to reproduce the Z-score logic for plotting

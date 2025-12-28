@@ -43,13 +43,12 @@ class EBM(nn.Module):
         
         print("[EBM] Initialized 1D EBM")
 
-    def forward(self, r: torch.Tensor, std) -> torch.Tensor:
+    def forward(self, r: torch.Tensor) -> torch.Tensor:
         """Return unnormalized log-density log q_theta(r).
 
         r: tensor of shape [..., 1] or [...]
         returns: same shape as r (broadcasted), containing log q_theta(r)
         """
-        r = r / std
             
         return self.net(r)
 
@@ -76,7 +75,7 @@ class EBM(nn.Module):
         grid = torch.linspace(lb, ub, self.num_grid, device=self.device)
         return grid
 
-    def mean_nll(self, res: torch.Tensor, std) -> torch.Tensor:
+    def mean_nll(self, res: torch.Tensor) -> torch.Tensor:
         """Approximate mean negative log-likelihood of residuals.
 
         NLL(r) = -log q_theta(r) + log Z_theta
@@ -84,16 +83,15 @@ class EBM(nn.Module):
         1D trapezoidal integration on a grid.
         """
         res = res.detach().to(device=self.device, dtype=torch.float32).view(-1, 1)
-        res_scaled = res / std
 
         # partition term log Z
-        grid = self._make_grid(res_scaled)
+        grid = self._make_grid(res)
         grid_input = grid.unsqueeze(-1)  # [G,1]
-        log_q_grid = self.forward(grid_input, std).squeeze(-1)
+        log_q_grid = self.forward(grid_input).squeeze(-1)
         m = log_q_grid.max()
         buf_Z = torch.exp(log_q_grid - m).squeeze()
         # data term: -log q_theta(r)
-        buf_res = self.forward(res, std).squeeze(-1) # [N]
+        buf_res = self.forward(res).squeeze(-1) # [N]
         
         Nres = res.shape[0]
         Z = torch.trapezoid(buf_Z, grid)
@@ -106,13 +104,13 @@ class EBM(nn.Module):
         # nll_mean = nll.mean()
         return nll, nll_mean
 
-    def train_step(self, res: torch.Tensor, std) -> torch.Tensor:
+    def train_step(self, res: torch.Tensor) -> torch.Tensor:
         """Perform one optimization step on a batch of residuals.
 
         Returns detached scalar NLL value (for logging).
         """
         self.train()
-        nll, nll_mean = self.mean_nll(res, std)
+        nll, nll_mean = self.mean_nll(res)
         self.optimizer.zero_grad()
         nll_mean.backward()
         self.optimizer.step()
