@@ -104,7 +104,7 @@ def render_noise_worker(args):
      R_range, extent) = args
 
     fig, axes = plt.subplots(2, 2, figsize=(12, 10), dpi=100)
-    plt.suptitle(f"Noise Distribution Analysis haha.. | t={t_val:.3f}", y=0.96, fontsize=14)
+    plt.suptitle(f"Noise Distribution Analysis hahaha.. | t={t_val:.3f}", y=0.96, fontsize=14)
 
     cmap = 'coolwarm' 
     vm = R_range
@@ -337,7 +337,7 @@ class Burgers2D(BaseExperiment):
         if mean_level == 0: mean_level = 1.0
 
         # Heteroscedastic scaling
-        sigma_local = alpha * y_clean.abs() + beta * mean_level
+        self.sigma_local = alpha * y_clean.abs() + beta * mean_level
         
         # Base Noise
         kind = self.noise_cfg.get("kind", "G")
@@ -349,7 +349,7 @@ class Burgers2D(BaseExperiment):
             z_flat = self.noise_model.sample(n * 2).float().to(self.device)
             z = z_flat.view(n, 2)
             
-        eps = z * sigma_local
+        eps = z * self.sigma_local
         
         # Initialize indices list
         self.outlier_indices = []
@@ -718,35 +718,50 @@ class Burgers2D(BaseExperiment):
         
         # 1. Get the "Lens" the EBM uses (EMA Std)
         # This guarantees the plot matches the training logic exactly.
-        ref_std = self.running_std.item()
+        ref_std = float(self.running_std.item())
         
         # 2. Determine Plotting Range (Visuals Only)
-        R_range = ref_std * 5.0
+        R_range = 1 # ref_std * 5.0
+        
+        # r = torch.linspace(-R_range, R_range, 200, device=self.device).view(-1, 1)
+
+        # with torch.no_grad():
+        #     s = r / ref_std                      # EBM이 학습한 입력공간(scaled residual)
+        #     log_q = self.ebm(s).squeeze(-1)      # log q_theta(s)
+        #     m = log_q.max()
+        #     q_unn = torch.exp(log_q - m)         # unnormalized in r-grid (up to constant)
+        #     Z = torch.trapezoid(q_unn, r.squeeze()) + 1e-12
+        #     pdf_ebm = (q_unn / Z).cpu().numpy()
+
+        # r_grid_np = r.squeeze().cpu().numpy()
         
         # --- EBM PDF Generation ---
         # Grid in ORIGINAL (raw) residual space
         r_grid_np = np.linspace(-R_range, R_range, 200).astype(np.float32)
         r_grid_torch = torch.from_numpy(r_grid_np).to(self.device).view(-1, 1)
-
+        
         pdf_ebm = None
         with torch.no_grad():
             # SCALE using the EMA running_std
             r_input_scaled = r_grid_torch / ref_std
-            
+
+            # grid = self.ebm.make_grid(r_input_scaled, num_grid=200)
+            # grid_input = grid.unsqueeze(-1)
             # Get unnormalized log-density
-            log_q = self.ebm(r_input_scaled).flatten() # [200]
-            log_q = log_q - log_q.max()
-            q_unn = torch.exp(log_q)
+            log_q = self.ebm(r_input_scaled).squeeze(-1) # [200]
+            m = log_q.max()
+            q_unn = torch.exp(log_q - m)
             
             # Normalize PDF over the ORIGINAL grid range (r_grid_np)
             # This automatically accounts for the Jacobian 1/sigma scaling
-            Z = torch.trapezoid(q_unn, r_input_scaled.flatten())
-            pdf_ebm = (q_unn / (Z + 1e-12)).cpu().numpy()
+            Z = torch.trapezoid(q_unn, r_grid_torch.squeeze())
+            pdf_ebm = (q_unn / Z).cpu().numpy()
 
         # 3. Pre-calculate True PDF (1D)
-        r_grid_np = r_grid_np / ref_std
         r_cpu = torch.from_numpy(r_grid_np)
-        pdf_true = self.noise_model.pdf(r_cpu)
+        noise_scale = self.sigma_local.mean().item()
+        print("Average noise scale:", noise_scale)
+        pdf_true = (self.noise_model.pdf(r_cpu / noise_scale) / noise_scale).numpy()
 
         render_args_list = []
         
@@ -785,12 +800,6 @@ class Burgers2D(BaseExperiment):
                 res_u = u_noisy - u_pred
                 res_v = v_noisy - v_pred
                 
-                # standardization
-                eps_u = eps_u / (ref_std + 1e-8)
-                eps_v = eps_v / (ref_std + 1e-8)
-                res_u = res_u / (ref_std + 1e-8)
-                res_v = res_v / (ref_std + 1e-8)
-                
                 # C. Prepare Data for Worker
                 eps_u_grid = eps_u.view(ny, nx).cpu().numpy()
                 res_u_grid = res_u.view(ny, nx).cpu().numpy()
@@ -813,6 +822,18 @@ class Burgers2D(BaseExperiment):
                     R_range, self.extent
                 )
                 render_args_list.append(args)
+
+        # eps_true = (self.y_data - self.y_clean).view(-1)
+        # print("eps_true std:", eps_true.std().item())
+        
+        # with torch.no_grad():
+        #     res = (self.y_data - model(self.X_data)).view(-1)
+        # print("res std:", res.std().item())
+        # print("running_std:", self.running_std.item())
+        # print("res_scaled std:", (res / self.running_std).std().item())
+        
+        # z = self.noise_model.sample(100000).float()
+        # print("z std:", z.std().item())
 
         # 4. Render
         n_workers = max(1, os.cpu_count() - 2)

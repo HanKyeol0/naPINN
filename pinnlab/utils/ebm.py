@@ -53,7 +53,7 @@ class EBM(nn.Module):
         return self.net(r)
 
     @torch.no_grad()
-    def _make_grid(self, res: torch.Tensor) -> torch.Tensor:
+    def make_grid(self, res: torch.Tensor, num_grid=None) -> torch.Tensor:
         """Make an integration grid based on residual range.
 
         We use a symmetric interval [-R, R] where R is proportional to the
@@ -72,7 +72,9 @@ class EBM(nn.Module):
         # # grid = torch.linspace(-R, R, self.num_grid, device=self.device)
         lb = -10
         ub = 10
-        grid = torch.linspace(lb, ub, self.num_grid, device=self.device)
+        if num_grid is None:
+            num_grid = self.num_grid
+        grid = torch.linspace(lb, ub, num_grid, device=self.device)
         return grid
 
     def mean_nll(self, res: torch.Tensor) -> torch.Tensor:
@@ -85,7 +87,7 @@ class EBM(nn.Module):
         res = res.detach().to(device=self.device, dtype=torch.float32).view(-1, 1)
 
         # partition term log Z
-        grid = self._make_grid(res)
+        grid = self.make_grid(res)
         grid_input = grid.unsqueeze(-1)  # [G,1]
         log_q_grid = self.forward(grid_input).squeeze(-1)
         m = log_q_grid.max()
@@ -97,7 +99,7 @@ class EBM(nn.Module):
         Z = torch.trapezoid(buf_Z, grid)
         nll = (-buf_res + torch.log(Z) + m) / Nres
         J = -torch.sum(buf_res) + Nres * torch.log(Z) + Nres * m
-        nll_mean = J/Nres
+        nll_mean = nll.mean()
         # logZ = torch.log(Z + 1e-12) + m
 
         # nll = -log_q_res + logZ
@@ -307,7 +309,7 @@ class EBM2D(nn.Module):
         return self.net(r)
 
     @torch.no_grad()
-    def _make_grid(self, res: torch.Tensor) -> torch.Tensor:
+    def make_grid(self, res: torch.Tensor) -> torch.Tensor:
         """Make an integration grid based on residual range.
 
         We use a symmetric interval [-R, R] where R is proportional to the
@@ -324,7 +326,7 @@ class EBM2D(nn.Module):
         grid = torch.linspace(-R, R, self.num_grid, device=self.device)
         return grid
 
-    def _make_grid_2d(self, res: torch.Tensor, grid_size: int = 128) -> tuple[torch.Tensor, float]:
+    def make_grid_2d(self, res: torch.Tensor, grid_size: int = 128) -> tuple[torch.Tensor, float]:
         """
         Creates a 2D grid for integration.
         Uses Robust Statistics (std dev) to ignore outliers when determining the grid range.
@@ -376,7 +378,7 @@ class EBM2D(nn.Module):
         
         # 2. Estimate Partition Function Z via 2D Integration
         # Increased grid_size from 80 -> 128 for better resolution on fine features
-        grid_flat, cell_area = self._make_grid_2d(res, grid_size=128) 
+        grid_flat, cell_area = self.make_grid_2d(res, grid_size=128) 
         
         log_q_grid = self.forward(grid_flat).squeeze(-1) # [GridSize^2]
         
