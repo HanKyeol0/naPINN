@@ -257,7 +257,8 @@ class Burgers2D(BaseExperiment):
         
         self.gate_module = None
         if self.data_loss_balancer_kind == "gated_trainable":
-            self.gate_module = TrainableLikelihoodGate(device=device)
+            self.rejection_cost = float(data_lb_cfg.get("rejection_cost", 0.5))
+            self.gate_module = TrainableLikelihoodGate(device=device, rejection_cost=self.rejection_cost)
         
         self.weight_net = None
         if self.use_data_loss_balancer and self.data_loss_balancer_kind == "mlp":
@@ -538,7 +539,7 @@ class Burgers2D(BaseExperiment):
                     # Query weights using SCALED residuals
                     w, gate_reg_loss = self._get_weights(residual_scaled.detach())
                     weighted_loss = (w * loss_metric).mean()
-                    total_loss = weighted_loss # + gate_reg_loss
+                    total_loss = weighted_loss + gate_reg_loss
                 else:
                     total_loss = loss_metric.mean()
                 return total_loss

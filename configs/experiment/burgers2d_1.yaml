@@ -25,8 +25,8 @@ n_measurement: 5000
 
 # experiment
 
-tag: 1-1_naPINN_5-2
-description: PDE residual loss에서 PDE_loss_on_data를 제외 + EBM standardization via EMA update
+tag: 1-1_naPINN_5-10
+description: used rejection cost
 device: cuda
 
 batch:
@@ -73,6 +73,7 @@ data_loss:
 data_loss_balancer:
   use_loss_balancer: true # true / false
   kind: gated_trainable # pw, inverse, mlp, gated, gated_trainable
+  rejection_cost: 0.5 # only for gated_trainable
   weight_net:
     hidden_dim: 32
     depth: 3

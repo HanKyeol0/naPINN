@@ -133,12 +133,15 @@ class n_G(Noise):
     
     def init_pars(self, pars):
         if pars == 0:
-            pars = [0,2.5]      
+            pars = [0,1]
         else:
             pars = []
             pars.append(5*(torch.rand(1)-1).item()) #mu
             pars.append(4*torch.abs(torch.rand(1)).item()) #sig
         return pars
+    
+    def __str__(self):
+        return f'Gaussian Noise (mu={self.mu}, sig={self.sig})'
     
 class n_sG(Noise):
     #skewed Gaussian noise
