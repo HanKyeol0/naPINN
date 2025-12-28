@@ -40,25 +40,33 @@ def main(args):
 
     exp = get_experiment(args.experiment_name)(exp_cfg, device)
     model = get_model(args.model_name)(model_cfg).to(device)
+    
     checkpoint_path = os.path.join(folder_path, "best.pt")
     ckpt = torch.load(checkpoint_path, map_location=device)
-    exp_extra = ckpt.pop("_exp_extra", None)
-    model.load_state_dict(ckpt)
-    if hasattr(exp, "extra_params"):
-        # Get list of trainable params currently in the experiment object
-        current_exp_params = list(exp.extra_params())
-            
-        if exp_extra is not None:
-            if len(current_exp_params) != len(exp_extra):
-                print(f"Warning: Mismatch in extra params. Exp expects {len(current_exp_params)}, ckpt has {len(exp_extra)}.")
-            else:
-                print(f"Restoring {len(exp_extra)} experiment parameters (Gate/Offset)...")
-                for param, saved_tensor in zip(current_exp_params, exp_extra):
-                    with torch.no_grad():
-                        # Copy saved data into the live parameter
-                        param.copy_(saved_tensor.to(device))
+    print(f"Loaded checkpoint from: {checkpoint_path}")
+    
+    # A. Load Model
+    if "model" in ckpt:
+        model.load_state_dict(ckpt["model"])
+    elif "model_state_dict" in ckpt:
+        model.load_state_dict(ckpt["model_state_dict"])
+    else:
+        # Fallback if the ckpt is just the state dict itself (rare but possible)
+        try:
+            model.load_state_dict(ckpt)
+        except:
+            print("Warning: Could not find model state dict in checkpoint.")
+
+    # B. Load Experiment State (running_std, EBM, Gate, Offset)
+    # This replaces the manual _exp_extra loop completely.
+    if hasattr(exp, "load_state_dict"):
+        if "experiment" in ckpt:
+            print("Restoring experiment state (EBM, Gate, Std)...")
+            exp.load_state_dict(ckpt["experiment"])
+        elif "experiment_state_dict" in ckpt:
+            exp.load_state_dict(ckpt["experiment_state_dict"])
         else:
-            print("Note: No extra parameters found in checkpoint.")
+            print("Warning: No experiment state found in checkpoint. EBM/Gate will use random init.")
 
     # --- EVALUATION BLOCK ---
     if do_evaluate:

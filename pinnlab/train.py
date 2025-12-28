@@ -19,6 +19,15 @@ def _save_yaml(path, obj):
     with open(path, "w", encoding="utf-8") as f:
         yaml.safe_dump(obj, f)
 
+def state_to_cpu(state):
+    if isinstance(state, torch.Tensor):
+        return state.detach().cpu()
+    elif isinstance(state, dict):
+        return {k: state_to_cpu(v) for k, v in state.items()}
+    elif isinstance(state, list):
+        return [state_to_cpu(v) for v in state]
+    return state
+
 def main(args):
     base_cfg = load_yaml(args.common_config)
     model_cfg = load_yaml(args.model_config)
@@ -39,13 +48,6 @@ def main(args):
     
     exp = get_experiment(args.experiment_name)(exp_cfg, device)
     model = get_model(args.model_name)(model_cfg).to(device)
-    
-    # Experiment-specific trainable parameters (e.g., θ0 offset)
-    if hasattr(exp, "extra_params"):
-        exp_extra_params = list(exp.extra_params())
-    else:
-        exp_extra_params = []
-    # Logging dir
     
     tag = exp_cfg.get("tag", None)
     if tag:
@@ -76,10 +78,10 @@ def main(args):
 
     # Optimizer
     params = list(model.parameters())
-    if exp_extra_params:
-        params += exp_extra_params
+    if hasattr(exp, "extra_params"):
+        params += list(exp.extra_params())
     if use_loss_balancer:
-       params += list(balancer.extra_params())  # no-op for other schemes
+        params += list(balancer.extra_params())
 
     opt_cfg = base_cfg["train"]["optimizer"]
     if opt_cfg["name"].lower() == "adam":
@@ -118,7 +120,8 @@ def main(args):
     early = EarlyStopping(patience=es_cfg["patience"], min_delta=es_cfg["min_delta"], eval_every=eval_every) if es_cfg["enabled"] else None
     best_state = None
     best_metric = float("inf")
-    best_extra_state = None  # for experiment-specific params (e.g., θ0)
+    best_model_state = None
+    best_exp_state = None
 
     w_res = base_cfg["train"]["loss_weights"]["res"]
     w_data = base_cfg["train"]["loss_weights"]["data"]
@@ -231,17 +234,31 @@ def main(args):
             best_path = os.path.join(out_dir, "best.pt")
             if rel_l2 < (best_metric - es_cfg.get("min_delta", 0.0)):
                 best_metric = rel_l2
+                
+                best_model_state = state_to_cpu(model.state_dict())
                 best_state = {k: v.clone() for k, v in model.state_dict().items()}
+                
+                if hasattr(exp, "state_dict"):
+                    best_exp_state = state_to_cpu(exp.state_dict())
 
-                # snapshot experiment-specific parameters (e.g., θ0)
-                if exp_extra_params:
-                    best_extra_state = [p.detach().clone() for p in exp_extra_params]
-
-                # Save checkpoint (model + optionally experiment extras)
-                save_dict = {k: v.detach().cpu() for k, v in best_state.items()}
-                if exp_extra_params:
-                    save_dict["_exp_extra"] = [p.detach().cpu() for p in exp_extra_params]
+                # Save checkpoint with structured dict
+                save_dict = {
+                    "model": best_model_state,
+                }
+                if best_exp_state is not None:
+                    save_dict["experiment"] = best_exp_state
+                
                 torch.save(save_dict, best_path)
+
+            if early and early.step(rel_l2):
+                print(f"\n[EarlyStopping] Stopping at epoch {ep}. Best rel_l2={best_metric:.3e}")
+                break
+            
+        if enable_video and (ep % make_video_every == 0 and ep > 0):
+            print(f"Making video...")
+            vid_grid = exp_cfg.get("video", {}).get("grid", base_cfg["eval"]["grid"])
+            fps      = exp_cfg.get("video", {}).get("fps", 10)
+            out_fmt  = exp_cfg.get("video", {}).get("format", "mp4")  # "mp4" or "gif"
 
             if early and early.step(rel_l2):
                 print(f"\n[EarlyStopping] Stopping at epoch {ep}. Best rel_l2={best_metric:.3e}")
@@ -334,6 +351,8 @@ def main(args):
                 "perf/elapsed_sec": elapsed_s if elapsed_s is not None else 0.0,
                 **gpu_now,
             }
+            if hasattr(exp, "running_std"):
+                log_payload["running_std"] = float(exp.running_std.detach().cpu())
             wandb_log(log_payload, commit=True)
             pbar2.set_postfix({k: f"{v:.3e}" for k,v in log_payload.items() if "loss" in k})
             global_step += 1
@@ -347,16 +366,14 @@ def main(args):
                 best_path = os.path.join(out_dir, "best.pt")
                 if rel_l2 < (best_metric - es_cfg.get("min_delta", 0.0)):
                     best_metric = rel_l2
-                    best_state = {k: v.clone() for k, v in model.state_dict().items()}
                     
-                    # snapshot experiment-specific parameters (e.g., θ0)
-                    if exp_extra_params:
-                        best_extra_state = [p.detach().clone() for p in exp_extra_params]
+                    best_model_state = state_to_cpu(model.state_dict())
+                    if hasattr(exp, "state_dict"):
+                        best_exp_state = state_to_cpu(exp.state_dict())
                     
-                    # Save checkpoint (model + optionally experiment extras)
-                    save_dict = {k: v.detach().cpu() for k, v in best_state.items()}
-                    if exp_extra_params:
-                        save_dict["_exp_extra"] = [p.detach().cpu() for p in exp_extra_params]
+                    save_dict = {"model": best_model_state}
+                    if best_exp_state is not None:
+                        save_dict["experiment"] = best_exp_state
                     torch.save(save_dict, best_path)
                 
                 if early and early.step(rel_l2):
@@ -418,11 +435,12 @@ def main(args):
 
     # Restore best
     if best_state:
+        print("[Restore] Loading best model state...")
         model.load_state_dict(best_state)
         # Restore experiment-specific parameters (e.g., θ0) if we stored them
-        if best_extra_state is not None and exp_extra_params:
-            for p, best_p in zip(exp_extra_params, best_extra_state):
-                p.data.copy_(best_p.to(p.device))
+        if best_exp_state and hasattr(exp, "load_state_dict"):
+            print("[Restore] Loading best experiment state (running_std, EBM, etc)...")
+            exp.load_state_dict(best_exp_state)
 
     # Final evaluation & plots
     model.eval()
