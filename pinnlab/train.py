@@ -220,6 +220,8 @@ def main(args):
             "perf/elapsed_sec": elapsed_s if elapsed_s is not None else 0.0,
             **gpu_now,
         }
+        if hasattr(exp, "nu") and isinstance(exp.nu, torch.nn.Parameter):
+            log_payload["pde/nu"] = float(exp.nu.detach().cpu())
         wandb_log(log_payload, commit=True)
         pbar1.set_postfix({k: f"{v:.3e}" for k,v in log_payload.items() if "loss" in k})
         global_step += 1
@@ -353,6 +355,11 @@ def main(args):
             }
             if hasattr(exp, "running_std"):
                 log_payload["running_std"] = float(exp.running_std.detach().cpu())
+            if hasattr(exp, "nu") and isinstance(exp.nu, torch.nn.Parameter):
+                log_payload["pde/nu"] = float(exp.nu.detach().cpu())
+            if hasattr(exp, "gate_module"):
+                log_payload["gate/cutoff"] = float(exp.gate_module.cutoff_alpha.detach().cpu())
+                log_payload["gate/steepness"]  = float(exp.gate_module.steepness.detach().cpu())
             wandb_log(log_payload, commit=True)
             pbar2.set_postfix({k: f"{v:.3e}" for k,v in log_payload.items() if "loss" in k})
             global_step += 1

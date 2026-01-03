@@ -176,7 +176,16 @@ class Burgers2D(BaseExperiment):
         print(f"[Burgers2D] Loading data from {data_path}")
         raw_data = np.load(data_path)
         
-        self.nu = float(raw_data['viscosity'])
+        pde_cfg = cfg.get("pde", {}) or {}
+        self.learn_nu = pde_cfg.get("learn_nu", True)
+        self.true_nu = float(raw_data['viscosity'])
+        if self.learn_nu:
+            init_nu = float(pde_cfg.get("init_nu", 0.0))
+            print(f"[Burgers2D] PDE Parameter nu is TRAINABLE. Init: {init_nu}, True: {self.true_nu}")
+            self.nu = torch.nn.Parameter(torch.tensor(init_nu, dtype=torch.float32, device=device))
+        else:
+            print(f"[Burgers2D] PDE Parameter nu is FIXED. Value: {self.true_nu}")
+            self.nu = self.true_nu # Float
         
         # 1. Collocation Points
         self.X_f_all = torch.from_numpy(raw_data['X_f']).float().to(device) # [N_f, 3] (x, y, t)
@@ -286,6 +295,8 @@ class Burgers2D(BaseExperiment):
             'running_std': self.running_std,
             'offset': self.offset,
         }
+        if self.learn_nu:
+            state['nu'] = self.nu
         
         # Save EBM state if it exists
         if self.ebm is not None:
@@ -313,6 +324,11 @@ class Burgers2D(BaseExperiment):
         if 'offset' in state_dict and self.offset is not None:
             with torch.no_grad():
                 self.offset.copy_(state_dict['offset'].to(self.device))
+                
+        if 'nu' in state_dict and self.learn_nu:
+            with torch.no_grad():
+                self.nu.copy_(state_dict['nu'].to(self.device))
+                print(f"[Burgers2D] Loaded learned nu: {self.nu.item():.6f}")
                 
         if 'ebm' in state_dict and self.ebm is not None:
             self.ebm.load_state_dict(state_dict['ebm'])
@@ -568,6 +584,8 @@ class Burgers2D(BaseExperiment):
         params = []
         if isinstance(getattr(self, "offset", None), torch.nn.Parameter):
             params.append(self.offset)
+        if isinstance(self.nu, torch.nn.Parameter):
+            params.append(self.nu)
         if getattr(self, "weight_net", None) is not None:
             params.extend(list(self.weight_net.parameters()))
         if getattr(self, "gate_module", None) is not None:

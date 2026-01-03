@@ -9,7 +9,10 @@ domain:
   burn_in_time: 0.1
   record_time: 1.0
 
-nu: 0.01      # Viscosity
+pde:
+  learn_nu: true # true / false
+  init_nu: 0.0
+  nu: 0.01      # Viscosity
 
 # simulation
 simulation_tag: "Burgers2D_1_1"
@@ -25,8 +28,8 @@ n_measurement: 5000
 
 # experiment
 
-tag: 1-1_vaPINN_5-17
-description: 3G, outlier scale (30-100), 500 points
+tag: 1-1_naPINN_6
+description: G, outlier scale (30-100), 500 points, non-trainable nu
 device: cuda
 
 batch:
@@ -35,7 +38,7 @@ batch:
 noise:
   enabled: true
   batch_size: 2000
-  kind: 3G # G, Goff, sG, u, 3G, 3G0, mix0, Gmix, rmix, sGtest
+  kind: G # G, Goff, sG, u, 3G, 3G0, mix0, Gmix, rmix, sGtest
   
   scale: 0.1 # not used in the recent version
   # relative_scale: 0.20  # 20% relative error proportional to velocity
@@ -44,12 +47,12 @@ noise:
   extra_noise:
     enabled: true
     n_points: 500
-    scale_min: 30.0
+    scale_min: 30.0 
     scale_max: 100.0
 
 # phase
 phase:
-  enabled: false # true / false
+  enabled: true # true / false
   phase1_epochs: 10000
   phase2_epochs: 30000
 
@@ -71,7 +74,7 @@ data_loss:
   beta: null
 
 data_loss_balancer:
-  use_loss_balancer: false # true / false
+  use_loss_balancer: true # true / false
   kind: gated_trainable # pw, inverse, mlp, gated, gated_trainable
   rejection_cost: 0.5 # only for gated_trainable
   weight_net:
