@@ -8,50 +8,53 @@ domain:
   x: [0.0, 2.0]
   y: [0.0, 2.0]
   t: [0.0, 2.0]
-eps: 0.01
-omega: 8.0
 in_features: 3
 out_features: 1
+
+pde:
+  learn_eps: true # true / false
+  omega: 8.0
+  init_eps: 0.0
+  eps: 0.01
 
 # sampling
 sampling_mode: grid # random / grid
 grid:
   nx: 120
   ny: 120
-  nt: 80
+  nt: 100
 batch:
   n_f: 4096
-  n_b: 1024
-  n_0: 1024
 
 # noise
 noise:
   enabled: true
   n_train: 5000
-  batch_size: 1000
+  batch_size: 5000
   kind: G # G, Goff, sG, u, 3G, 3G0, mix0, Gmix, rmix, sGtest
   scale: 0.1 # default: 0.1
 
   extra_noise:
     enabled: true
-    n_points: 1000
+    n_points: 500
     scale_min: 10.0
-    scale_max: 30.0
+    scale_max: 50.0
 
 # phase
 phase:
   enabled: true # true / false
   phase1_epochs: 10000
-  phase2_epochs: 40000
+  phase2_epochs: 30000
 
 ebm:
   enabled: true
   hidden_dim: 32
-  depth: 3
-  num_grid: 256
+  depth: 4
+  num_grid: 1024
   max_range_factor: 2.5
   lr: 1.0e-3
   use_nll: false
+  init_train_epochs: 5000
 
 data_loss:
   kind: mse # mse, L1, q_gaussian
@@ -61,7 +64,7 @@ data_loss:
 
 data_loss_balancer:
   use_loss_balancer: true # true / false
-  kind: gated # pw, inverse, mlp, gated, gated_trainable
+  kind: gated_trainable # pw, inverse, mlp, gated, gated_trainable
   weight_net:
     hidden_dim: 32
     depth: 3
@@ -77,6 +80,6 @@ video:
   grid:
     nx: 120
     ny: 120
-    nt: 80
+    nt: 120
   fps: 10
   format: mp4

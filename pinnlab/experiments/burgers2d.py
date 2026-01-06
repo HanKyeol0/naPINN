@@ -297,6 +297,9 @@ class Burgers2D(BaseExperiment):
         }
         if self.learn_nu:
             state['nu'] = self.nu
+            
+        if self.use_offset and self.offset is not None:
+            state['offset'] = self.offset
         
         # Save EBM state if it exists
         if self.ebm is not None:
@@ -459,28 +462,28 @@ class Burgers2D(BaseExperiment):
         
         loss = res_u.pow(2).mean() + res_v.pow(2).mean()
         
-        X = make_leaf(batch["X_d"])
-        out = model(X)
+        # X = make_leaf(batch["X_d"])
+        # out = model(X)
         
-        u, v = out[:, 0:1], out[:, 1:2]
+        # u, v = out[:, 0:1], out[:, 1:2]
         
-        du = grad_sum(u, X)
-        dv = grad_sum(v, X)
-        u_x, u_y, u_t = du[:, 0:1], du[:, 1:2], du[:, 2:3]
-        v_x, v_y, v_t = dv[:, 0:1], dv[:, 1:2], dv[:, 2:3]
+        # du = grad_sum(u, X)
+        # dv = grad_sum(v, X)
+        # u_x, u_y, u_t = du[:, 0:1], du[:, 1:2], du[:, 2:3]
+        # v_x, v_y, v_t = dv[:, 0:1], dv[:, 1:2], dv[:, 2:3]
         
-        d2ux = grad_sum(u_x, X); d2uy = grad_sum(u_y, X)
-        u_xx, u_yy = d2ux[:, 0:1], d2uy[:, 1:2]
+        # d2ux = grad_sum(u_x, X); d2uy = grad_sum(u_y, X)
+        # u_xx, u_yy = d2ux[:, 0:1], d2uy[:, 1:2]
         
-        d2vx = grad_sum(v_x, X); d2vy = grad_sum(v_y, X)
-        v_xx, v_yy = d2vx[:, 0:1], d2vy[:, 1:2]
+        # d2vx = grad_sum(v_x, X); d2vy = grad_sum(v_y, X)
+        # v_xx, v_yy = d2vx[:, 0:1], d2vy[:, 1:2]
         
-        res_u = u_t + (u * u_x + v * u_y) - self.nu * (u_xx + u_yy)
-        res_v = v_t + (u * v_x + v * v_y) - self.nu * (v_xx + v_yy)
+        # res_u = u_t + (u * u_x + v * u_y) - self.nu * (u_xx + u_yy)
+        # res_v = v_t + (u * v_x + v * v_y) - self.nu * (v_xx + v_yy)
         
-        PDE_loss_on_data = res_u.pow(2).mean() + res_v.pow(2).mean()
+        # PDE_loss_on_data = res_u.pow(2).mean() + res_v.pow(2).mean()
         
-        loss = loss # + PDE_loss_on_data
+        # loss = loss + PDE_loss_on_data
         
         return loss
 
@@ -563,7 +566,7 @@ class Burgers2D(BaseExperiment):
     def _data_loss(self, residual):
         if self.data_loss_kind == "mse":
             return data_loss_mse(residual)
-        elif self.data_loss_kind == "l1":
+        elif self.data_loss_kind == "L1":
             return data_loss_l1(residual)
         elif self.data_loss_kind == "q_gaussian":
             return data_loss_q_gaussian(residual, q=self.q_gauss_q, beta=self.q_gauss_beta)
@@ -840,18 +843,6 @@ class Burgers2D(BaseExperiment):
                     R_range, self.extent
                 )
                 render_args_list.append(args)
-
-        # eps_true = (self.y_data - self.y_clean).view(-1)
-        # print("eps_true std:", eps_true.std().item())
-        
-        # with torch.no_grad():
-        #     res = (self.y_data - model(self.X_data)).view(-1)
-        # print("res std:", res.std().item())
-        # print("running_std:", self.running_std.item())
-        # print("res_scaled std:", (res / self.running_std).std().item())
-        
-        # z = self.noise_model.sample(100000).float()
-        # print("z std:", z.std().item())
 
         # 4. Render
         n_workers = max(1, os.cpu_count() - 2)
