@@ -15,7 +15,8 @@ pde:
   nu: 0.01      # Viscosity
 
 # simulation
-simulation_tag: "Burgers2D_1_1"
+simulation_tag: "Burgers2D_1_2"
+description: fixed_grid measurement
 dir_path: pinnlab/simulation/simulation_result/
 
 simulation_points: # for evaluation
@@ -24,7 +25,12 @@ simulation_points: # for evaluation
   dt: 0.002
   every: 5  # Save simulation state every 5 steps
 
-n_measurement: 5000
+measurement:
+  measure_kind: fixed_grid # random / fixed_random / fixed_grid
+  n_measurement: 5000 # only for random
+  n_sensors: 100 # only for fixed_random
+  sensor_nx: 10 # only for fixed_grid
+  sensor_ny: 10 # only for fixed_grid
 
 # experiment
 
@@ -39,6 +45,7 @@ noise:
   enabled: true
   batch_size: 2000
   kind: G # G, Goff, sG, u, 3G, 3G0, mix0, Gmix, rmix, sGtest
+  pars
   
   scale: 0.1 # not used in the recent version
   # relative_scale: 0.20  # 20% relative error proportional to velocity
@@ -46,8 +53,9 @@ noise:
 
   extra_noise:
     enabled: true
+    kind: std  # 'std' or 'mean_level'
     n_points: 500
-    scale_min: 30.0 
+    scale_min: 50.0 
     scale_max: 100.0
 
 # phase

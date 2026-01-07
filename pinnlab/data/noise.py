@@ -133,7 +133,7 @@ class n_G(Noise):
     
     def init_pars(self, pars):
         if pars == 0:
-            pars = [0,1]
+            pars = [0,4]
         else:
             pars = []
             pars.append(5*(torch.rand(1)-1).item()) #mu

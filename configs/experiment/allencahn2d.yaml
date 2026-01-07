@@ -1,7 +1,7 @@
 # scripts/mlp/allencahn2d.sh
 # scripts/mlp/z_allencahn2d_fore.sh
 
-tag: naPINN_demo
+tag: b3_na # na / va / L1 / qG2 / qG3
 device: cuda
 
 domain:
@@ -14,31 +14,38 @@ out_features: 1
 pde:
   learn_eps: true # true / false
   omega: 8.0
-  init_eps: 0.0
-  eps: 0.01
+  init_eps: 1.0
+  eps: 0.3
 
 # sampling
 sampling_mode: grid # random / grid
 grid:
-  nx: 120
-  ny: 120
+  nx: 100
+  ny: 100
   nt: 100
 batch:
-  n_f: 4096
+  n_f: 4000
 
 # noise
 noise:
   enabled: true
   n_train: 5000
-  batch_size: 5000
+  batch_size: 1000
   kind: G # G, Goff, sG, u, 3G, 3G0, mix0, Gmix, rmix, sGtest
   scale: 0.1 # default: 0.1
+  pars: [0.0, 4.0]
+
+  sensor_mode: fixed_random # random / fixed_random / fixed_grid
+  n_sensors: 100 # only for fixed_random
+  sensor_nx: 10 # only for fixed_grid
+  sensor_ny: 10 # only for fixed_grid
 
   extra_noise:
     enabled: true
+    kind: std # 'std' or 'mean_level'
     n_points: 500
-    scale_min: 10.0
-    scale_max: 50.0
+    scale_min: 5.0
+    scale_max: 30.0
 
 # phase
 phase:
@@ -59,7 +66,7 @@ ebm:
 data_loss:
   kind: mse # mse, L1, q_gaussian
   # q-Gaussian settings
-  q: 1.2
+  q: 1.9 # 1.9 / 2.9
   beta: null
 
 data_loss_balancer:

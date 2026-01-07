@@ -81,6 +81,7 @@ class AllenCahn2D(BaseExperiment):
         noise_cfg = cfg.get("noise", None)
         self.use_data = bool(noise_cfg.get("enabled", False))
         self.noise_cfg = noise_cfg
+        self.noise_pars = noise_cfg.get("pars", 0)
         self.n_data_total = int(noise_cfg.get("n_train", 0))
         self.n_data_batch = int(
             noise_cfg.get("batch_size", 1000)
@@ -89,6 +90,7 @@ class AllenCahn2D(BaseExperiment):
         self.extra_noise_cfg = noise_cfg.get("extra_noise", {})
         self.use_extra_noise = bool(self.extra_noise_cfg.get("enabled", False))
         self.extra_noise_mask = None
+        self.outlier_kind = self.extra_noise_cfg.get("kind", "std")  # 'std' or 'mean_level'
         print(f"[AllenCahn2D] use_extra_noise = {self.use_extra_noise}")
         
         self.X_data = None
@@ -243,9 +245,42 @@ class AllenCahn2D(BaseExperiment):
         """
         kind = self.noise_cfg.get("kind", "3G")     # 'G', 'u', '3G', ...
         n = self.n_data_total
+        
+        sensor_mode = self.noise_cfg.get("sensor_mode", "random") # random / fixed_random / fixed_grid
+        
+        if sensor_mode == "random":
+            XY = self.rect.sample(n)
+            print("[AllenCahn2D] Sensor Mode: random")
+        elif sensor_mode == "fixed_random":
+            n_sensors = int(self.noise_cfg.get("n_sensors", 100))
+            print(f"[AllenCahn2D] Sensor Mode: fixed_random with {n_sensors} sensors")
+            
+            XY_sensors = self.rect.sample(n_sensors)  # [n_sensors, 2]
+            
+            idx_s = torch.randint(0, n_sensors, (n,), device=self.device)
+            XY = XY_sensors[idx_s]  # [n, 2]
+        elif sensor_mode == "fixed_grid":
+            snx = int(self.noise_cfg.get("sensor_nx", 10))
+            sny = int(self.noise_cfg.get("sensor_ny", 10))
+            print(f"[AllenCahn2D] Sensor Mode: fixed_grid with {snx}x{sny} sensors")
+            
+            # Define Grid
+            x_s = torch.linspace(self.rect.xa, self.rect.xb, snx, device=self.device)
+            y_s = torch.linspace(self.rect.ya, self.rect.yb, sny, device=self.device)
+            
+            # Create Meshgrid (indexing='ij' ensures x varies along rows, y along cols)
+            # We flatten them to list all sensor coordinates
+            ys_grid, xs_grid = torch.meshgrid(y_s, x_s, indexing='ij')
+            XY_sensors = torch.stack([xs_grid.flatten(), ys_grid.flatten()], dim=1) # [N_sensors, 2]
+            
+            # Sample data points
+            n_sensors = XY_sensors.shape[0]
+            idx_s = torch.randint(0, n_sensors, (n,), device=self.device)
+            XY = XY_sensors[idx_s]  # [n, 2]
+        else:
+            raise ValueError(f"Unknown sensor_mode: {sensor_mode}")
 
-        # Sample input locations
-        XY = self.rect.sample(n)  # [n, 2] in (x, y)
+        # Temporal sampling
         t = torch.rand(n, 1, device=self.device) * (self.t1 - self.t0) + self.t0
         X = torch.cat([XY, t], dim=1)  # [n, 3]
 
@@ -263,6 +298,7 @@ class AllenCahn2D(BaseExperiment):
         self.noise_model = get_noise(kind, f=1.0, pars=0)
         z = self.noise_model.sample(n).float().to(self.device, dtype=base_dtype).view(-1, 1)  # [n, 1]
         eps = z * self.sigma_local
+        noise_std = eps.std(unbiased=True).detach()
         
         # Outliers
         self.extra_noise_mask = torch.zeros(n, dtype=torch.bool)
@@ -277,12 +313,18 @@ class AllenCahn2D(BaseExperiment):
 
             # scale factor sampling for each noise point: scale factor ~ Uniform(scale_min, scale_max)
             factors = torch.empty(n_extra, 1, device=self.device, dtype=base_dtype).uniform_(scale_min, scale_max)
-            f_outlier = base_scale * mean_level
-
-            # amplitude_i in [scale_min * f, scale_max * f]
-            amp = factors * f_outlier
+            
+            if self.outlier_kind == "std":
+                amp = factors * noise_std
+            else: # "mean_level"
+                f_outlier = base_scale * mean_level
+                amp = factors * f_outlier
             signs = torch.randint(0, 2, amp.shape, device=self.device, dtype=amp.dtype) * 2 - 1
             eps[idx] = signs * amp
+            print(f"outlier kind: {self.outlier_kind}")
+            print(f"amp mean: {amp.mean().cpu().numpy()}, std: {amp.std().cpu().numpy()}")
+            print(f"amp min: {amp.min().cpu().numpy()}, max: {amp.max().cpu().numpy()}")
+            print(f"amp: {amp.flatten().cpu().numpy()}")
 
         y_noisy = u_clean + eps
 
@@ -311,6 +353,17 @@ class AllenCahn2D(BaseExperiment):
                 beta=self.q_gauss_beta,
             )
         return residual.pow(2)
+
+    def _get_weights(self, residual): 
+        # Note: The 'residual' passed here is ALREADY scaled by the code above
+        if self.data_loss_balancer_kind == "mlp" and self.weight_net is not None:
+            return self.weight_net(residual), torch.tensor(0.0, device=self.device)
+        elif self.data_loss_balancer_kind == "gated_trainable" and self.ebm is not None:
+            with torch.no_grad():
+                log_q = self.ebm(residual.detach())
+            return self.gate_module(log_q)
+        else:
+            return self.ebm.data_weight(residual, kind=self.data_loss_balancer_kind), torch.tensor(0.0, device=self.device)
 
     # ----- batching -----
     def sample_batch(self, n_f: int, n_b: int, n_0: int):
@@ -376,8 +429,6 @@ class AllenCahn2D(BaseExperiment):
             y_d = self.y_data[idx_d]
             pred = model(X_d)
             residual = y_d - pred
-            if self.ebm_kind == "1D":
-                residual = residual.view(-1, 1)
             with torch.no_grad():
                 batch_std = residual.std()
                 currend_std_clamped = torch.clamp(batch_std, min=1e-6, max=self.running_std * 10)
@@ -473,8 +524,12 @@ class AllenCahn2D(BaseExperiment):
         params = []
         if isinstance(getattr(self, "offset", None), torch.nn.Parameter):
             params.append(self.offset)
+        if isinstance(self.eps, torch.nn.Parameter):
+            params.append(self.eps)
         if getattr(self, "weight_net", None) is not None:
             params.extend(list(self.weight_net.parameters()))
+        if getattr(self, "gate_module", None) is not None:
+            params.extend(list(self.gate_module.parameters()))
         return params
 
     # ----- eval / plots -----
@@ -574,8 +629,8 @@ class AllenCahn2D(BaseExperiment):
                     U_noisy = U_true
 
                 # Global color range for all "solution-like" panels
-                umin = min(U_true.min().item(), U_pred.min().item(), U_noisy.min().item())
-                umax = max(U_true.max().item(), U_pred.max().item(), U_noisy.max().item())
+                umin = min(U_true.min().item(), U_pred.min().item())
+                umax = max(U_true.max().item(), U_pred.max().item())
                 vmin = umin if vmin is None else min(vmin, umin)
                 vmax = umax if vmax is None else max(vmax, umax)
 
@@ -882,6 +937,10 @@ class AllenCahn2D(BaseExperiment):
         Evaluates and visualizes the Trainable Gate's ability to distinguish outliers.
         Generates a Sigmoid Plot and a Confusion Matrix.
         """
+        if not self.use_extra_noise:
+            print("[Evaluate] Extra noise not used in this experiment. Skipping gate evaluation.")
+            return
+        
         if self.gate_module is None or self.ebm is None:
             print("[Evaluate] Gate or EBM not available. Skipping gate evaluation.")
             return
@@ -934,15 +993,13 @@ class AllenCahn2D(BaseExperiment):
             
             # 5. Prepare Labels (Normal vs Outlier)
             N = self.y_data.shape[0]
-            labels = np.zeros(2 * N, dtype=int) # 0 = Normal
+            labels = np.zeros(N, dtype=int) # 0 = Normal
             
             if len(self.outlier_indices) > 0:
                 # Mark outlier indices (both u and v components)
                 # idx i corresponds to 2*i and 2*i+1 in flattened array
-                outlier_idx_u = self.outlier_indices * 2
-                outlier_idx_v = self.outlier_indices * 2 + 1
-                labels[outlier_idx_u] = 1 # 1 = Outlier
-                labels[outlier_idx_v] = 1
+                outlier_idx = self.outlier_indices
+                labels[outlier_idx] = 1 # 1 = Outlier
         
         # --- PLOT 1: Sigmoid Decision Boundary ---
         fig, ax = plt.subplots(figsize=(10, 6))

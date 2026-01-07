@@ -207,10 +207,12 @@ class Burgers2D(BaseExperiment):
         noise_cfg = cfg.get("noise", None)
         self.use_data = bool(noise_cfg["enabled"])
         self.noise_cfg = noise_cfg
+        self.noise_pars = noise_cfg.get("pars", 0)
         self.n_data_batch = int(noise_cfg["batch_size"])
 
         self.extra_noise_cfg = noise_cfg.get("extra_noise", {})
         self.use_extra_noise = bool(self.extra_noise_cfg["enabled"])
+        self.outlier_kind = self.extra_noise_cfg.get("kind", "std")  # 'std' or 'mean_level'
         
         self.X_data = None
         self.y_data = None
@@ -369,6 +371,7 @@ class Burgers2D(BaseExperiment):
             z = z_flat.view(n, 2)
             
         eps = z * self.sigma_local
+        noise_std = eps.std(unbiased=True).item()
         
         # Initialize indices list
         self.outlier_indices = []
@@ -378,7 +381,6 @@ class Burgers2D(BaseExperiment):
             n_extra = int(self.extra_noise_cfg.get("n_points", 0))
             if n_extra > 0:
                 print(f"[Burgers2D] Injecting outliers into {n_extra} points.")
-                f_outlier = legacy_scale * mean_level
                 
                 idx = torch.randperm(n, device=self.device)[:n_extra]
                 self.outlier_indices = idx.cpu().numpy()
@@ -386,6 +388,12 @@ class Burgers2D(BaseExperiment):
                 scale_max = float(self.extra_noise_cfg.get("scale_max", 10.0))
                 
                 factors = torch.empty(n_extra, 2, device=self.device).uniform_(scale_min, scale_max)
+                
+                if self.outlier_kind == "std":
+                    amp = factors * noise_std
+                else:  # 'mean_level'
+                    f_outlier = legacy_scale * mean_level
+                    amp = factors * f_outlier
                 amp = factors * f_outlier
                 signs = torch.randint(0, 2, amp.shape, device=self.device).float() * 2 - 1
                 eps[idx] = signs * amp
@@ -863,6 +871,10 @@ class Burgers2D(BaseExperiment):
         Evaluates and visualizes the Trainable Gate's ability to distinguish outliers.
         Generates a Sigmoid Plot and a Confusion Matrix.
         """
+        if not self.use_extra_noise:
+            print("[Evaluate] Extra noise not used in this experiment. Skipping gate evaluation.")
+            return
+            
         if self.gate_module is None or self.ebm is None:
             print("[Evaluate] Gate or EBM not available. Skipping gate evaluation.")
             return

@@ -220,8 +220,10 @@ def main(args):
             "perf/elapsed_sec": elapsed_s if elapsed_s is not None else 0.0,
             **gpu_now,
         }
-        if hasattr(exp, "nu") and isinstance(exp.nu, torch.nn.Parameter):
+        if hasattr(exp, "nu") and isinstance(exp.nu, torch.nn.Parameter): # Burgers
             log_payload["pde/nu"] = float(exp.nu.detach().cpu())
+        if hasattr(exp, "eps") and isinstance(exp.eps, torch.nn.Parameter): # Allen-Cahn
+            log_payload["pde/eps"] = float(exp.eps.detach().cpu())
         wandb_log(log_payload, commit=True)
         pbar1.set_postfix({k: f"{v:.3e}" for k,v in log_payload.items() if "loss" in k})
         global_step += 1
@@ -357,6 +359,8 @@ def main(args):
                 log_payload["running_std"] = float(exp.running_std.detach().cpu())
             if hasattr(exp, "nu") and isinstance(exp.nu, torch.nn.Parameter):
                 log_payload["pde/nu"] = float(exp.nu.detach().cpu())
+            if hasattr(exp, "eps") and isinstance(exp.eps, torch.nn.Parameter):
+                log_payload["pde/eps"] = float(exp.eps.detach().cpu())
             if hasattr(exp, "gate_module"):
                 log_payload["gate/cutoff"] = float(exp.gate_module.cutoff_alpha.detach().cpu())
                 log_payload["gate/steepness"]  = float(exp.gate_module.steepness.detach().cpu())
@@ -400,11 +404,13 @@ def main(args):
                     gate_plots = exp.evaluate_gate_performance(model, out_dir, filename_prefix=f"eval_ep{ep + phase1_epochs}")
                     if gate_plots and base_cfg["log"]["wandb"]["enabled"]:
                         wandb_log({f"val/{k}": wandb.Image(v) for k, v in gate_plots.items()})
-                
+        
         if enable_video:
             vid_grid = exp_cfg.get("video", {}).get("grid", base_cfg["eval"]["grid"])
             fps      = exp_cfg.get("video", {}).get("fps", 10)
             out_fmt  = exp_cfg.get("video", {}).get("format", "mp4")  # "mp4" or "gif"
+            model = get_model(args.model_name)(model_cfg).to(device)
+            model.load_state_dict(torch.load(best_path)["model"])
             vid_path = exp.make_video(
                 model, vid_grid, out_dir,
                 fps=fps, filename=f"final_evolution.{out_fmt}",
@@ -425,6 +431,7 @@ def main(args):
             if gate_plots and base_cfg["log"]["wandb"]["enabled"]:
                 wandb_log({f"val/{k}": wandb.Image(v) for k, v in gate_plots.items()})
 
+    wandb_log({"eval/best_rel_l2": best_metric})
     training_end_time = time.time()
     
     final_perf = {

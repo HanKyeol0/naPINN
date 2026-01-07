@@ -116,12 +116,73 @@ def main(args):
     # --- 3. Sampling Logic (Clean Data Only) ---
     def process_and_save_data(u_sol, v_sol, t_sol, x_grid, y_grid):
         print("Processing datasets for PINN (Clean Data)...")
+        
+        measure_cfg = cfg.get("measurement", {})
+        measure_kind = measure_cfg.get("measure_kind", "random")
 
         # Interpolators for off-grid sampling
         interp_u = RegularGridInterpolator((t_sol, y_grid, x_grid), u_sol, method='linear', bounds_error=False, fill_value=None)
         interp_v = RegularGridInterpolator((t_sol, y_grid, x_grid), v_sol, method='linear', bounds_error=False, fill_value=None)
 
-        # A. Collocation Points (Full Domain)
+        t_meas, x_meas, y_meas = [], [], []
+        
+        if measure_kind == "fixed_grid":
+            print("sampling strategy: fixed grid positions")
+            sens_xn = measure_cfg.get("sensor_nx", 10)
+            sens_yn = measure_cfg.get("sensor_ny", 10)
+            xs_sensor = np.linspace(x_grid[0], x_grid[-1], sens_xn)
+            ys_sensor = np.linspace(y_grid[0], y_grid[-1], sens_yn)
+            X_s, Y_s = np.meshgrid(xs_sensor, ys_sensor)
+            
+            sensor_x = X_s.flatten()
+            sensor_y = Y_s.flatten()
+        
+        elif measure_kind == "fixed_random":
+            print("Sampling Strategy: Fixed Random Spatial Points")
+            n_sensors = measure_cfg.get("n_sensors", 100)
+            
+            # Randomly place sensors once
+            sensor_x = np.random.uniform(x_grid[0], x_grid[-1], n_sensors)
+            sensor_y = np.random.uniform(y_grid[0], y_grid[-1], n_sensors)
+        
+        elif measure_kind == "random":
+            print("Sampling Strategy: Fully Random (Spatiotemporal)")
+            # This mimics your original code
+            N_MEASUREMENT = cfg["n_measurement"]
+            t_meas = np.random.uniform(t_sol[0], t_sol[-1], N_MEASUREMENT)
+            x_meas = np.random.uniform(x_grid[0], x_grid[-1], N_MEASUREMENT)
+            y_meas = np.random.uniform(y_grid[0], y_grid[-1], N_MEASUREMENT)
+            
+            # Skip the time-loop broadcasting below
+            sensor_x, sensor_y = None, None
+        
+        else:
+            raise ValueError(f"Unknown measurement kind: {measure_kind}")
+        
+        
+        if measure_kind in ["fixed_grid", "fixed_random"]:
+            # For fixed sensors, we record at EVERY time step in t_sol
+            # Or you can subsample time if needed: t_sol[::skip]
+            
+            all_t, all_x, all_y = [], [], []
+            
+            for t_val in t_sol:
+                # Repeat sensor locations for this time step
+                all_t.append(np.full_like(sensor_x, t_val))
+                all_x.append(sensor_x)
+                all_y.append(sensor_y)
+            
+            t_meas = np.concatenate(all_t)
+            x_meas = np.concatenate(all_x)
+            y_meas = np.concatenate(all_y)
+
+        # A. Measurements (Random positions)
+        query_points = np.stack([t_meas, y_meas, x_meas], axis=1)
+        print(f"number of query points: {query_points.shape[0]}")
+        u_meas = interp_u(query_points)
+        v_meas = interp_v(query_points)
+
+        # B. Collocation Points (Full Domain)
         T_mesh, Y_mesh, X_mesh = np.meshgrid(t_sol, y_grid, x_grid, indexing='ij')
         X_col = X_mesh.flatten()[:, None]
         Y_col = Y_mesh.flatten()[:, None]
@@ -129,16 +190,6 @@ def main(args):
         
         # Flatten and stack
         X_f = np.hstack((X_col, Y_col, T_col)) # [x, y, t]
-
-        # B. Measurements (Random positions)
-        t_meas = np.random.uniform(t_sol[0], t_sol[-1], N_MEASUREMENT)
-        x_meas = np.random.uniform(x_grid[0], x_grid[-1], N_MEASUREMENT)
-        y_meas = np.random.uniform(y_grid[0], y_grid[-1], N_MEASUREMENT)
-        
-        query_points = np.stack([t_meas, y_meas, x_meas], axis=1)
-        print(f"number of query points: {query_points.shape[0]}")
-        u_meas = interp_u(query_points)
-        v_meas = interp_v(query_points)
         
         # Prepare Tensors
         X_u = np.stack([x_meas, y_meas, t_meas], axis=1) # Inputs

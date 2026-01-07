@@ -2,18 +2,18 @@
 
 set -e
 
-EXPERIMENT_NAME=burgers2d
+EXPERIMENT_NAME=allencahn2d
 MODEL_NAME=mlp
-EXPERIMENT_TAG=1-1_naPINN_5-17
+EXPERIMENT_TAG=a1_qG3
 DEVICE=cuda
 
 FOLDER="outputs/${EXPERIMENT_NAME}/${EXPERIMENT_NAME}_${MODEL_NAME}_${EXPERIMENT_TAG}"
 
 TRAIN=false
-EVALUATE=false
-MAKE_VIDEO=true
+EVALUATE=true
+MAKE_VIDEO=false
 VIDEO_FILE_NAME=remade_video.mp4
-VIDEO_GRID='{"nx":120,"ny":120,"nt":80}'
+VIDEO_GRID='{"nx":120,"ny":120,"nt":120}'
 
 python -m pinnlab.load_model \
   --experiment_name $EXPERIMENT_NAME \

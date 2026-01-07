@@ -570,7 +570,7 @@ class TrainableGMM(nn.Module):
         return w.view(-1, 1)
     
 class TrainableLikelihoodGate(nn.Module):
-    def __init__(self, init_cutoff_sigma=2.0, init_steepness=5.0, device="cpu", 
+    def __init__(self, init_cutoff_sigma=2.0, init_steepness=30.0, device="cpu", 
                  rejection_cost=0.5):
         """
         rejection_cost (float): The penalty weight for discarding data.
@@ -582,7 +582,8 @@ class TrainableLikelihoodGate(nn.Module):
         self.device = device
         # Initialize cutoff deeper (e.g., 2.0 or 2.5 sigma) to prevent initial collapse
         self.cutoff_alpha = nn.Parameter(torch.tensor(float(init_cutoff_sigma), device=device))
-        self.steepness = nn.Parameter(torch.tensor(float(init_steepness), device=device))
+        self.steepness = torch.tensor(float(init_steepness), device=device)
+        # self.steepness = nn.Parameter(torch.tensor(float(init_steepness), device=device))
         
         self.rejection_cost = rejection_cost
         self.to(device)

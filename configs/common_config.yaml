@@ -39,12 +39,12 @@ log:
   out_dir: "outputs"
   wandb:
     enabled: true
-    project: "naPINN_NS_test"
+    project: "naPINN_allencahn2d"
     entity: null      # or your team
     mode: "online"      # "auto" | "offline" | "disabled"
 eval:
   grid:
     nx: 120
     ny: 120
-    nt: 80
+    nt: 120
   every: 1000
