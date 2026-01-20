@@ -83,9 +83,8 @@ class AllenCahn2D(BaseExperiment):
         self.noise_cfg = noise_cfg
         self.noise_pars = noise_cfg.get("pars", 0)
         self.n_data_total = int(noise_cfg.get("n_train", 0))
-        self.n_data_batch = int(
-            noise_cfg.get("batch_size", 1000)
-        )
+        self.n_data_batch = int(noise_cfg.get("batch_size", 1000))
+        self.par_list = noise_cfg.get("par_list", None)
         
         self.extra_noise_cfg = noise_cfg.get("extra_noise", {})
         self.use_extra_noise = bool(self.extra_noise_cfg.get("enabled", False))
@@ -299,7 +298,11 @@ class AllenCahn2D(BaseExperiment):
         self.sigma_local = base_scale * mean_level
         
         # Build noise distribution; this uses the PINN-EBM function
-        self.noise_model = get_noise(kind, f=1.0, pars=self.noise_pars)
+        if kind in ['3G', '4G', '3G0', 'mix0', 'Gmix', 'rmix']:
+            self.noise_model = get_noise(kind, f=1.0, pars=self.noise_pars, par_list=self.par_list)
+        else:
+            self.noise_model = get_noise(kind, f=1.0, pars=self.noise_pars)
+            
         z = self.noise_model.sample(n).float().to(self.device, dtype=base_dtype).view(-1, 1)  # [n, 1]
         eps = z * self.sigma_local
         noise_std = eps.std(unbiased=True).detach()
@@ -800,7 +803,7 @@ class AllenCahn2D(BaseExperiment):
 
         # True noise pdf
         r_cpu = torch.from_numpy(r_grid_np).float()
-        noise_scale = self.sigma_local.mean().item()
+        noise_scale = self.sigma_local
         print("Average noise scale:", noise_scale)
         pdf_true = (self.noise_model.pdf(r_cpu / noise_scale) / noise_scale).numpy()
 

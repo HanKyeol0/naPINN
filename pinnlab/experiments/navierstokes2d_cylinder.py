@@ -224,7 +224,16 @@ class NavierStokesCylinder(BaseExperiment):
         raw_data = np.load(data_path)
         
         # PDE Constants from data
-        self.nu = float(raw_data['viscosity'])
+        pde_cfg = cfg.get("pde", {}) or {}
+        self.learn_nu = pde_cfg.get("learn_nu", True)
+        self.true_nu = float(raw_data['viscosity'])
+        if self.learn_nu:
+            init_nu = float(pde_cfg.get("init_nu", 0.0))
+            print(f"[NavierStokes2D] Learning viscosity nu, init value: {init_nu}, true value: {self.true_nu}")
+            self.nu = torch.nn.Parameter(torch.tensor(init_nu, dtype=torch.float32, device=device))
+        else:
+            print(f"[NavierStokes2D] Fixed viscosity nu: {self.true_nu}")
+            self.nu = self.true_nu
         
         # 1. Collocation Points (Fixed Grid from file)
         self.X_f_all = torch.from_numpy(raw_data['X_f']).float().to(device) # [N_f, 3] (x, y, t)
@@ -259,9 +268,12 @@ class NavierStokesCylinder(BaseExperiment):
         self.use_data = bool(noise_cfg["enabled"])
         self.noise_cfg = noise_cfg
         self.n_data_batch = int(noise_cfg["batch_size"])
+        self.par_list = noise_cfg.get("par_list", None)
+        self.noise_pars = noise_cfg.get("pars", None)
 
         self.extra_noise_cfg = noise_cfg.get("extra_noise", {})
         self.use_extra_noise = bool(self.extra_noise_cfg["enabled"])
+        self.outlier_kind = self.extra_noise_cfg.get("kind", "std")
         
         self.X_data = None
         self.y_data = None
@@ -300,6 +312,8 @@ class NavierStokesCylinder(BaseExperiment):
                     input_dim=1,
                     device=device,
                 )
+            self.running_std = torch.tensor(1.0, device=device)
+            self.momentum = 0.05
         else:
             self.ebm = None
 
@@ -316,10 +330,12 @@ class NavierStokesCylinder(BaseExperiment):
         
         self.gate_module = None
         if self.data_loss_balancer_kind == "gated_trainable":
+            self.rejection_cost = float(data_lb_cfg.get("rejection_cost", 0.5))
             self.gate_module = TrainableLikelihoodGate(
                 init_cutoff_sigma=2.0, 
-                init_steepness=5.0, 
-                device=device
+                init_steepness=30.0, 
+                device=device,
+                rejection_cost = self.rejection_cost
             )
         
         self.weight_net = None
@@ -340,22 +356,62 @@ class NavierStokesCylinder(BaseExperiment):
             self.offset = torch.nn.Parameter(torch.tensor([init, init], dtype=torch.float32, device=device))
         else:
             self.offset = None
+            
+    def state_dict(self):
+        state = {
+            'running_std': self.running_std,
+            'offset': self.offset,
+        }
+        if self.learn_nu:
+            state['nu'] = self.nu
+            
+        if self.use_offset and self.offset is not None:
+            state['offset'] = self.offset
+        
+        # Save EBM state if it exists
+        if self.ebm is not None:
+            state['ebm'] = self.ebm.state_dict()
+            state['ebm_optimizer'] = self.ebm.optimizer.state_dict()
+            
+        # Save Gate state if it exists
+        if self.gate_module is not None:
+            state['gate_module'] = self.gate_module.state_dict()
+            
+        # Save WeightNet state if it exists
+        if self.weight_net is not None:
+            state['weight_net'] = self.weight_net.state_dict()
+            
+        return state
+    
+    def load_state_dict(self, state_dict):
+        if 'running_std' in state_dict:
+            self.running_std.copy_(state_dict['running_std'].to(self.device))
+            print(f"[Burgers2D] Loaded running_std: {self.running_std.item():.4f}")
+            
+        if 'offset' in state_dict and self.offset is not None:
+            with torch.no_grad():
+                self.offset.copy_(state_dict['offset'].to(self.device))
+                
+        if 'nu' in state_dict and self.learn_nu:
+            with torch.no_grad():
+                self.nu.copy_(state_dict['nu'].to(self.device))
+                print(f"[Burgers2D] Loaded learned nu: {self.nu.item():.6f}")
+                
+        if 'ebm' in state_dict and self.ebm is not None:
+            self.ebm.load_state_dict(state_dict['ebm'])
+            if 'ebm_optimizer' in state_dict:
+                self.ebm.optimizer.load_state_dict(state_dict['ebm_optimizer'])
+            
+        if 'gate_module' in state_dict and self.gate_module is not None:
+            self.gate_module.load_state_dict(state_dict['gate_module'])
+            
+        if 'weight_net' in state_dict and self.weight_net is not None:
+            self.weight_net.load_state_dict(state_dict['weight_net'])
 
     def _init_noisy_dataset(self):
-        """
-        Takes the loaded CLEAN random measurements (self.Y_u_clean) and adds 
-        SIGNAL-DEPENDENT synthetic noise + GLOBAL outliers.
-        """
         y_clean = self.Y_u_clean # [N, 2] (u, v)
         n = y_clean.shape[0]
-        
-        # --- 1. CONFIGURATION ---
-        # "relative_scale": fraction of the signal value (e.g., 0.05 = 5%)
-        # "floor_scale": fraction of global mean to serve as noise floor (e.g., 0.01)
-        # If these keys don't exist in config, we approximate your old behavior 
-        # or set reasonable defaults.
-        
-        # Fallback to 'scale' if new keys aren't present to maintain backward compatibility
+
         legacy_scale = float(self.noise_cfg.get("scale", 0.1))
         alpha = float(self.noise_cfg.get("relative_scale", 0.0)) 
         beta = float(self.noise_cfg.get("floor_scale", legacy_scale))
@@ -363,16 +419,14 @@ class NavierStokesCylinder(BaseExperiment):
         mean_level = float(y_clean.abs().mean().detach().cpu())
         if mean_level == 0: mean_level = 1.0
 
-        # --- 2. CALCULATE LOCAL NOISE SCALE (Heteroscedastic) ---
-        # shape: [N, 2]
-        # Noise Sigma_i = alpha * |y_i| + beta * mean_global
         sigma_local = alpha * y_clean.abs() + beta * mean_level
         
-        # --- 3. GENERATE BASE NOISE (Standard Distribution) ---
+        # Base Noise
         kind = self.noise_cfg.get("kind", "G")
-        
-        # Initialize noise model with scale=1.0 to get standard distribution (Z-scores)
-        self.noise_model = get_noise(kind, f=1.0, pars=0)
+        if kind in ['3G', '4G', '3G0', 'mix0', 'Gmix', 'rmix']:
+            self.noise_model = get_noise(kind, f=1.0, pars=self.noise_pars, par_list=self.par_list)
+        else:
+            self.noise_model = get_noise(kind, f=1.0, pars=self.noise_pars)
         
         # Sample standard noise (Z)
         if kind in ['MG2D']:
@@ -383,6 +437,7 @@ class NavierStokesCylinder(BaseExperiment):
             
         # Apply local scaling
         eps = z * sigma_local
+        noise_std = eps.std(unbiased=True).item()
         
         # Initialize indices list
         self.outlier_indices = []
@@ -395,22 +450,20 @@ class NavierStokesCylinder(BaseExperiment):
             if n_extra > 0:
                 print(f"[NavierStokes2D] Injecting outliers into {n_extra} points.")
                 
-                # Outlier reference scale (Global)
-                f_outlier = legacy_scale * mean_level
-                
                 idx = torch.randperm(n, device=self.device)[:n_extra]
                 self.outlier_indices = idx.cpu().numpy()
-                
                 scale_min = float(self.extra_noise_cfg.get("scale_min", 5.0))
                 scale_max = float(self.extra_noise_cfg.get("scale_max", 10.0))
-                print("scale_min:", scale_min, "scale_max:", scale_max)
                 
                 factors = torch.empty(n_extra, 2, device=self.device).uniform_(scale_min, scale_max)
                 
-                # Outliers replace the noise at these points with massive errors
-                amp = factors * f_outlier
-                signs = torch.randint(0, 2, amp.shape, device=self.device).float() * 2 - 1
-                eps[idx] = signs * amp
+                if self.outlier_kind == "std":
+                    amp = factors * noise_std
+                else: # 'mean_level'
+                    f_outlier = legacy_scale * mean_level
+                    amp = factors * f_outlier
+                
+                eps[idx] += amp
                 
         y_noisy = y_clean + eps
         
@@ -472,8 +525,9 @@ class NavierStokesCylinder(BaseExperiment):
                 residual = residual.view(-1, 1)
             with torch.no_grad():
                 batch_std = residual.std()
-                scale_factor = torch.clamp(batch_std, min=1e-6)
-            residual_scaled = residual / scale_factor
+                currend_std_clamped = torch.clamp(batch_std, min=1e-6, max=self.running_std * 10)
+                self.running_std.mul(1 - self.momentum).add_(currend_std_clamped * self.momentum)
+            residual_scaled = residual / self.running_std
             nll_ebm, nll_ebm_mean = self.ebm.train_step(residual_scaled.detach())
 
     def pde_residual_loss(self, model, batch):
@@ -536,17 +590,19 @@ class NavierStokesCylinder(BaseExperiment):
             
         with torch.no_grad():
             batch_std = residual.std()
-            scale_factor = torch.clamp(batch_std, min=1e-6)
-            residual_scaled = residual / scale_factor
+            if model.training and phase!=1:
+                current_std_clamped = torch.clamp(batch_std, min=1e-6, max=self.running_std * 10)
+                self.running_std.mul_(1 - self.momentum).add_(current_std_clamped * self.momentum)
+        residual_scaled = residual / self.running_std
             
         if self.ebm_kind == "1D":
             data_loss_value = data_loss_value.view(-1, 1) # [2*N, 1]
 
         # --- Phase Logic (EBM Training / Balancing) ---
         # Identical logic to Helmholtz, just operating on the combined u/v residuals
-        if phase == 0: # Train EBM only
+        if phase == 0:
             if self.ebm is not None:
-                nll_ebm, nll_ebm_mean = self.ebm.train_step(residual.detach())
+                nll_ebm, nll_ebm_mean = self.ebm.train_step(residual_scaled.detach())
                 batch["ebm_nll"] = nll_ebm_mean
                 
                 if self.use_data_loss_balancer:
@@ -562,13 +618,13 @@ class NavierStokesCylinder(BaseExperiment):
             
         elif phase == 2: # PINN + EBM weighted
             if self.ebm is not None:
-                nll_ebm, nll_ebm_mean = self.ebm.train_step(residual.detach())
+                nll_ebm, nll_ebm_mean = self.ebm.train_step(residual_scaled.detach())
                 batch["ebm_nll"] = nll_ebm_mean
                 
                 loss_metric = nll_ebm if self.use_nll else data_loss_value
                 
                 if self.use_data_loss_balancer:
-                    w, gate_reg_loss = self._get_weights(residual.detach())
+                    w, gate_reg_loss = self._get_weights(residual_scaled.detach())
                     weighted_loss = (w * loss_metric).mean()
                     total_loss = weighted_loss + gate_reg_loss
                 else:
@@ -586,23 +642,13 @@ class NavierStokesCylinder(BaseExperiment):
         return residual.pow(2)
 
     def _get_weights(self, residual):
-        # 1. MLP weighting
-        if self.data_loss_balancer_kind == "mlp" and self.weight_net is not None:
-            return self.weight_net(residual), torch.tensor(0.0, device=self.device)
-        
-        # 2. Trainable Gating
-        elif self.data_loss_balancer_kind == "gated_trainable" and self.ebm is not None:
-            # Get raw log-probabilities from EBM (don't need gradients for EBM here usually)
-            # We detach residual because EBM training is separate, 
-            # but we DO want gradients flowing back to gate_module parameters
+        if self.data_loss_balancer_kind == "gated_trainable" and self.ebm is not None:
             with torch.no_grad():
                 log_q = self.ebm(residual.detach()) # [N, 1]
-            
-            # Pass through our trainable gate
             return self.gate_module(log_q)
         else:
             return self.ebm.data_weight(residual, kind=self.data_loss_balancer_kind), torch.tensor(0.0, device=self.device)
-            
+             
     def extra_params(self):
         params = []
         if isinstance(getattr(self, "offset", None), torch.nn.Parameter):
@@ -614,25 +660,21 @@ class NavierStokesCylinder(BaseExperiment):
         return params
 
     # --- Evaluation ---
-    def relative_l2_on_grid(self, model, grid_cfg=None):
+    def relative_l2_on_grid(self, model, grid_cfg=None, batch_size=10000):
         # We use the loaded validation grid instead of regenerating
         model.eval()
-        # Select middle time step for metric
-        t_idx = len(self.val_t) // 2
-        t_val = self.val_t[t_idx]
         
         # Create grid for this timestep
-        X, Y = np.meshgrid(self.val_x, self.val_y)
-        T = np.full_like(X, t_val)
+        T, Y, X = np.meshgrid(self.val_t, self.val_y, self.val_x, indexing='ij')
         
-        X_flat = X.flatten()
-        Y_flat = Y.flatten()
-        T_flat = T.flatten()
+        flat_x = X.flatten()
+        flat_y = Y.flatten()
+        flat_t = T.flatten()
         
-        mask_cyl = create_obstacle_mask(X_flat, Y_flat, self.obstacles)
+        mask_cyl = create_obstacle_mask(flat_x, flat_y, self.obstacles)
         mask_valid = ~mask_cyl
         
-        inputs = np.stack([X_flat, Y_flat, T_flat], axis=1)
+        inputs = np.stack([flat_x, flat_y, flat_t], axis=1)
         inputs_torch = torch.from_numpy(inputs).float().to(self.device)
         
         with torch.no_grad():
@@ -640,16 +682,44 @@ class NavierStokesCylinder(BaseExperiment):
             u_pred = pred[:, 0].cpu().numpy()
             v_pred = pred[:, 1].cpu().numpy()
             
-        u_true = self.val_u[t_idx].flatten()
-        v_true = self.val_v[t_idx].flatten()
+        u_true = self.val_u.flatten()
+        v_true = self.val_v.flatten()
         
-        # Calc Velocity Magnitude Error (only outside cylinder)
-        mag_pred = np.sqrt(u_pred**2 + v_pred**2)[mask_valid]
-        mag_true = np.sqrt(u_true**2 + v_true**2)[mask_valid]
+        u_pred_list = []
+        v_pred_list = []
         
-        num = np.linalg.norm(mag_true - mag_pred)
-        den = np.linalg.norm(mag_true)
-        return float(num / den)
+        num_samples = inputs.shape[0]
+        
+        with torch.no_grad():
+            for i in range(0, num_samples, batch_size):
+                # Prepare batch
+                batch_inputs = inputs[i : i + batch_size]
+                batch_tensor = torch.from_numpy(batch_inputs).float().to(self.device)
+                
+                # Predict
+                pred = model(batch_tensor)
+                
+                # Store
+                u_pred_list.append(pred[:, 0].cpu().numpy())
+                v_pred_list.append(pred[:, 1].cpu().numpy())
+                
+        u_pred = np.concatenate(u_pred_list)
+        v_pred = np.concatenate(v_pred_list)
+        
+        diff_sq = ((u_true - u_pred)**2 + (v_true - v_pred)**2)[mask_valid]
+        true_sq = (u_true**2 + v_true**2)[mask_valid]
+        
+        numerator = np.sqrt(np.sum(diff_sq))
+        denominator = np.sqrt(np.sum(true_sq))
+        
+        if denominator < 1e-10:
+            rel_l2 = 0.0
+            print("[Warning] Ground truth norm is near zero.")
+        else:
+            rel_l2 = numerator / denominator
+        
+        print(f"[Burgers2D] Global Relative L2 Error: {rel_l2:.6f}")
+        return float(rel_l2)
 
     def make_video(self, model, grid_cfg, out_dir, fps=10, filename="flow_evolution_2x2.mp4", phase=0):
         os.makedirs(out_dir, exist_ok=True)
@@ -796,13 +866,15 @@ class NavierStokesCylinder(BaseExperiment):
         ny, nx = X.shape
         extent = [0, 2, 0, 1] # Fixed domain size for cylinder
         
+        ref_std = float(self.running_std.item())
+
         # 2. Determine Plotting Range (R)
         # We need a fixed X-axis range for histograms/PDFs. 
         # A safe bet is 3-4 standard deviations of the noise scale.
         # We can look at the noise config or sample a bit.
         dummy_sample = self.noise_model.sample(1000)
         max_val = float(dummy_sample.abs().max().cpu())
-        R_range = max_val * 1.5
+        R_range = 1 # max_val * 1.5
         
         # 3. Pre-calculate EBM PDF (Static curve)
         # The EBM itself is fixed after training.
@@ -811,20 +883,19 @@ class NavierStokesCylinder(BaseExperiment):
         
         pdf_ebm = None
         with torch.no_grad():
-            log_q = self.ebm(r_grid_torch).flatten()
+            r_input_scaled = r_grid_torch / ref_std
+            log_q = self.ebm(r_input_scaled).flatten()
             log_q = log_q - log_q.max() # Stability
             q_unn = torch.exp(log_q)
             Z = torch.trapezoid(q_unn, r_grid_torch.flatten())
             pdf_ebm = (q_unn / Z).cpu().numpy()
 
         # 4. Pre-calculate True PDF (Static curve)
-        pdf_true = None
-        if hasattr(self.noise_model, "pdf"):
-            # Assuming noise_model.pdf accepts cpu tensor
-            r_cpu = torch.from_numpy(r_grid_np)
-            pdf_true = self.noise_model.pdf(r_cpu)
-            if isinstance(pdf_true, torch.Tensor):
-                pdf_true = pdf_true.detach().cpu().numpy()
+        # Assuming noise_model.pdf accepts cpu tensor
+        r_cpu = torch.from_numpy(r_grid_np)
+        noise_scale = self.sigma_local.mean().item()
+        print("Average noise scale:", noise_scale)
+        pdf_true = (self.noise_model.pdf(r_cpu / noise_scale) / noise_scale).numpy()
 
         # 5. GPU Inference Phase
         render_args_list = []
@@ -897,7 +968,7 @@ class NavierStokesCylinder(BaseExperiment):
         frames = []
         
         # Use 'fork' context on Linux for speed, default on others
-        ctx = __import__("multiprocessing").get_context("fork") if os.name != 'nt' else None
+        ctx = import_multiprocessing().get_context("fork") if os.name != 'nt' else None
         
         with ProcessPoolExecutor(max_workers=n_workers, mp_context=ctx) as executor:
             results = executor.map(render_noise_worker, render_args_list)
@@ -936,18 +1007,9 @@ class NavierStokesCylinder(BaseExperiment):
             # Raw residuals [N, 2]
             residual = self.y_data - y_pred
             
-            # Flatten to 1D for EBM [2N, 1]
-            # NOTE: We must track which indices are outliers in the FLATTENED array.
-            # Original outliers are indices `idx` in range [0, N).
-            # In flattened array [u0, v0, u1, v1...], outlier i affects 2*i and 2*i+1.
-            res_flat = residual.view(-1, 1)
+            res_flat = residual.view(-1, 1) # [2N, 1]
+            res_scaled = res_flat / self.running_std
             
-            # 2. Adaptive Standardization (Global Stats)
-            batch_std = res_flat.std()
-            scale_factor = torch.clamp(batch_std, min=1e-6)
-            res_scaled = res_flat / scale_factor
-            
-            # 3. Get EBM Log-Likelihoods (Energy)
             log_q = self.ebm(res_scaled).squeeze(-1) # [2N]
             
             # 4. Get Gate Weights & Z-scores

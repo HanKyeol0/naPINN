@@ -1,14 +1,14 @@
 # scripts/mlp/allencahn2d.sh
 # scripts/mlp/z_allencahn2d_fore.sh
 
-tag: test_qG3 # na / va / L1 / qG2 / qG3
+tag: test3_na # na / va / L1 / qG2 / qG3
 device: cuda
-wandb_project: naPINN_test
+wandb_project: naPINN_temp
 
 domain:
-  x: [0.0, 4.0]
-  y: [0.0, 4.0]
-  t: [0.0, 4.0]
+  x: [0.0, 2.0]
+  y: [0.0, 2.0]
+  t: [0.0, 2.0]
 in_features: 3
 out_features: 1
 
@@ -31,9 +31,11 @@ batch:
 noise:
   enabled: true
   batch_size: 1000
-  kind: G # G, Goff, sG, u, 3G, 3G0, mix0, Gmix, rmix, sGtest
+  kind: 4G # G, Goff, sG, u, 3G, 3G0, mix0, Gmix, rmix, sGtest
   scale: 0.1 # default: 0.1
   pars: [0.0, 4.0]
+  # par_list: [[-2.0,4],[2.0,8],[6.0,2]] # 3G
+  par_list: [[-8.0, 2],[0.7,4],[3.7,0.6],[9.5,1]]
 
   sensor_mode: fixed_grid # random / fixed_random / fixed_grid
   n_train: 5000 # only for random
@@ -50,7 +52,7 @@ noise:
 
 # phase
 phase:
-  enabled: false # true / false
+  enabled: true # true / false
   phase1_epochs: 5000
   phase2_epochs: 25000
 
@@ -65,14 +67,15 @@ ebm:
   init_train_epochs: 5000
 
 data_loss:
-  kind: L1 # mse, L1, q_gaussian
+  kind: mse # mse, L1, q_gaussian
   # q-Gaussian settings
   q: 2.9 # 1.9 / 2.9
   beta: null
 
 data_loss_balancer:
-  use_loss_balancer: false # true / false
+  use_loss_balancer: true # true / false
   kind: gated_trainable # pw, inverse, mlp, gated, gated_trainable
+  rejection_cost: 0.5 # only for gated_trainable
   weight_net:
     hidden_dim: 32
     depth: 3

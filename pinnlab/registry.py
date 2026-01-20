@@ -16,6 +16,8 @@ from pinnlab.experiments.reactiondiffusion1d import ReactionDiffusion1D
 from pinnlab.experiments.reactiondiffusion2d import ReactionDiffusion2D
 from pinnlab.experiments.allencahn1d import AllenCahn1D
 from pinnlab.experiments.allencahn2d import AllenCahn2D
+from pinnlab.experiments.lambda_omega_rd2d import LambdaOmegaRD2D
+from pinnlab.experiments.fitzhugh_nagumo_rd2d import FitzHughNagumoRD2D
 
 _MODEL_REG = {
     "mlp": MLP,
@@ -36,6 +38,8 @@ _EXP_REG = {
     "reactiondiffusion2d": ReactionDiffusion2D,
     "allencahn1d": AllenCahn1D,
     "allencahn2d": AllenCahn2D,
+    "lambda_omega_rd2d": LambdaOmegaRD2D,
+    "fitzhugh_nagumo_rd2d": FitzHughNagumoRD2D,
 }
 
 def get_model(name):     return _MODEL_REG[name]

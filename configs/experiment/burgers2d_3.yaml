@@ -42,10 +42,10 @@ measurement:
 # experiment(back) run: scripts/mlp/burgers2d_3.sh
 # experiment(fore) run: scripts/mlp/z_burgers2d_3_fore.sh
 
-tag: test_a1_qG2 # 3-3_a2_va
-description: 4G, outlier scale (10-50), base scale 0.2, 5000 points, fixed_grid measurement
+tag: 1_L1 # 3-3_a2_va
+description: 4G, outlier scale (3-10), base scale 0.1, 5000 points, fixed_grid measurement
 device: cuda
-wandb_project: naPINN_test # naPINN_Burgers_v1
+wandb_project: naPINN_Burgers_v2 # naPINN_Burgers_v1
 
 batch:
   n_f: 5000
@@ -54,6 +54,7 @@ noise:
   enabled: true
   batch_size: 1000
   kind: 4G # G, Goff, sG, u, 3G, 4G, 3G0, mix0, Gmix, rmix, sGtest
+  par_list: [[-8.0, 2],[0.7,4],[3.7,0.6],[9.5,1]]
   pars: [0.0, 4.0]
   
   scale: 0.1 # not used in the recent version
@@ -85,9 +86,9 @@ ebm:
   init_train_epochs: 5000
 
 data_loss:
-  kind: q_gaussian # mse, L1, q_gaussian
+  kind: L1 # mse, L1, q_gaussian
   # q-Gaussian settings
-  q: 1.9
+  q: 2.9
   beta: null
 
 data_loss_balancer:
