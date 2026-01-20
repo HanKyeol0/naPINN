@@ -20,9 +20,14 @@ def get_noise(n_opt, f, pars=0):
         return n_uniform(n_opt, f, pars)
     if n_opt == '3G': #mixture of Gaussians
         # par_list = [[-3.0, 2],[1.0,4],[5.0,0.5]]
-        par_list = [[0.0, 2],[4.0,4],[8.0,0.5]]
+        par_list = [[-2.0, 4],[2.0,8],[6.0,2]]
         n_list = ['G']*3
         pi_list = [1/3]*3
+        return n_mixture(n_opt, f, par_list, n_list, pi_list)
+    if n_opt == '4G':
+        par_list = [ ]
+        n_list = ['G']*4
+        pi_list = [1/4]*4
         return n_mixture(n_opt, f, par_list, n_list, pi_list)
     if n_opt == '3G0': #mixture of Gaussians with zero mean
         par_list = [[-4.0, 2],[0.,4],[4.0,0.5]]

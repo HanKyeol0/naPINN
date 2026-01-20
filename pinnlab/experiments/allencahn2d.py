@@ -99,7 +99,6 @@ class AllenCahn2D(BaseExperiment):
         self.noise_model = None
         
         if self.use_data and self.n_data_total > 0:
-            print(f"Initializing noisy data with {self.n_data_total} points.")
             self._init_noisy_dataset()
 
         ebm_cfg = cfg.get("ebm", {}) or {}
@@ -244,6 +243,7 @@ class AllenCahn2D(BaseExperiment):
             y_data  = y_clean + epsilon,     epsilon ~ noise distribution (from PINN-EBM)
         """
         kind = self.noise_cfg.get("kind", "3G")     # 'G', 'u', '3G', ...
+        print(f"[AllenCahn2D] Noise kind: {kind}")
         n = self.n_data_total
         
         sensor_mode = self.noise_cfg.get("sensor_mode", "random") # random / fixed_random / fixed_grid
@@ -271,17 +271,21 @@ class AllenCahn2D(BaseExperiment):
             # Create Meshgrid (indexing='ij' ensures x varies along rows, y along cols)
             # We flatten them to list all sensor coordinates
             ys_grid, xs_grid = torch.meshgrid(y_s, x_s, indexing='ij')
-            XY_sensors = torch.stack([xs_grid.flatten(), ys_grid.flatten()], dim=1) # [N_sensors, 2]
+            XY_sensors = torch.stack([xs_grid.reshape(-1), ys_grid.reshape(-1)], dim=1) # [N_sensors, 2]
+            Ns = XY_sensors.shape[0]
             
-            # Sample data points
-            n_sensors = XY_sensors.shape[0]
-            idx_s = torch.randint(0, n_sensors, (n,), device=self.device)
-            XY = XY_sensors[idx_s]  # [n, 2]
+            t_grid = self._T.view(-1, 1)
+            Nt = t_grid.shape[0]
+            
+            XY = XY_sensors.repeat_interleave(Nt, dim=0)  # [Ns*Nt, 2]
+            t = t_grid.repeat(Ns, 1)                     # [Ns*Nt, 1]
+            n = XY.shape[0]
+
+            print(f"XY shape: {XY.shape}")
         else:
             raise ValueError(f"Unknown sensor_mode: {sensor_mode}")
 
         # Temporal sampling
-        t = torch.rand(n, 1, device=self.device) * (self.t1 - self.t0) + self.t0
         X = torch.cat([XY, t], dim=1)  # [n, 3]
 
         with torch.no_grad():
@@ -295,7 +299,7 @@ class AllenCahn2D(BaseExperiment):
         self.sigma_local = base_scale * mean_level
         
         # Build noise distribution; this uses the PINN-EBM function
-        self.noise_model = get_noise(kind, f=1.0, pars=0)
+        self.noise_model = get_noise(kind, f=1.0, pars=self.noise_pars)
         z = self.noise_model.sample(n).float().to(self.device, dtype=base_dtype).view(-1, 1)  # [n, 1]
         eps = z * self.sigma_local
         noise_std = eps.std(unbiased=True).detach()
@@ -319,8 +323,9 @@ class AllenCahn2D(BaseExperiment):
             else: # "mean_level"
                 f_outlier = base_scale * mean_level
                 amp = factors * f_outlier
-            signs = torch.randint(0, 2, amp.shape, device=self.device, dtype=amp.dtype) * 2 - 1
-            eps[idx] = signs * amp
+            # signs = torch.randint(0, 2, amp.shape, device=self.device, dtype=amp.dtype) * 2 - 1
+            # eps[idx] = signs * amp
+            eps[idx] += amp
             print(f"outlier kind: {self.outlier_kind}")
             print(f"amp mean: {amp.mean().cpu().numpy()}, std: {amp.std().cpu().numpy()}")
             print(f"amp min: {amp.min().cpu().numpy()}, max: {amp.max().cpu().numpy()}")
@@ -331,16 +336,11 @@ class AllenCahn2D(BaseExperiment):
         self.X_data = X
         self.y_clean = u_clean
         self.y_data = y_noisy
+        print(f"y_data len: {self.y_data.shape[0]}")
+        
+        print(f"[Noise Init] Global Mean |u,v|: {mean_level:.4f}")
 
     def _data_loss(self, residual: torch.Tensor) -> torch.Tensor:
-        """
-        Map residuals r = y_noisy - u_pred (maybe with offset)
-        to per-point losses ℓ_i according to data_loss_kind:
-
-            'mse'        → ℓ_i = r_i^2             (vanilla PINN)
-            'l1'         → ℓ_i = |r_i|             (LAD-PINN)
-            'q_gaussian' → Tsallis q-Gaussian NLL  (OrPINN)
-        """
         kind = self.data_loss_kind
         if kind == "mse":
             return data_loss_mse(residual)
@@ -498,12 +498,12 @@ class AllenCahn2D(BaseExperiment):
                 return total_loss
             
         elif phase == 1:
-            return data_loss_value.view(-1)
+            return data_loss_value.mean()
         
         elif phase == 2:
-            if self.ebm is not None and residual.numel() > 0:
+            if self.ebm is not None:
                 # Detach so EBM training does not backprop through PINN/θ0
-                nll_ebm, nll_ebm_mean = self.ebm.train_step(residual.detach())
+                nll_ebm, nll_ebm_mean = self.ebm.train_step(residual_scaled.detach())
                 batch["ebm_nll"] = nll_ebm_mean
                 
                 loss_metric = nll_ebm if self.use_nll else data_loss_value
@@ -766,9 +766,9 @@ class AllenCahn2D(BaseExperiment):
 
         os.makedirs(out_dir, exist_ok=True)
 
-        nx = int(grid.get("nx", 50))
-        ny = int(grid.get("ny", 50))
-        nt = int(grid.get("nt", 50))
+        nx = int(grid.get("nx", 100))
+        ny = int(grid.get("ny", 100))
+        nt = int(grid.get("nt", 100))
 
         # Spatial grid
         Xg, Yg = linspace_2d(
@@ -780,6 +780,29 @@ class AllenCahn2D(BaseExperiment):
 
         extent = [float(self.rect.xa), float(self.rect.xb),
                   float(self.rect.ya), float(self.rect.yb)]
+        
+        ref_std = float(self.running_std.item())
+        R_range = 1 # ref_std * 5.0
+        
+        r_grid_np = np.linspace(-R_range, R_range, 200).astype(np.float32)
+        r_grid_torch = torch.from_numpy(r_grid_np).to(self.device).view(-1, 1)
+        
+        pdf_ebm = None
+        with torch.no_grad():
+            r_input_scaled = r_grid_torch / ref_std
+            
+            log_q = self.ebm(r_input_scaled).squeeze(-1) # [200] (이미 1D라 필요없나?)
+            m = log_q.max()
+            q_unn = torch.exp(log_q - m)
+            
+            Z = torch.trapezoid(q_unn, r_grid_torch.squeeze())
+            pdf_ebm = (q_unn / Z).cpu().numpy()
+
+        # True noise pdf
+        r_cpu = torch.from_numpy(r_grid_np).float()
+        noise_scale = self.sigma_local.mean().item()
+        print("Average noise scale:", noise_scale)
+        pdf_true = (self.noise_model.pdf(r_cpu / noise_scale) / noise_scale).numpy()
 
         frames = []
 
@@ -814,27 +837,7 @@ class AllenCahn2D(BaseExperiment):
                     float(np.max(np.abs(res_flat))) if res_flat.size > 0 else 0.0,
                     1e-3,
                 )
-                R = 1.5 * max_val
-                r_grid = np.linspace(-R, R, 200, dtype=np.float32)
-                r_torch = torch.from_numpy(r_grid).float().to(self.rect.device)
-
-                # True noise pdf
-                pdf_true = None
-                if hasattr(self.noise_model, "pdf"):
-                    r_cpu = torch.from_numpy(r_grid).float()  # CPU tensor
-                    pdf_true_tensor = self.noise_model.pdf(r_cpu)  # all CPU ops inside noise.py
-                    if isinstance(pdf_true_tensor, torch.Tensor):
-                        pdf_true = pdf_true_tensor.detach().cpu().numpy()
-                    else:
-                        pdf_true = np.asarray(pdf_true_tensor)
-                        
-                # EBM pdf (from log q_theta)
-                with torch.no_grad():
-                    log_q = self.ebm(r_torch.unsqueeze(-1)).squeeze(-1)  # [200]
-                    log_q = log_q - log_q.max()  # shift for numerical stability
-                    pdf_unn = torch.exp(log_q)   # unnormalized
-                    Z = torch.trapezoid(pdf_unn, r_torch)
-                    pdf_ebm = (pdf_unn / (Z + 1e-12)).cpu().numpy()
+                R_range = 1 # 1.5 * max_val
 
                 # ---- Build figure ----
                 fig, axes = plt.subplots(2, 2, figsize=(12, 12), dpi=120)
@@ -845,8 +848,8 @@ class AllenCahn2D(BaseExperiment):
                     eps_true.cpu().numpy().T,
                     origin="lower",
                     extent=extent,
-                    vmin=-R,
-                    vmax=R,
+                    vmin=-R_range,
+                    vmax=R_range,
                     aspect="auto",
                     cmap="coolwarm",
                 )
@@ -860,8 +863,8 @@ class AllenCahn2D(BaseExperiment):
                     R_field.cpu().numpy().T,
                     origin="lower",
                     extent=extent,
-                    vmin=-R,
-                    vmax=R,
+                    vmin=-R_range,
+                    vmax=R_range,
                     aspect="auto",
                     cmap="coolwarm",
                 )
@@ -879,7 +882,7 @@ class AllenCahn2D(BaseExperiment):
                     res_flat, bins=40, density=True,
                     alpha=0.5, label="residual sample r",
                 )
-                axes[1, 0].set_xlim(-R, R)
+                axes[1, 0].set_xlim(-R_range, R_range)
                 axes[1, 0].set_xlabel("value")
                 axes[1, 0].set_ylabel("density")
                 axes[1, 0].set_title("Empirical distributions over whole domain")
@@ -888,17 +891,17 @@ class AllenCahn2D(BaseExperiment):
                 # [1,1] True pdf vs EBM pdf on same axes
                 if pdf_true is not None:
                     axes[1, 1].plot(
-                        r_grid, pdf_true,
+                        r_grid_np, pdf_true,
                         label="true noise pdf",
                         linewidth=1.5,
                     )
                 axes[1, 1].plot(
-                    r_grid, pdf_ebm,
+                    r_grid_np, pdf_ebm,
                     label="EBM pdf",
                     linestyle="--",
                     linewidth=1.5,
                 )
-                axes[1, 1].set_xlim(-R, R)
+                axes[1, 1].set_xlim(-R_range, R_range)
                 axes[1, 1].set_xlabel("value")
                 axes[1, 1].set_ylabel("density")
                 axes[1, 1].set_title("True vs EBM noise pdf")

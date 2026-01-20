@@ -28,6 +28,35 @@ def state_to_cpu(state):
         return [state_to_cpu(v) for v in state]
     return state
 
+def get_optimizer_stats(optimizer):
+    """
+    Returns average Momentum and Variance stored in Adam's state.
+    """
+    total_mom = 0.0
+    total_var = 0.0
+    n_params = 0
+    
+    # Iterate over all parameter groups and parameters
+    for group in optimizer.param_groups:
+        for p in group['params']:
+            if p.grad is None:
+                continue
+            
+            state = optimizer.state[p]
+            if len(state) == 0: # State not initialized yet
+                continue
+                
+            # Adam stores 'exp_avg' (momentum) and 'exp_avg_sq' (variance)
+            if 'exp_avg' in state:
+                total_mom += state['exp_avg'].abs().mean().item()
+            if 'exp_avg_sq' in state:
+                total_var += state['exp_avg_sq'].mean().item()
+            n_params += 1
+            
+    if n_params == 0: return 0.0, 0.0
+    
+    return total_mom / n_params, total_var / n_params
+
 def main(args):
     base_cfg = load_yaml(args.common_config)
     model_cfg = load_yaml(args.model_config)
@@ -101,6 +130,8 @@ def main(args):
     # WandB
     if base_cfg["log"]["wandb"]["enabled"]:
         wandb.login(key=os.getenv('WANDB_API_KEY'))
+        if exp_cfg.get("wandb_project"):
+            base_cfg["log"]["wandb"]["project"] = exp_cfg["wandb_project"]
         wandb.init(project = base_cfg["log"]["wandb"]["project"],
                    name = file_name)
         run = setup_wandb(base_cfg["log"]["wandb"], args, out_dir, config={
@@ -220,6 +251,11 @@ def main(args):
             "perf/elapsed_sec": elapsed_s if elapsed_s is not None else 0.0,
             **gpu_now,
         }
+        
+        mom, var = get_optimizer_stats(optimizer)
+        log_payload["optim/mom_buffer"] = mom
+        log_payload["optim/var_buffer"] = var
+        
         if hasattr(exp, "nu") and isinstance(exp.nu, torch.nn.Parameter): # Burgers
             log_payload["pde/nu"] = float(exp.nu.detach().cpu())
         if hasattr(exp, "eps") and isinstance(exp.eps, torch.nn.Parameter): # Allen-Cahn
@@ -301,16 +337,29 @@ def main(args):
             wandb_log({"video/noise_true": wandb.Video(noise_true, format=out_fmt)})
         if os.path.exists(noise_ebm):
             wandb_log({"video/noise_ebm": wandb.Video(noise_ebm, format=out_fmt)})  
-            
+        
     if use_phase:
         exp.initialize_EBM(model)
+        
+        print("[Optimizer] Resetting Adam state for Phase 2 fine-tuning.")
+        phase2_lr = opt_cfg["lr"]
+        params = list(model.parameters())
+        if hasattr(exp, "extra_params"):
+            params += list(exp.extra_params())
+        if use_loss_balancer:
+            params += list(balancer.extra_params())
+
+        optimizer = torch.optim.Adam(params, lr=phase2_lr, weight_decay=opt_cfg.get("weight_decay", 0.0))
+        
         for ep in pbar2:
             model.train()
             batch = exp.sample_batch(n_f=n_f, n_b=n_b, n_0=n_0)
             phase = 2
             
             loss_res = exp.pde_residual_loss(model, batch).mean() if batch.get("X_f") is not None else torch.tensor(0., device=device)
-            loss_data = exp.data_loss(model, batch, phase).mean()        if batch.get("X_d") is not None else torch.tensor(0., device=device)
+            loss_data = exp.data_loss(model, batch, phase).mean() if batch.get("X_d") is not None else torch.tensor(0., device=device)
+            # loss_data, loss_idx1, loss_idx2, count_idx1, count_idx2 = exp.data_loss(model, batch, phase) if batch.get("X_d") is not None else torch.tensor(0., device=device)
+            # loss_data = loss_data.mean()
 
             loss_res_s = loss_res.mean() if torch.is_tensor(loss_res) and loss_res.dim() > 0 else loss_res # scalar
             loss_data_s = loss_data.mean() if torch.is_tensor(loss_data) and loss_data.dim() > 0 else loss_data
@@ -354,6 +403,10 @@ def main(args):
                 "perf/it_per_sec_tqdm": it_per_sec if it_per_sec is not None else 0.0,
                 "perf/elapsed_sec": elapsed_s if elapsed_s is not None else 0.0,
                 **gpu_now,
+                # "loss/data_idx1": loss_idx1,
+                # "loss/data_idx2": loss_idx2,
+                # "count/data_idx1": count_idx1,
+                # "count/data_idx2": count_idx2,
             }
             if hasattr(exp, "running_std"):
                 log_payload["running_std"] = float(exp.running_std.detach().cpu())
@@ -364,6 +417,9 @@ def main(args):
             if hasattr(exp, "gate_module"):
                 log_payload["gate/cutoff"] = float(exp.gate_module.cutoff_alpha.detach().cpu())
                 log_payload["gate/steepness"]  = float(exp.gate_module.steepness.detach().cpu())
+            mom, var = get_optimizer_stats(optimizer)
+            log_payload["optim/mom_buffer"] = mom
+            log_payload["optim/var_buffer"] = var
             wandb_log(log_payload, commit=True)
             pbar2.set_postfix({k: f"{v:.3e}" for k,v in log_payload.items() if "loss" in k})
             global_step += 1

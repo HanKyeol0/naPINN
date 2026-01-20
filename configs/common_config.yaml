@@ -1,7 +1,7 @@
 seed: 40
 device: "cuda"            # "cuda" or "cpu"
 train:
-  epochs: 40000
+  epochs: 30000
   batch:
     n_f: 8192             # collocation points
     n_b: 1024             # boundary points
@@ -39,7 +39,7 @@ log:
   out_dir: "outputs"
   wandb:
     enabled: true
-    project: "naPINN_allencahn2d"
+    project: "naPINN_AllenCahn_v1"
     entity: null      # or your team
     mode: "online"      # "auto" | "offline" | "disabled"
 eval:

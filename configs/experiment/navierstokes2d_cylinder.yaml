@@ -6,8 +6,9 @@
 # scripts/simulation/navierstokes_cylinder_1.sh
 # scripts/simulation/navierstokes_cylinder_2.sh # 이거 사용
 
-tag: naPINN_1
+tag: a1_na
 device: cuda
+wandb_project: naPINN_test
 
 simulation_tag: ns_data_3
 dir_path: pinnlab/simulation/simulation_result/
@@ -73,7 +74,7 @@ batch:
 noise:
   enabled: true
   batch_size: 2000
-  kind: G # G, Goff, sG, u, 3G, 3G0, mix0, Gmix, rmix, sGtest
+  kind: 4G # G, Goff, sG, u, 3G, 3G0, mix0, Gmix, rmix, sGtest
   
   scale: 0.1 # legacy
   # relative_scale: 0.10  # 10% relative error proportional to velocity
@@ -82,14 +83,14 @@ noise:
   extra_noise:
     enabled: true
     n_points: 1000
-    scale_min: 30.0
-    scale_max: 100.0
+    scale_min: 3.0
+    scale_max: 10.0
 
 # phase
 phase:
   enabled: true # true / false
-  phase1_epochs: 10000
-  phase2_epochs: 30000
+  phase1_epochs: 5000
+  phase2_epochs: 25000
 
 ebm:
   enabled: true
@@ -105,7 +106,7 @@ ebm:
 data_loss:
   kind: mse # mse, L1, q_gaussian
   # q-Gaussian settings
-  q: 2.0
+  q: 2.9
   beta: null
 
 data_loss_balancer:

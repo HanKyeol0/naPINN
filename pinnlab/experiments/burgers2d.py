@@ -362,7 +362,7 @@ class Burgers2D(BaseExperiment):
         
         # Base Noise
         kind = self.noise_cfg.get("kind", "G")
-        self.noise_model = get_noise(kind, f=1.0, pars=0)
+        self.noise_model = get_noise(kind, f=1.0, pars=self.noise_pars)
         
         if kind in ['MG2D']:
             z = self.noise_model.sample(n).float().to(self.device) 
@@ -394,9 +394,18 @@ class Burgers2D(BaseExperiment):
                 else:  # 'mean_level'
                     f_outlier = legacy_scale * mean_level
                     amp = factors * f_outlier
-                amp = factors * f_outlier
-                signs = torch.randint(0, 2, amp.shape, device=self.device).float() * 2 - 1
-                eps[idx] = signs * amp
+                # signs = torch.randint(0, 2, amp.shape, device=self.device).float() * 2 - 1
+                # print(f"y_clean outlier samples: {y_clean[idx].flatten().cpu().numpy()}")
+                print(f"eps mean: {eps.mean().cpu().numpy()}, std: {eps.std().cpu().numpy()}")
+                print(f"eps samples: {eps[idx].flatten().cpu().numpy()}")
+                print(f"eps max: {eps.max().cpu().numpy()}, min: {eps.min().cpu().numpy()}")
+                eps[idx] += amp # signs * amp
+                print(f"u max: {self.val_u.max()}")
+                print(f"v max: {self.val_v.max()}")
+                print(f"outlier kind: {self.outlier_kind}")
+                print(f"amp mean: {amp.mean().cpu().numpy()}, std: {amp.std().cpu().numpy()}")
+                print(f"amp min: {amp.min().cpu().numpy()}, max: {amp.max().cpu().numpy()}")
+                print(f"amp: {amp.flatten().cpu().numpy()}")
                 
         y_noisy = y_clean + eps
         
@@ -417,7 +426,7 @@ class Burgers2D(BaseExperiment):
             k = min(self.n_data_batch, n_data)
             idx_d = torch.randint(0, n_data, (k,), device=self.device)
             batch["X_d"] = self.X_data[idx_d]
-            batch["y_d"] = self.y_data[idx_d] 
+            batch["y_d"] = self.y_data[idx_d]
             
         return batch
     
@@ -468,30 +477,7 @@ class Burgers2D(BaseExperiment):
         res_u = u_t + (u * u_x + v * u_y) - self.nu * (u_xx + u_yy)
         res_v = v_t + (u * v_x + v * v_y) - self.nu * (v_xx + v_yy)
         
-        loss = res_u.pow(2).mean() + res_v.pow(2).mean()
-        
-        # X = make_leaf(batch["X_d"])
-        # out = model(X)
-        
-        # u, v = out[:, 0:1], out[:, 1:2]
-        
-        # du = grad_sum(u, X)
-        # dv = grad_sum(v, X)
-        # u_x, u_y, u_t = du[:, 0:1], du[:, 1:2], du[:, 2:3]
-        # v_x, v_y, v_t = dv[:, 0:1], dv[:, 1:2], dv[:, 2:3]
-        
-        # d2ux = grad_sum(u_x, X); d2uy = grad_sum(u_y, X)
-        # u_xx, u_yy = d2ux[:, 0:1], d2uy[:, 1:2]
-        
-        # d2vx = grad_sum(v_x, X); d2vy = grad_sum(v_y, X)
-        # v_xx, v_yy = d2vx[:, 0:1], d2vy[:, 1:2]
-        
-        # res_u = u_t + (u * u_x + v * u_y) - self.nu * (u_xx + u_yy)
-        # res_v = v_t + (u * v_x + v * v_y) - self.nu * (v_xx + v_yy)
-        
-        # PDE_loss_on_data = res_u.pow(2).mean() + res_v.pow(2).mean()
-        
-        # loss = loss + PDE_loss_on_data
+        loss = res_u.pow(2).mean() + res_v.pow(2).mean()    
         
         return loss
 
@@ -550,7 +536,7 @@ class Burgers2D(BaseExperiment):
                 return total_loss
                 
         elif phase == 1: # Standard PINN training
-            return data_loss_value.view(-1)
+            return data_loss_value.mean()
             
         elif phase == 2: # PINN + EBM Weighted
             if self.ebm is not None:
@@ -563,11 +549,15 @@ class Burgers2D(BaseExperiment):
                 if self.use_data_loss_balancer:
                     # Query weights using SCALED residuals
                     w, gate_reg_loss = self._get_weights(residual_scaled.detach())
+                    idx1 = (w < 0.5).nonzero(as_tuple=True)[0]
+                    idx2 = (w >= 0.5).nonzero(as_tuple=True)[0]
+                    loss_metric_idx1 = loss_metric[idx1].clone()
+                    loss_metric_idx2 = loss_metric[idx2].clone()
                     weighted_loss = (w * loss_metric).mean()
                     total_loss = weighted_loss + gate_reg_loss
                 else:
                     total_loss = loss_metric.mean()
-                return total_loss
+                return total_loss #, loss_metric_idx1.mean().item(), loss_metric_idx2.mean().item(), len(idx1), len(idx2)
 
         return torch.tensor(0.0, device=self.device)
 
@@ -603,31 +593,58 @@ class Burgers2D(BaseExperiment):
             params.extend(list(self.gate_module.parameters()))
         return params
 
-    def relative_l2_on_grid(self, model, grid_cfg=None):
+    def relative_l2_on_grid(self, model, grid_cfg=None, batch_size=10000):
         model.eval()
-        t_idx = len(self.val_t) // 2
-        t_val = self.val_t[t_idx]
         
-        X, Y = np.meshgrid(self.val_x, self.val_y)
-        T = np.full_like(X, t_val)
+        T, Y, X = np.meshgrid(self.val_t, self.val_y, self.val_x, indexing='ij')
+        flat_x = X.flatten()
+        flat_y = Y.flatten()
+        flat_t = T.flatten()
         
-        inputs = np.stack([X.flatten(), Y.flatten(), T.flatten()], axis=1)
-        inputs_torch = torch.from_numpy(inputs).float().to(self.device)
+        # Stack: [x, y, t] matches the training input order
+        inputs = np.stack([flat_x, flat_y, flat_t], axis=1)
+        
+        # Ground Truth (flattened to match)
+        u_true = self.val_u.flatten()
+        v_true = self.val_v.flatten()
+        
+        # 2. Batched Prediction (Safe for Memory)
+        u_pred_list = []
+        v_pred_list = []
+        
+        num_samples = inputs.shape[0]
         
         with torch.no_grad():
-            pred = model(inputs_torch)
-            u_pred = pred[:, 0].cpu().numpy()
-            v_pred = pred[:, 1].cpu().numpy()
+            for i in range(0, num_samples, batch_size):
+                # Prepare batch
+                batch_inputs = inputs[i : i + batch_size]
+                batch_tensor = torch.from_numpy(batch_inputs).float().to(self.device)
+                
+                # Predict
+                pred = model(batch_tensor)
+                
+                # Store
+                u_pred_list.append(pred[:, 0].cpu().numpy())
+                v_pred_list.append(pred[:, 1].cpu().numpy())
+        
+        # Concatenate all batches
+        u_pred = np.concatenate(u_pred_list)
+        v_pred = np.concatenate(v_pred_list)
+        
+        diff_sq = (u_true - u_pred)**2 + (v_true - v_pred)**2
+        true_sq = u_true**2 + v_true**2
+        
+        numerator = np.sqrt(np.sum(diff_sq))
+        denominator = np.sqrt(np.sum(true_sq))
+        
+        if denominator < 1e-10:
+            rel_l2 = 0.0
+            print("[Warning] Ground truth norm is near zero.")
+        else:
+            rel_l2 = numerator / denominator
             
-        u_true = self.val_u[t_idx].flatten()
-        v_true = self.val_v[t_idx].flatten()
-        
-        mag_pred = np.sqrt(u_pred**2 + v_pred**2)
-        mag_true = np.sqrt(u_true**2 + v_true**2)
-        
-        num = np.linalg.norm(mag_true - mag_pred)
-        den = np.linalg.norm(mag_true)
-        return float(num / den)
+        print(f"[Burgers2D] Global Relative L2 Error: {rel_l2:.6f}")
+        return float(rel_l2)
 
     def make_video(self, model, grid_cfg, out_dir, fps=10, filename="flow_evolution_burgers.mp4", phase=0):
         os.makedirs(out_dir, exist_ok=True)
@@ -874,7 +891,7 @@ class Burgers2D(BaseExperiment):
         if not self.use_extra_noise:
             print("[Evaluate] Extra noise not used in this experiment. Skipping gate evaluation.")
             return
-            
+
         if self.gate_module is None or self.ebm is None:
             print("[Evaluate] Gate or EBM not available. Skipping gate evaluation.")
             return

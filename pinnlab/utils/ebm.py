@@ -582,8 +582,8 @@ class TrainableLikelihoodGate(nn.Module):
         self.device = device
         # Initialize cutoff deeper (e.g., 2.0 or 2.5 sigma) to prevent initial collapse
         self.cutoff_alpha = nn.Parameter(torch.tensor(float(init_cutoff_sigma), device=device))
-        self.steepness = torch.tensor(float(init_steepness), device=device)
-        # self.steepness = nn.Parameter(torch.tensor(float(init_steepness), device=device))
+        # self.steepness = torch.tensor(float(init_steepness), device=device)
+        self.steepness = nn.Parameter(torch.tensor(float(init_steepness), device=device))
         
         self.rejection_cost = rejection_cost
         self.to(device)
@@ -616,6 +616,6 @@ class TrainableLikelihoodGate(nn.Module):
         # 3. Normalization (Optional but recommended for gradient stability)
         # We normalize the output weights for the Physics Loss, 
         # BUT the regularization above acts on the RAW weights.
-        w_normalized = raw_w / (raw_w.mean() + 1e-8)
+        w_normalized = raw_w # / (raw_w.mean() + 1e-8)
         
         return w_normalized, reg_loss
