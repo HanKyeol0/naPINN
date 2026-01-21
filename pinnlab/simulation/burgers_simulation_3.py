@@ -45,7 +45,8 @@ def main(args):
     os.makedirs(os.path.join(DIR_PATH, SIMULATION_TAG), exist_ok=True)
     DATA_PATH = os.path.join(DIR_PATH, SIMULATION_TAG, "data.npz")
     CONFIG_PATH = os.path.join(DIR_PATH, SIMULATION_TAG, "config.yaml")
-    VIDEO_PATH = os.path.join(DIR_PATH, SIMULATION_TAG, "dynamics.mp4")
+    VIDEO_PATH_U = os.path.join(DIR_PATH, SIMULATION_TAG, "dynamics_u.mp4")
+    VIDEO_PATH_V = os.path.join(DIR_PATH, SIMULATION_TAG, "dynamics_v.mp4")
 
     def define_domain(nx, ny):
         x = np.linspace(XA, XB, nx)
@@ -208,7 +209,7 @@ def main(args):
 
     # --- 4. Video Generation ---
     def save_visualizations(u_full, v_full, t_grid, x_grid, y_grid, X_u):
-        print(f"Generating video to {VIDEO_PATH}...")
+        print(f"Generating video to {VIDEO_PATH_U}...")
         
         # Prepare data
         mag = np.sqrt(u_full**2 + v_full**2)
@@ -217,43 +218,68 @@ def main(args):
         # Sensor data columns: [x, y, t]
         meas_x, meas_y, meas_t = X_u[:, 0], X_u[:, 1], X_u[:, 2]
         dt_frame = t_grid[1] - t_grid[0] if len(t_grid) > 1 else 0.01
-
-        # Plot setup
-        fig, ax = plt.subplots(figsize=(6, 5))
-        vmin, vmax = 0, np.max(mag)
-        cax = ax.pcolormesh(X, Y, mag[0], shading='auto', cmap='inferno', vmin=vmin, vmax=vmax)
-        fig.colorbar(cax, ax=ax, label='Velocity Magnitude |V|')
+        umin, umax = 0, np.max(u_full)
+        vmin, vmax = 0, np.max(v_full)
         
-        # Sensor points (cyan dots)
-        sensor_scat = ax.scatter([], [], c='cyan', s=15, edgecolors='white', linewidth=0.5, label='Sensors')
-        ax.legend(loc='upper right')
-        title = ax.set_title(f"Burgulence t={t_grid[0]:.3f}")
+        # Plot setup
+        fig_u, ax_u = plt.subplots(figsize=(6, 5))
+        cax_u = ax_u.pcolormesh(X, Y, u_full[0], shading='auto', cmap='twilight', vmin=umin, vmax=umax)
+        fig_u.colorbar(cax_u, ax=ax_u, label='State u')
+        sensor_scat_u = ax_u.scatter([], [], c='cyan', s=15, edgecolors='white', linewidth=0.5, label='Sensors')
+        ax_u.legend(loc='upper right')
+        title_u = ax_u.set_title(f"Burgulence t={t_grid[0]:.3f}")
+        
+        fig_v, ax_v = plt.subplots(figsize=(6, 5))
+        cax_v = ax_v.pcolormesh(X, Y, v_full[0], shading='auto', cmap='twilight', vmin=vmin, vmax=vmax)
+        fig_v.colorbar(cax_v, ax=ax_v, label='State v')
+        sensor_scat_v = ax_v.scatter([], [], c='cyan', s=15, edgecolors='white', linewidth=0.5, label='Sensors')
+        ax_v.legend(loc='upper right')
+        title_v = ax_v.set_title(f"Burgulence t={t_grid[0]:.3f}")
 
-        def update(frame_idx):
+        def update_u(frame_idx):
             t_current = t_grid[frame_idx]
             
             # Update background field
-            cax.set_array(mag[frame_idx].ravel())
-            title.set_text(f"Burgulence t={t_current:.3f}")
+            cax_u.set_array(mag[frame_idx].ravel())
+            title_u.set_text(f"Burgulence t={t_current:.3f}")
             
             # Update sensors: find measurements close to current time (within half dt)
             mask = np.abs(meas_t - t_current) < (dt_frame / 2.0)
             if np.any(mask):
-                sensor_scat.set_offsets(np.c_[meas_x[mask], meas_y[mask]])
+                sensor_scat_u.set_offsets(np.c_[meas_x[mask], meas_y[mask]])
             else:
-                sensor_scat.set_offsets(np.empty((0, 2)))
-            return cax, sensor_scat, title
+                sensor_scat_u.set_offsets(np.empty((0, 2)))
+            return cax_u, sensor_scat_u, title_u
+        
+        def update_v(frame_idx):
+            t_current = t_grid[frame_idx]
+            
+            # Update background field
+            cax_v.set_array(v_full[frame_idx].ravel())
+            title_v.set_text(f"Burgulence t={t_current:.3f}")
+            
+            # Update sensors: find measurements close to current time (within half dt)
+            mask = np.abs(meas_t - t_current) < (dt_frame / 2.0)
+            if np.any(mask):
+                sensor_scat_v.set_offsets(np.c_[meas_x[mask], meas_y[mask]])
+            else:
+                sensor_scat_v.set_offsets(np.empty((0, 2)))
+            return cax_v, sensor_scat_v, title_v
 
-        ani = animation.FuncAnimation(fig, update, frames=len(t_grid), interval=50, blit=False)
+        ani_u = animation.FuncAnimation(fig_u, update_u, frames=len(t_grid), interval=50, blit=False)
+        ani_v = animation.FuncAnimation(fig_v, update_v, frames=len(t_grid), interval=50, blit=False)
 
         if animation.writers.is_available("ffmpeg"):
-            ani.save(VIDEO_PATH, writer="ffmpeg", fps=20)
+            ani_u.save(VIDEO_PATH_U, writer="ffmpeg", fps=20)
+            ani_v.save(VIDEO_PATH_V, writer="ffmpeg", fps=20)
             print("Video saved.")
         else:
-            fallback_path = os.path.splitext(VIDEO_PATH)[0] + ".gif"
             print("MovieWriter ffmpeg unavailable; saving GIF instead.")
-            ani.save(fallback_path, writer=animation.PillowWriter(fps=20))
-            print(f"Video saved to {fallback_path}.")
+            fallback_path_u = os.path.splitext(VIDEO_PATH_U)[0] + ".gif"
+            ani_u.save(fallback_path_u, writer=animation.PillowWriter(fps=20))
+            fallback_path_v = os.path.splitext(VIDEO_PATH_V)[0] + ".gif"
+            ani_v.save(fallback_path_v, writer=animation.PillowWriter(fps=20))
+            print(f"Video saved to {fallback_path_u} and {fallback_path_v}.")
         plt.close()
 
     # Execution

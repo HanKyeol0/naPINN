@@ -61,12 +61,6 @@ def render_frame_worker_u(args):
     ax[1, 0].imshow(u_true, origin='lower', extent=extent, vmin=vmin, vmax=vmax, cmap='gray', alpha=0.15)
     
     if X_meas_slice is not None and len(X_meas_slice) > 0:
-        # Visualize the measured 'u' value, not magnitude
-        # We assume X_meas_slice contains [x, y, t] and we need the value 'u' corresponding to it.
-        # However, the previous logic passed 'mag_meas_slice'. 
-        # Ideally, pass 'u_meas_slice' in args. 
-        # Fallback: Plot position only if values aren't passed, or use mag if that's all we have.
-        # For now, let's keep plotting the scatter magnitude or just positions.
         sc = ax[1, 0].scatter(X_meas_slice[:, 0], X_meas_slice[:, 1], c='k', 
                               s=5, alpha=0.5, label='Sensors')
         ax[1, 0].legend(loc='upper right')

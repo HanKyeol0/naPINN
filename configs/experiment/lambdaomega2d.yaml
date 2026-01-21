@@ -45,7 +45,7 @@ measurement:
 # experiment(back) run: scripts/mlp/lambdaomega2d.sh
 # experiment(fore) run: scripts/mlp/z_lambdaomega2d_fore.sh
 
-tag: "a2_na"
+tag: "1a_na_test"
 exp_description: 
 device: cuda
 wandb_project: "naPINN_LambdaOmega"
@@ -73,7 +73,7 @@ noise:
 phase:
   enabled: true # true / false
   phase1_epochs: 50
-  phase2_epochs: 2000
+  phase2_epochs: 25000
 
 ebm:
   enabled: true

@@ -31,39 +31,34 @@ def import_multiprocessing():
     return mp
 
 # --- WORKER: Flow Evolution (Physical Solution) ---
-def render_frame_worker(args):
+def render_frame_worker_u(args):
     """
     Render physical solution: True Magnitude, Predicted Magnitude, Noisy Data, Error.
     """
     (t_val, u_true, v_true, u_pred, v_pred, 
-     X_meas_slice, mag_meas_slice, vmin, vmax, error_max, extent) = args
+     X_meas_slice, mag_meas_slice, umin, umax, vmin, vmax, error_max, extent) = args
 
     fig, ax = plt.subplots(2, 2, figsize=(10, 10), dpi=100)
     plt.suptitle(f"Burgers 2D Flow | t={t_val:.3f}", y=0.95, fontsize=14)
 
-    # Calculate Magnitudes
-    mag_pred = np.sqrt(u_pred**2 + v_pred**2)
-    mag_true = np.sqrt(u_true**2 + v_true**2)
-    error = np.abs(mag_true - mag_pred)
-
     # [0,0] True Magnitude
-    im0 = ax[0, 0].imshow(mag_true, origin='lower', extent=extent, vmin=vmin, vmax=vmax, cmap='jet')
-    ax[0, 0].set_title("True Magnitude |V*|")
+    im0 = ax[0, 0].imshow(u_true, origin='lower', extent=extent, vmin=umin, vmax=umax, cmap='jet')
+    ax[0, 0].set_title("True State $u(x,y)$")
     ax[0, 0].set_ylabel("y")
     plt.colorbar(im0, ax=ax[0, 0], fraction=0.046, pad=0.04)
 
     # [0,1] Predicted Magnitude
-    im1 = ax[0, 1].imshow(mag_pred, origin='lower', extent=extent, vmin=vmin, vmax=vmax, cmap='jet')
-    ax[0, 1].set_title("Predicted Magnitude |V_hat|")
+    im1 = ax[0, 1].imshow(u_pred, origin='lower', extent=extent, vmin=umin, vmax=umax, cmap='jet')
+    ax[0, 1].set_title("Predicted State $\hat{u}(x,y)$")
     plt.colorbar(im1, ax=ax[0, 1], fraction=0.046, pad=0.04)
 
     # [1,0] Noisy Measurement Data
     # Background: Faint gray true flow to see context
-    ax[1, 0].imshow(mag_true, origin='lower', extent=extent, vmin=vmin, vmax=vmax, cmap='gray', alpha=0.15)
+    ax[1, 0].imshow(u_true, origin='lower', extent=extent, vmin=umin, vmax=umax, cmap='gray', alpha=0.15)
     
     if X_meas_slice is not None and len(X_meas_slice) > 0:
         sc = ax[1, 0].scatter(X_meas_slice[:, 0], X_meas_slice[:, 1], c=mag_meas_slice, 
-                              vmin=vmin, vmax=vmax, cmap='jet', s=15, edgecolors='none', alpha=0.9)
+                              vmin=umin, vmax=umax, cmap='jet', s=15, edgecolors='none', alpha=0.9)
         plt.colorbar(sc, ax=ax[1, 0], fraction=0.046, pad=0.04)
         ax[1, 0].set_title(f"Noisy Measurements (N={len(X_meas_slice)})")
     else:
@@ -74,6 +69,7 @@ def render_frame_worker(args):
     ax[1, 0].set_ylabel("y"); ax[1, 0].set_xlabel("x")
 
     # [1,1] Absolute Error
+    error = np.abs(u_true - u_pred)
     im2 = ax[1, 1].imshow(error, origin='lower', extent=extent, vmin=0, vmax=error_max, cmap='inferno')
     ax[1, 1].set_title(f"Absolute Error |V* - V_hat|")
     ax[1, 1].set_xlabel("x")
@@ -88,6 +84,55 @@ def render_frame_worker(args):
     plt.close(fig)
     return frame
 
+def render_frame_worker_v(args):
+    (t_val, u_true, v_true, u_pred, v_pred, 
+     X_meas_slice, mag_meas_slice, umin, umax, vmin, vmax, error_max, extent) = args
+
+    fig, ax = plt.subplots(2, 2, figsize=(10, 10), dpi=100)
+    plt.suptitle(f"Burgers 2D Flow | t={t_val:.3f}", y=0.95, fontsize=14)
+
+    # [0,0] True Magnitude
+    im0 = ax[0, 0].imshow(v_true, origin='lower', extent=extent, vmin=vmin, vmax=vmax, cmap='jet')
+    ax[0, 0].set_title("True State $v(x,y)$")
+    ax[0, 0].set_ylabel("y")
+    plt.colorbar(im0, ax=ax[0, 0], fraction=0.046, pad=0.04)
+
+    # [0,1] Predicted Magnitude
+    im1 = ax[0, 1].imshow(v_pred, origin='lower', extent=extent, vmin=vmin, vmax=vmax, cmap='jet')
+    ax[0, 1].set_title("Predicted State $\hat{v}(x,y)$")
+    plt.colorbar(im1, ax=ax[0, 1], fraction=0.046, pad=0.04)
+
+    # [1,0] Noisy Measurement Data
+    # Background: Faint gray true flow to see context
+    ax[1, 0].imshow(v_true, origin='lower', extent=extent, vmin=vmin, vmax=vmax, cmap='gray', alpha=0.15)
+    
+    if X_meas_slice is not None and len(X_meas_slice) > 0:
+        sc = ax[1, 0].scatter(X_meas_slice[:, 0], X_meas_slice[:, 1], c=mag_meas_slice, 
+                              vmin=vmin, vmax=vmax, cmap='jet', s=15, edgecolors='none', alpha=0.9)
+        plt.colorbar(sc, ax=ax[1, 0], fraction=0.046, pad=0.04)
+        ax[1, 0].set_title(f"Noisy Measurements (N={len(X_meas_slice)})")
+    else:
+        ax[1, 0].set_title("No Measurements")
+        
+    ax[1, 0].set_xlim(extent[0], extent[1])
+    ax[1, 0].set_ylim(extent[2], extent[3])
+    ax[1, 0].set_ylabel("y"); ax[1, 0].set_xlabel("x")
+
+    # [1,1] Absolute Error
+    error = np.abs(v_true - v_pred)
+    im2 = ax[1, 1].imshow(error, origin='lower', extent=extent, vmin=0, vmax=error_max, cmap='inferno')
+    ax[1, 1].set_title(f"Absolute Error |v* - \hat{{v}}|")
+    ax[1, 1].set_xlabel("x")
+    plt.colorbar(im2, ax=ax[1, 1], fraction=0.046, pad=0.04)
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    
+    fig.canvas.draw()
+    w, h = fig.canvas.get_width_height()
+    buf = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+    frame = buf.reshape(h, w, 3)
+    plt.close(fig)
+    return frame
 
 # --- WORKER: Noise Distribution Analysis ---
 def render_noise_worker(args):
@@ -643,8 +688,10 @@ class Burgers2D(BaseExperiment):
         X_grid, Y_grid = np.meshgrid(self.val_x, self.val_y)
         ny, nx = X_grid.shape
         
-        vmin = 0.0
-        vmax = np.max(np.sqrt(self.val_u**2 + self.val_v**2))
+        umin = np.min(self.val_u)
+        umax = np.max(self.val_u)
+        vmin = np.min(self.val_v)
+        vmax = np.max(self.val_v)
         global_error_max = 0.0
         
         temp_inference_results = []
@@ -710,7 +757,7 @@ class Burgers2D(BaseExperiment):
                 res['u_true'], res['v_true'], 
                 res['u_pred'], res['v_pred'], 
                 res['X_meas_slice'], res['mag_meas_slice'],
-                vmin, vmax, global_error_max,
+                umin, umax, vmin, vmax, global_error_max,
                 self.extent
             )
             render_args_list.append(args)
@@ -718,16 +765,24 @@ class Burgers2D(BaseExperiment):
         n_workers = max(1, os.cpu_count() - 2) 
         print(f"[Burgers2D] Rendering {len(render_args_list)} frames using {n_workers} workers...")
         
-        frames = []
+        frames_u = []
+        frames_v = []
         ctx = import_multiprocessing().get_context("fork") if os.name != 'nt' else None
         with ProcessPoolExecutor(max_workers=n_workers, mp_context=ctx) as executor:
-            results = executor.map(render_frame_worker, render_args_list)
-            for i, frame in enumerate(results):
-                frames.append(frame)
-
-        path = os.path.join(out_dir, filename)
-        imageio.mimsave(path, frames, fps=fps, macro_block_size=None)
-        print(f"[Burgers2D] Video saved to {path}")
+            results_u = executor.map(render_frame_worker_u, render_args_list)
+            for i, frame in enumerate(results_u):
+                frames_u.append(frame)
+            results_v = executor.map(render_frame_worker_v, render_args_list)
+            for i, frame in enumerate(results_v):
+                frames_v.append(frame)
+                
+        filename_u = filename.replace(".mp4", "_u.mp4")
+        filename_v = filename.replace(".mp4", "_v.mp4")
+        path_u = os.path.join(out_dir, filename_u)
+        path_v = os.path.join(out_dir, filename_v)
+        imageio.mimsave(path_u, frames_u, fps=fps, macro_block_size=None)
+        imageio.mimsave(path_v, frames_v, fps=fps, macro_block_size=None)
+        print(f"[Burgers2D] video saved to {path_u} and {path_v}")
 
         if phase == 2:
             try:
@@ -736,7 +791,7 @@ class Burgers2D(BaseExperiment):
                 print(f"Warning: Failed to create noise analysis video: {e}")
                 traceback.print_exc()
 
-        return path
+        return path_u
     
     def plot_final(self, model, grid_cfg, out_dir):
         return None

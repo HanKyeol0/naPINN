@@ -15,7 +15,7 @@ pde:
   nu: 0.01      # Viscosity
 
 # simulation
-simulation_tag: "Burgers2D_3-3"
+simulation_tag: "Burgers2D_3-4"
 description: fixed_grid measurement, 20*20 points
 dir_path: pinnlab/simulation/simulation_result/
 
