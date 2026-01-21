@@ -1,10 +1,10 @@
-# run: scripts/mlp/z_poisson2d_fore.sh
+# run: scripts/mlp/z_lambdaomega2d_fore.sh
 
 #!/usr/bin/env bash
 set -e
 
 MODEL_NAME=mlp
-EXPERIMENT_NAME=poisson2d
+EXPERIMENT_NAME=lambdaomega2d
 
 python -m pinnlab.train \
   --model_name $MODEL_NAME \

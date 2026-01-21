@@ -1,0 +1,105 @@
+# simuation run: scripts/simulation/lambdaomega.sh
+# experiment(back) run: scripts/mlp/lambdaomega2d.sh
+# experiment(fore) run: scripts/mlp/z_lambdaomega2d_fore.sh
+
+domain:
+  x: [-10.0, 10.0]
+  y: [-10.0, 10.0]
+  burn_in_time: 0.0
+  record_time: 10.0
+
+pde:
+  learn_params: true # true / false
+  # True values used for simulation: beta=1.0, d_u=1.0, d_v=1.0
+  # Initial guess for training:
+  init_beta: 0.0  
+  d_u: 1.0        # Fixed diffusion
+  d_v: 1.0        # Fixed diffusion
+  beta: 1.0       # Used for simulation generation only
+
+# simulation
+simulation_tag: "LambdaOmega_Spiral_1"
+sim_description: "Spiral waves, fixed grid measurement"
+dir_path: "pinnlab/simulation/simulation_result/"
+
+collocation_points:
+  nx: 100
+  ny: 100
+  dt: 0.1
+
+simulation_points: # for solving (finite difference needs finer grid)
+  nx: 128
+  ny: 128
+  dt: 0.002
+  every: 20  # Save every 20 steps
+
+measurement:
+  measure_kind: fixed_grid # random / fixed_random / fixed_grid
+  n_measurement: 5000 # for random
+  n_sensors: 200      # for fixed_random
+  sensor_nx: 15       # for fixed_grid (15x15 = 225 sensors)
+  sensor_ny: 15 
+
+### --- experiment --- ###
+
+# experiment(back) run: scripts/mlp/lambdaomega2d.sh
+# experiment(fore) run: scripts/mlp/z_lambdaomega2d_fore.sh
+
+tag: "1_qG3"
+exp_description: 
+device: cuda
+wandb_project: "naPINN_LambdaOmega"
+
+batch:
+  n_f: 10000 # Higher collocation needed for large domain
+
+noise:
+  enabled: true
+  batch_size: 2000
+  kind: 4G
+  par_list: [[-8.0, 2],[0.7,4],[3.7,0.6],[9.5,1]]
+  scale: 0.1 # Not used if relative_scale is set
+  # relative_scale: 0.05  # 5% relative noise
+  # floor_scale: 0.01     # Noise floor
+
+  extra_noise:
+    enabled: true
+    kind: std  # 'std' or 'mean_level'
+    n_points: 20000 # ~20% of measurements if N=5000
+    scale_min: 3.0
+    scale_max: 10.0
+
+# phase
+phase:
+  enabled: false # true / false
+  phase1_epochs: 5000
+  phase2_epochs: 25000
+
+ebm:
+  enabled: true
+  kind: 1D
+  hidden_dim: 32
+  depth: 4
+  num_grid: 512
+  max_range_factor: 3.0
+  lr: 1.0e-3
+  use_nll: false
+  init_train_epochs: 5000
+
+data_loss:
+  kind: q_gaussian # mse, L1, q_gaussian
+  # q-Gaussian settings
+  q: 2.9
+  beta: null
+
+data_loss_balancer:
+  use_loss_balancer: false # true / false
+  kind: gated_trainable
+  rejection_cost: 0.5 
+
+# Model I/O
+in_features: 3   # (x,y,t)
+out_features: 2  # (u,v)
+
+offset:
+  enabled: false

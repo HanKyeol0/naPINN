@@ -41,8 +41,14 @@ def main(args):
     B = float(pde_cfg.get("b", 0.8))
     EPS = float(pde_cfg.get("epsilon", 0.08))
     I_EXT = float(pde_cfg.get("I", 0.5))
+    I_AMP = float(pde_cfg.get("I_amp", 0.0))
+    I_PERIOD = float(pde_cfg.get("I_period", 0.0))
 
     DT = cfg["simulation_points"]["dt"]
+
+    stability_cfg = cfg.get("stability", {}) or {}
+    max_abs = stability_cfg.get("max_abs", 5.0)
+    max_abs = float(max_abs) if max_abs is not None else None
 
     BURN_IN_TIME = cfg["domain"]["burn_in_time"]
     RECORD_TIME = cfg["domain"]["record_time"]
@@ -89,6 +95,50 @@ def main(args):
 
         return field
 
+    def init_conditions(X, Y):
+        init_cfg = cfg.get("initial_condition", {}) or {}
+        init_kind = init_cfg.get("kind", "grf")
+        init_scale = float(init_cfg.get("scale", 0.2))
+        init_noise = float(init_cfg.get("noise_scale", 0.0))
+        grf_alpha = float(init_cfg.get("grf_alpha", 5.0))
+        bump_sigma = float(init_cfg.get("bump_sigma", 0.8))
+        bump_center = init_cfg.get("bump_center", None)
+
+        if bump_center is None:
+            bump_center = [(XA + XB) * 0.5, (YA + YB) * 0.5]
+        cx0, cy0 = float(bump_center[0]), float(bump_center[1])
+
+        if init_kind == "gaussian_bump":
+            r2 = (X - cx0) ** 2 + (Y - cy0) ** 2
+            bump = np.exp(-0.5 * r2 / (bump_sigma**2))
+            u0 = init_scale * bump
+            v0 = 0.5 * init_scale * bump
+        elif init_kind == "sine":
+            kx = float(init_cfg.get("kx", 1.0))
+            ky = float(init_cfg.get("ky", 1.0))
+            phase = float(init_cfg.get("phase", 0.0))
+            Lx, Ly = DOMAIN_SIZE
+            u0 = init_scale * np.sin(2.0 * np.pi * kx * (X - XA) / Lx + phase)
+            v0 = init_scale * np.sin(2.0 * np.pi * ky * (Y - YA) / Ly + phase)
+        elif init_kind == "grf":
+            u0 = init_scale * generate_grf(X, Y, alpha=grf_alpha, seed=1)
+            v0 = init_scale * generate_grf(X, Y, alpha=grf_alpha, seed=2)
+        else:
+            raise ValueError(f"Unknown initial condition kind: {init_kind}")
+
+        if init_noise > 0.0:
+            u0 = u0 + init_noise * np.random.normal(0.0, 1.0, size=u0.shape)
+            v0 = v0 + init_noise * np.random.normal(0.0, 1.0, size=v0.shape)
+
+        return u0.astype(np.float64), v0.astype(np.float64)
+
+    def external_current(t):
+        if I_AMP == 0.0:
+            return I_EXT
+        if I_PERIOD > 0.0:
+            return I_EXT + I_AMP * np.sin(2.0 * np.pi * t / I_PERIOD)
+        return I_EXT
+
     # --- 2. FitzHugh-Nagumo RD Solver ---
     def solve_fitzhugh_nagumo():
         x, y, X, Y = define_domain(nx, ny)
@@ -99,10 +149,11 @@ def main(args):
         cfl_u = DT * DU * (1.0 / dx**2 + 1.0 / dy**2)
         cfl_v = DT * DV * (1.0 / dx**2 + 1.0 / dy**2)
         print(f"Stability Check - CFL (u): {cfl_u:.5f}, CFL (v): {cfl_v:.5f}")
+        if cfl_u > 0.5 or cfl_v > 0.5:
+            print("[Warning] CFL is high for explicit diffusion; consider reducing dt.")
 
-        print("Initializing with Gaussian Random Field...")
-        u = 0.2 * generate_grf(X, Y, alpha=5.0, seed=1)
-        v = 0.2 * generate_grf(X, Y, alpha=5.0, seed=2)
+        print("Initializing state...")
+        u, v = init_conditions(X, Y)
 
         u_hist, v_hist, t_hist = [], [], []
 
@@ -111,6 +162,12 @@ def main(args):
         total_steps = N_STEPS_BURN + N_STEPS_RECORD
 
         for n in tqdm(range(total_steps)):
+            t = n * DT
+            I_t = external_current(t)
+            if max_abs is not None:
+                u = np.clip(u, -max_abs, max_abs)
+                v = np.clip(v, -max_abs, max_abs)
+
             u_xp = np.roll(u, -1, axis=1)
             u_xm = np.roll(u, 1, axis=1)
             u_yp = np.roll(u, -1, axis=0)
@@ -124,11 +181,18 @@ def main(args):
             lap_u = (u_yp + u_ym - 2 * u) / dy**2 + (u_xp + u_xm - 2 * u) / dx**2
             lap_v = (v_yp + v_ym - 2 * v) / dy**2 + (v_xp + v_xm - 2 * v) / dx**2
 
-            du_dt = DU * lap_u + u - u**3 - v + I_EXT
-            dv_dt = DV * lap_v + EPS * (u - A * v - B)
+            u_safe = np.clip(u, -max_abs, max_abs) if max_abs is not None else u
+            v_safe = np.clip(v, -max_abs, max_abs) if max_abs is not None else v
+
+            du_dt = DU * lap_u + u_safe - u_safe**3 - v_safe + I_t
+            dv_dt = DV * lap_v + EPS * (u_safe - A * v_safe - B)
 
             u = u + DT * du_dt
             v = v + DT * dv_dt
+            if not (np.isfinite(u).all() and np.isfinite(v).all()):
+                raise FloatingPointError(
+                    "NaN/Inf detected in simulation. Reduce dt or lower max_abs."
+                )
 
             if n > N_STEPS_BURN:
                 if (n - N_STEPS_BURN) % RECORD_EVERY == 0:

@@ -6,7 +6,7 @@
 # scripts/simulation/navierstokes_cylinder_1.sh
 # scripts/simulation/navierstokes_cylinder_2.sh # 이거 사용
 
-tag: c1_qG3
+tag: c3_na_rej001
 device: cuda
 wandb_project: naPINN_test
 
@@ -18,13 +18,13 @@ domain:
   x: [0.0, 2.0]
   y: [0.0, 1.0]
   burn_in_time: 14
-  record_time: 2
+  record_time: 4
 
 simulation_points:
   nx: 200
   ny: 100
   dt: 0.002
-  every: 10
+  every: 20
 
 measurement:
   measure_kind: fixed_grid # random / fixed_random / fixed_grid
@@ -86,7 +86,8 @@ noise:
   enabled: true
   batch_size: 1000
   kind: 4G # G, Goff, sG, u, 3G, 3G0, mix0, Gmix, rmix, sGtest
-  par_list: [[-8.0, 2],[0.7,4],[3.7,0.6],[9.5,1]]
+  # par_list: [[-2.0,4],[2.0,8],[6.0,2]] # 3G
+  par_list: [[-8.0, 2],[0.7,4],[3.7,0.6], [9.5,1]] # 4G
   pars: [0.0, 4.0]
   
   scale: 0.1 # legacy
@@ -96,13 +97,13 @@ noise:
   extra_noise:
     enabled: true
     kind: std
-    n_points: 2000
-    scale_min: 5.0
-    scale_max: 12.0
+    n_points: 1000
+    scale_min: 3.0
+    scale_max: 10.0
 
 # phase
 phase:
-  enabled: false # true / false
+  enabled: true # true / false
   phase1_epochs: 5000
   phase2_epochs: 25000
 
@@ -118,17 +119,18 @@ ebm:
   init_train_epochs: 5000
 
 data_loss:
-  kind: q_gaussian # mse, L1, q_gaussian
+  kind: mse # mse, L1, q_gaussian
   # q-Gaussian settings
   q: 2.9
   beta: null
 
 data_loss_balancer:
-  use_loss_balancer: false # true / false
+  use_loss_balancer: true # true / false
   kind: gated_trainable # pw, inverse, mlp, gated, gated_trainable
   weight_net:
     hidden_dim: 32
     depth: 3
+  rejection_cost: 0.001
 
 offset:
   enabled: false
