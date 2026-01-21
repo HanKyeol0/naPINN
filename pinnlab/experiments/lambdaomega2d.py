@@ -31,7 +31,7 @@ def import_multiprocessing():
     return mp
 
 # --- WORKER: Flow Evolution (Physical Solution) ---
-def render_frame_worker(args):
+def render_frame_worker_u(args):
     """
     Render physical solution: True State u, Predicted State u, Noisy Data, Error.
     """
@@ -95,6 +95,69 @@ def render_frame_worker(args):
     plt.close(fig)
     return frame
 
+def render_frame_worker_v(args):
+    """
+    Render physical solution: True State u, Predicted State u, Noisy Data, Error.
+    """
+    (t_val, u_true, v_true, u_pred, v_pred, 
+     X_meas_slice, mag_meas_slice, vmin, vmax, error_max, extent) = args
+
+    fig, ax = plt.subplots(2, 2, figsize=(10, 10), dpi=100)
+    plt.suptitle(f"LambdaOmega 2D Flow | t={t_val:.3f}", y=0.95, fontsize=14)
+
+    # --- CHANGE: Visualize Component 'u' instead of Magnitude ---
+    # Magnitude is static for spiral waves; 'u' shows the rotation.
+    
+    # [0,0] True State v
+    # Use a diverging colormap (e.g., 'twilight' or 'seismic') for waves
+    im0 = ax[0, 0].imshow(v_true, origin='lower', extent=extent, vmin=vmin, vmax=vmax, cmap='twilight')
+    ax[0, 0].set_title("True State $v(x,y)$")
+    ax[0, 0].set_ylabel("y")
+    plt.colorbar(im0, ax=ax[0, 0], fraction=0.046, pad=0.04)
+
+    # [0,1] Predicted State v
+    im1 = ax[0, 1].imshow(v_pred, origin='lower', extent=extent, vmin=vmin, vmax=vmax, cmap='twilight')
+    ax[0, 1].set_title("Predicted State $\hat{v}(x,y)$")
+    plt.colorbar(im1, ax=ax[0, 1], fraction=0.046, pad=0.04)
+
+    # [1,0] Noisy Measurement Data (v component)
+    # Background: Faint true flow
+    ax[1, 0].imshow(v_true, origin='lower', extent=extent, vmin=vmin, vmax=vmax, cmap='gray', alpha=0.15)
+    
+    if X_meas_slice is not None and len(X_meas_slice) > 0:
+        # Visualize the measured 'v' value, not magnitude
+        # We assume X_meas_slice contains [x, y, t] and we need the value 'v' corresponding to it.
+        # However, the previous logic passed 'mag_meas_slice'. 
+        # Ideally, pass 'v_meas_slice' in args. 
+        # Fallback: Plot position only if values aren't passed, or use mag if that's all we have.
+        # For now, let's keep plotting the scatter magnitude or just positions.
+        sc = ax[1, 0].scatter(X_meas_slice[:, 0], X_meas_slice[:, 1], c='k', 
+                              s=5, alpha=0.5, label='Sensors')
+        ax[1, 0].legend(loc='upper right')
+        ax[1, 0].set_title(f"Sensor Locations (N={len(X_meas_slice)})")
+    else:
+        ax[1, 0].set_title("No Measurements")
+        
+    ax[1, 0].set_xlim(extent[0], extent[1])
+    ax[1, 0].set_ylim(extent[2], extent[3])
+    ax[1, 0].set_ylabel("y"); ax[1, 0].set_xlabel("x")
+
+    # [1,1] Absolute Error (Magnitude error is still a good metric)
+    # Or use error in u: |v_true - v_pred|
+    error = np.abs(v_true - v_pred)
+    im2 = ax[1, 1].imshow(error, origin='lower', extent=extent, vmin=0, vmax=error_max, cmap='inferno')
+    ax[1, 1].set_title(f"Absolute Error $|v - \hat{{v}}|$")
+    ax[1, 1].set_xlabel("x")
+    plt.colorbar(im2, ax=ax[1, 1], fraction=0.046, pad=0.04)
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    
+    fig.canvas.draw()
+    w, h = fig.canvas.get_width_height()
+    buf = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+    frame = buf.reshape(h, w, 3)
+    plt.close(fig)
+    return frame
 
 # --- WORKER: Noise Distribution Analysis ---
 def render_noise_worker(args):
@@ -727,16 +790,24 @@ class LambdaOmega2D(BaseExperiment):
         n_workers = max(1, os.cpu_count() - 2) 
         print(f"[LambdaOmega2D] Rendering {len(render_args_list)} frames using {n_workers} workers...")
         
-        frames = []
+        frames_u = []
+        frames_v = []
         ctx = import_multiprocessing().get_context("fork") if os.name != 'nt' else None
         with ProcessPoolExecutor(max_workers=n_workers, mp_context=ctx) as executor:
-            results = executor.map(render_frame_worker, render_args_list)
-            for i, frame in enumerate(results):
-                frames.append(frame)
+            results_u = executor.map(render_frame_worker_u, render_args_list)
+            for i, frame in enumerate(results_u):
+                frames_u.append(frame)
+            results_v = executor.map(render_frame_worker_v, render_args_list)
+            for i, frame in enumerate(results_v):
+                frames_v.append(frame)
 
-        path = os.path.join(out_dir, filename)
-        imageio.mimsave(path, frames, fps=fps, macro_block_size=None)
-        print(f"[LambdaOmega2D] Video saved to {path}")
+        filename_u = filename.replace(".mp4", "_u.mp4")
+        filename_v = filename.replace(".mp4", "_v.mp4")
+        path_u = os.path.join(out_dir, filename_u)
+        path_v = os.path.join(out_dir, filename_v)
+        imageio.mimsave(path_u, frames_u, fps=fps, macro_block_size=None)
+        imageio.mimsave(path_v, frames_v, fps=fps, macro_block_size=None)
+        print(f"[LambdaOmega2D] Video saved to {path_u} and {path_v}")
 
         if phase == 2:
             try:
@@ -745,7 +816,7 @@ class LambdaOmega2D(BaseExperiment):
                 print(f"Warning: Failed to create noise analysis video: {e}")
                 traceback.print_exc()
 
-        return path
+        return path_u
     
     def plot_final(self, model, grid_cfg, out_dir):
         return None
