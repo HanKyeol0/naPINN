@@ -45,7 +45,7 @@ measurement:
 # experiment(back) run: scripts/mlp/lambdaomega2d.sh
 # experiment(fore) run: scripts/mlp/z_lambdaomega2d_fore.sh
 
-tag: "1_qG3"
+tag: "a2_na"
 exp_description: 
 device: cuda
 wandb_project: "naPINN_LambdaOmega"
@@ -65,15 +65,15 @@ noise:
   extra_noise:
     enabled: true
     kind: std  # 'std' or 'mean_level'
-    n_points: 20000 # ~20% of measurements if N=5000
+    n_points: 5000 # ~20% of measurements if N=5000
     scale_min: 3.0
     scale_max: 10.0
 
 # phase
 phase:
-  enabled: false # true / false
-  phase1_epochs: 5000
-  phase2_epochs: 25000
+  enabled: true # true / false
+  phase1_epochs: 50
+  phase2_epochs: 2000
 
 ebm:
   enabled: true
@@ -87,13 +87,13 @@ ebm:
   init_train_epochs: 5000
 
 data_loss:
-  kind: q_gaussian # mse, L1, q_gaussian
+  kind: mse # mse, L1, q_gaussian
   # q-Gaussian settings
   q: 2.9
   beta: null
 
 data_loss_balancer:
-  use_loss_balancer: false # true / false
+  use_loss_balancer: true # true / false
   kind: gated_trainable
   rejection_cost: 0.5 
 
@@ -103,3 +103,13 @@ out_features: 2  # (u,v)
 
 offset:
   enabled: false
+
+video:
+  enabled: true
+  fps: 20
+  every: 10000
+  grid: # not used, actually
+    nx: 128
+    ny: 128
+    nt: 128
+  format: mp4

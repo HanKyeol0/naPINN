@@ -33,39 +33,44 @@ def import_multiprocessing():
 # --- WORKER: Flow Evolution (Physical Solution) ---
 def render_frame_worker(args):
     """
-    Render physical solution: True Magnitude, Predicted Magnitude, Noisy Data, Error.
+    Render physical solution: True State u, Predicted State u, Noisy Data, Error.
     """
     (t_val, u_true, v_true, u_pred, v_pred, 
      X_meas_slice, mag_meas_slice, vmin, vmax, error_max, extent) = args
 
     fig, ax = plt.subplots(2, 2, figsize=(10, 10), dpi=100)
-    plt.suptitle(f"Burgers 2D Flow | t={t_val:.3f}", y=0.95, fontsize=14)
+    plt.suptitle(f"LambdaOmega 2D Flow | t={t_val:.3f}", y=0.95, fontsize=14)
 
-    # Calculate Magnitudes
-    mag_pred = np.sqrt(u_pred**2 + v_pred**2)
-    mag_true = np.sqrt(u_true**2 + v_true**2)
-    error = np.abs(mag_true - mag_pred)
-
-    # [0,0] True Magnitude
-    im0 = ax[0, 0].imshow(mag_true, origin='lower', extent=extent, vmin=vmin, vmax=vmax, cmap='jet')
-    ax[0, 0].set_title("True Magnitude |V*|")
+    # --- CHANGE: Visualize Component 'u' instead of Magnitude ---
+    # Magnitude is static for spiral waves; 'u' shows the rotation.
+    
+    # [0,0] True State u
+    # Use a diverging colormap (e.g., 'twilight' or 'seismic') for waves
+    im0 = ax[0, 0].imshow(u_true, origin='lower', extent=extent, vmin=vmin, vmax=vmax, cmap='twilight')
+    ax[0, 0].set_title("True State $u(x,y)$")
     ax[0, 0].set_ylabel("y")
     plt.colorbar(im0, ax=ax[0, 0], fraction=0.046, pad=0.04)
 
-    # [0,1] Predicted Magnitude
-    im1 = ax[0, 1].imshow(mag_pred, origin='lower', extent=extent, vmin=vmin, vmax=vmax, cmap='jet')
-    ax[0, 1].set_title("Predicted Magnitude |V_hat|")
+    # [0,1] Predicted State u
+    im1 = ax[0, 1].imshow(u_pred, origin='lower', extent=extent, vmin=vmin, vmax=vmax, cmap='twilight')
+    ax[0, 1].set_title("Predicted State $\hat{u}(x,y)$")
     plt.colorbar(im1, ax=ax[0, 1], fraction=0.046, pad=0.04)
 
-    # [1,0] Noisy Measurement Data
-    # Background: Faint gray true flow to see context
-    ax[1, 0].imshow(mag_true, origin='lower', extent=extent, vmin=vmin, vmax=vmax, cmap='gray', alpha=0.15)
+    # [1,0] Noisy Measurement Data (u component)
+    # Background: Faint true flow
+    ax[1, 0].imshow(u_true, origin='lower', extent=extent, vmin=vmin, vmax=vmax, cmap='gray', alpha=0.15)
     
     if X_meas_slice is not None and len(X_meas_slice) > 0:
-        sc = ax[1, 0].scatter(X_meas_slice[:, 0], X_meas_slice[:, 1], c=mag_meas_slice, 
-                              vmin=vmin, vmax=vmax, cmap='jet', s=15, edgecolors='none', alpha=0.9)
-        plt.colorbar(sc, ax=ax[1, 0], fraction=0.046, pad=0.04)
-        ax[1, 0].set_title(f"Noisy Measurements (N={len(X_meas_slice)})")
+        # Visualize the measured 'u' value, not magnitude
+        # We assume X_meas_slice contains [x, y, t] and we need the value 'u' corresponding to it.
+        # However, the previous logic passed 'mag_meas_slice'. 
+        # Ideally, pass 'u_meas_slice' in args. 
+        # Fallback: Plot position only if values aren't passed, or use mag if that's all we have.
+        # For now, let's keep plotting the scatter magnitude or just positions.
+        sc = ax[1, 0].scatter(X_meas_slice[:, 0], X_meas_slice[:, 1], c='k', 
+                              s=5, alpha=0.5, label='Sensors')
+        ax[1, 0].legend(loc='upper right')
+        ax[1, 0].set_title(f"Sensor Locations (N={len(X_meas_slice)})")
     else:
         ax[1, 0].set_title("No Measurements")
         
@@ -73,9 +78,11 @@ def render_frame_worker(args):
     ax[1, 0].set_ylim(extent[2], extent[3])
     ax[1, 0].set_ylabel("y"); ax[1, 0].set_xlabel("x")
 
-    # [1,1] Absolute Error
+    # [1,1] Absolute Error (Magnitude error is still a good metric)
+    # Or use error in u: |u_true - u_pred|
+    error = np.abs(u_true - u_pred)
     im2 = ax[1, 1].imshow(error, origin='lower', extent=extent, vmin=0, vmax=error_max, cmap='inferno')
-    ax[1, 1].set_title(f"Absolute Error |V* - V_hat|")
+    ax[1, 1].set_title(f"Absolute Error $|u - \hat{{u}}|$")
     ax[1, 1].set_xlabel("x")
     plt.colorbar(im2, ax=ax[1, 1], fraction=0.046, pad=0.04)
 
@@ -229,7 +236,7 @@ class LambdaOmega2D(BaseExperiment):
         
         if self.use_ebm:
             if self.ebm_kind == "2D":
-                # Note: input_dim=2 because Burgers has (u, v)
+                # Note: input_dim=2 because LambdaOmega has (u, v)
                 self.ebm = EBM2D(
                     hidden_dim=ebm_cfg.get("hidden_dim", 32),
                     depth=ebm_cfg.get("depth", 3),
@@ -638,34 +645,31 @@ class LambdaOmega2D(BaseExperiment):
         else:
             rel_l2 = numerator / denominator
             
-        print(f"[Burgers2D] Global Relative L2 Error: {rel_l2:.6f}")
+        print(f"[LambdaOmega2D] Global Relative L2 Error: {rel_l2:.6f}")
         return float(rel_l2)
 
-    def make_video(self, model, grid_cfg, out_dir, fps=10, filename="flow_evolution_burgers.mp4", phase=0):
+    def make_video(self, model, grid_cfg, out_dir, fps=10, filename="flow_evolution_lambdaomega.mp4", phase=0): 
         os.makedirs(out_dir, exist_ok=True)
         model.eval()
-        
+
         X_grid, Y_grid = np.meshgrid(self.val_x, self.val_y)
         ny, nx = X_grid.shape
-        
-        vmin = 0.0
-        vmax = np.max(np.sqrt(self.val_u**2 + self.val_v**2))
+
+        vmin = -1.5
+        vmax = 1.5
         global_error_max = 0.0
         
         temp_inference_results = []
-        
         if len(self.val_t) > 1:
             dt_window = (self.val_t[1] - self.val_t[0]) / 2.0
         else:
             dt_window = 0.05
 
-        print(f"[Burgers2D] Pre-calculating frames. Extent: {self.extent}")
+        print(f"[LambdaOmega2D] Pre-calculating frames. Extent: {self.extent}")
         
         with torch.no_grad():
             for i, t_val in enumerate(self.val_t):
-                # Sample frames to save time (every 2nd frame)
                 if i % 2 != 0: continue 
-                
                 X_meas_slice = None
                 mag_meas_slice = None
                 
@@ -674,13 +678,13 @@ class LambdaOmega2D(BaseExperiment):
                     y_d_cpu = self.y_data.cpu().numpy()
                     mask_time = (X_d_cpu[:, 2] >= t_val - dt_window) & \
                                 (X_d_cpu[:, 2] < t_val + dt_window)
-                    
+                                
                     X_meas_slice = X_d_cpu[mask_time]
                     y_meas_slice = y_d_cpu[mask_time]
-                    
-                    if len(y_meas_slice) > 0:
-                        mag_meas_slice = np.sqrt(y_meas_slice[:, 0]**2 + y_meas_slice[:, 1]**2)
-
+                
+                if len(y_meas_slice) > 0:
+                    mag_meas_slice = np.sqrt(y_meas_slice[:, 0]**2 + y_meas_slice[:, 1]**2)
+                
                 T_grid = np.full_like(X_grid, t_val)
                 inputs = np.stack([X_grid.flatten(), Y_grid.flatten(), T_grid.flatten()], axis=1)
                 inputs_torch = torch.from_numpy(inputs).float().to(self.device)
@@ -694,8 +698,8 @@ class LambdaOmega2D(BaseExperiment):
                 
                 mag_pred_tmp = np.sqrt(u_pred_grid**2 + v_pred_grid**2)
                 mag_true_tmp = np.sqrt(u_true_grid**2 + v_true_grid**2)
-                
-                curr_max = np.max(np.abs(mag_true_tmp - mag_pred_tmp))
+
+                curr_max = np.max(np.abs(u_true_grid - u_pred_grid))
                 if curr_max > global_error_max:
                     global_error_max = curr_max
                 
@@ -703,7 +707,7 @@ class LambdaOmega2D(BaseExperiment):
                     't_val': t_val,
                     'u_true': u_true_grid, 'v_true': v_true_grid,
                     'u_pred': u_pred_grid, 'v_pred': v_pred_grid,
-                    'X_meas_slice': X_meas_slice, 'mag_meas_slice': mag_meas_slice
+                    'X_meas_slice': X_meas_slice, 'mag_meas_slice': mag_meas_slice 
                 })
 
         if global_error_max == 0: global_error_max = 1.0
@@ -721,7 +725,7 @@ class LambdaOmega2D(BaseExperiment):
             render_args_list.append(args)
 
         n_workers = max(1, os.cpu_count() - 2) 
-        print(f"[Burgers2D] Rendering {len(render_args_list)} frames using {n_workers} workers...")
+        print(f"[LambdaOmega2D] Rendering {len(render_args_list)} frames using {n_workers} workers...")
         
         frames = []
         ctx = import_multiprocessing().get_context("fork") if os.name != 'nt' else None
@@ -732,7 +736,7 @@ class LambdaOmega2D(BaseExperiment):
 
         path = os.path.join(out_dir, filename)
         imageio.mimsave(path, frames, fps=fps, macro_block_size=None)
-        print(f"[Burgers2D] Video saved to {path}")
+        print(f"[LambdaOmega2D] Video saved to {path}")
 
         if phase == 2:
             try:
@@ -750,7 +754,7 @@ class LambdaOmega2D(BaseExperiment):
         if self.noise_model is None or self.ebm is None:
             return
 
-        print("[Burgers2D] Generating Noise Analysis video...")
+        print("[LambdaOmega2D] Generating Noise Analysis video...")
         base, ext = os.path.splitext(filename)
         vid_filename = f"{base}_noise_analysis{ext}"
         
@@ -859,7 +863,7 @@ class LambdaOmega2D(BaseExperiment):
 
         path = os.path.join(out_dir, vid_filename)
         imageio.mimsave(path, frames, fps=fps, macro_block_size=None)
-        print(f"[Burgers2D] Noise video saved to {path}")
+        print(f"[LambdaOmega2D] Noise video saved to {path}")
 
     def evaluate_gate_performance(self, model, out_dir, filename_prefix=None):
         if not self.use_extra_noise:
