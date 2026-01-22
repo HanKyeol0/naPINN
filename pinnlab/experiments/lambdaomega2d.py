@@ -36,7 +36,7 @@ def render_frame_worker_u(args):
     Render physical solution: True State u, Predicted State u, Noisy Data, Error.
     """
     (t_val, u_true, v_true, u_pred, v_pred, 
-     X_meas_slice, mag_meas_slice, vmin, vmax, error_max, extent) = args
+     X_meas_slice, mag_meas_slice, vmin, vmax, error_max, extent, frames_dir) = args
 
     fig, ax = plt.subplots(2, 2, figsize=(10, 10), dpi=100)
     plt.suptitle(f"LambdaOmega 2D Flow | t={t_val:.3f}", y=0.95, fontsize=14)
@@ -82,6 +82,10 @@ def render_frame_worker_u(args):
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
     
+    # save PDF frame
+    frame_path = os.path.join(frames_dir, f"u_t{float(t_val):.3f}.pdf")
+    fig.savefig(frame_path, format='pdf', bbox_inches='tight')
+    
     fig.canvas.draw()
     w, h = fig.canvas.get_width_height()
     buf = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
@@ -94,16 +98,12 @@ def render_frame_worker_v(args):
     Render physical solution: True State u, Predicted State u, Noisy Data, Error.
     """
     (t_val, u_true, v_true, u_pred, v_pred, 
-     X_meas_slice, mag_meas_slice, vmin, vmax, error_max, extent) = args
+     X_meas_slice, mag_meas_slice, vmin, vmax, error_max, extent, frames_dir) = args
 
     fig, ax = plt.subplots(2, 2, figsize=(10, 10), dpi=100)
     plt.suptitle(f"LambdaOmega 2D Flow | t={t_val:.3f}", y=0.95, fontsize=14)
-
-    # --- CHANGE: Visualize Component 'u' instead of Magnitude ---
-    # Magnitude is static for spiral waves; 'u' shows the rotation.
     
     # [0,0] True State v
-    # Use a diverging colormap (e.g., 'twilight' or 'seismic') for waves
     im0 = ax[0, 0].imshow(v_true, origin='lower', extent=extent, vmin=vmin, vmax=vmax, cmap='twilight')
     ax[0, 0].set_title("True State $v(x,y)$")
     ax[0, 0].set_ylabel("y")
@@ -146,6 +146,10 @@ def render_frame_worker_v(args):
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
     
+    # save PDF frame
+    frame_path = os.path.join(frames_dir, f"v_t{float(t_val):.3f}.pdf")
+    fig.savefig(frame_path, format='pdf', bbox_inches='tight')
+    
     fig.canvas.draw()
     w, h = fig.canvas.get_width_height()
     buf = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
@@ -165,7 +169,7 @@ def render_noise_worker(args):
     (t_val, eps_u_grid, res_u_grid, 
      eps_flat_all, res_flat_all, 
      r_grid, pdf_true, pdf_ebm,
-     R_range, extent) = args
+     R_range, extent, frames_dir) = args
 
     fig, axes = plt.subplots(2, 2, figsize=(12, 10), dpi=100)
     plt.suptitle(f"Noise Distribution Analysis hahaha.. | t={t_val:.3f}", y=0.96, fontsize=14)
@@ -211,6 +215,10 @@ def render_noise_worker(args):
     axes[1, 1].grid(True, alpha=0.3, linestyle='--')
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    
+    # save PDF frame
+    frame_path = os.path.join(frames_dir, f"t_{float(t_val):.3f}.pdf")
+    fig.savefig(frame_path, format='pdf', bbox_inches='tight')
     
     fig.canvas.draw()
     w, h = fig.canvas.get_width_height()
@@ -652,15 +660,13 @@ class LambdaOmega2D(BaseExperiment):
             params.extend(list(self.gate_module.parameters()))
         return params
 
-    def relative_l2_on_grid(self, model, grid_cfg=None, batch_size=10000):
+    def eval_on_grid(self, model, grid_cfg=None, batch_size=10000):
         model.eval()
         
         T, Y, X = np.meshgrid(self.val_t, self.val_y, self.val_x, indexing='ij')
         flat_x = X.flatten()
         flat_y = Y.flatten()
         flat_t = T.flatten()
-        
-        # Stack: [x, y, t] matches the training input order
         inputs = np.stack([flat_x, flat_y, flat_t], axis=1)
         
         # Ground Truth (flattened to match)
@@ -668,21 +674,16 @@ class LambdaOmega2D(BaseExperiment):
         v_true = self.val_v.flatten()
         
         # 2. Batched Prediction (Safe for Memory)
-        u_pred_list = []
-        v_pred_list = []
-        
+        u_pred_list, v_pred_list = [], []
         num_samples = inputs.shape[0]
         
         with torch.no_grad():
             for i in range(0, num_samples, batch_size):
                 # Prepare batch
-                batch_inputs = inputs[i : i + batch_size]
+                batch_inputs = inputs[i : i+batch_size]
                 batch_tensor = torch.from_numpy(batch_inputs).float().to(self.device)
-                
-                # Predict
                 pred = model(batch_tensor)
                 
-                # Store
                 u_pred_list.append(pred[:, 0].cpu().numpy())
                 v_pred_list.append(pred[:, 1].cpu().numpy())
         
@@ -690,24 +691,30 @@ class LambdaOmega2D(BaseExperiment):
         u_pred = np.concatenate(u_pred_list)
         v_pred = np.concatenate(v_pred_list)
         
-        diff_sq = (u_true - u_pred)**2 + (v_true - v_pred)**2
+        err_sq = (u_true - u_pred)**2 + (v_true - v_pred)**2
         true_sq = u_true**2 + v_true**2
         
-        numerator = np.sqrt(np.sum(diff_sq))
-        denominator = np.sqrt(np.sum(true_sq))
+        # rMAE
+        err_mag = np.sqrt(err_sq)
+        true_mag = np.sqrt(true_sq)
+        mae_vec = np.mean(err_mag)
+        mean_true_mag = np.mean(true_mag)
+        rmae = float(mae_vec / (mean_true_mag))
         
-        if denominator < 1e-10:
-            rel_l2 = 0.0
-            print("[Warning] Ground truth norm is near zero.")
-        else:
-            rel_l2 = numerator / denominator
-            
-        print(f"[LambdaOmega2D] Global Relative L2 Error: {rel_l2:.6f}")
-        return float(rel_l2)
+        # rMSE
+        rmse_vec = np.sqrt(np.mean(err_sq))
+        rms_true = np.sqrt(np.mean(true_sq))
+        rmse = float(rmse_vec / (rms_true))
+
+        print(f"[Eval] rMAE: {rmae:.6f} | rMSE: {rmse:.6f}")
+        return {"rMAE": rmae, "rMSE": rmse}
 
     def make_video(self, model, grid_cfg, out_dir, fps=10, filename="flow_evolution_lambdaomega.mp4", phase=0): 
-        os.makedirs(out_dir, exist_ok=True)
         model.eval()
+        os.makedirs(out_dir, exist_ok=True)
+        frame_dir_name = filename.replace(".mp4", "_frames")
+        frames_dir = os.path.join(out_dir, frame_dir_name)
+        os.makedirs(frames_dir, exist_ok=True)
 
         X_grid, Y_grid = np.meshgrid(self.val_x, self.val_y)
         ny, nx = X_grid.shape
@@ -777,7 +784,7 @@ class LambdaOmega2D(BaseExperiment):
                 res['u_pred'], res['v_pred'], 
                 res['X_meas_slice'], res['mag_meas_slice'],
                 vmin, vmax, global_error_max,
-                self.extent
+                self.extent, frames_dir
             )
             render_args_list.append(args)
 
@@ -822,6 +829,10 @@ class LambdaOmega2D(BaseExperiment):
         print("[LambdaOmega2D] Generating Noise Analysis video...")
         base, ext = os.path.splitext(filename)
         vid_filename = f"{base}_noise_analysis{ext}"
+                
+        frame_dir_name = filename.replace(".mp4", "_noise_frames")
+        frames_dir = os.path.join(out_dir, frame_dir_name)
+        os.makedirs(frames_dir, exist_ok=True)
         
         X, Y = np.meshgrid(self.val_x, self.val_y)
         ny, nx = X.shape
@@ -912,7 +923,7 @@ class LambdaOmega2D(BaseExperiment):
                     eps_u_grid, res_u_grid, 
                     eps_combined, res_combined,
                     r_grid_np, pdf_true, pdf_ebm,
-                    R_range, self.extent
+                    R_range, self.extent, frames_dir
                 )
                 render_args_list.append(args)
 

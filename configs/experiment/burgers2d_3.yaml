@@ -15,8 +15,8 @@ pde:
   nu: 0.01      # Viscosity
 
 # simulation
-simulation_tag: "Burgers2D_3-4"
-description: fixed_grid measurement, 20*20 points
+simulation_tag: "Burgers2D_3-5"
+description: fixed_grid measurement, 15*15 points
 dir_path: pinnlab/simulation/simulation_result/
 
 collocation_points:
@@ -34,18 +34,18 @@ measurement:
   measure_kind: fixed_grid # random / fixed_random / fixed_grid
   n_measurement: 5000 # only for random
   n_sensors: 100 # only for fixed_random
-  sensor_nx: 20 # only for fixed_grid
-  sensor_ny: 20 # only for fixed_grid
+  sensor_nx: 15 # only for fixed_grid
+  sensor_ny: 15 # only for fixed_grid
 
 # experiment
 
 # experiment(back) run: scripts/mlp/burgers2d_3.sh
 # experiment(fore) run: scripts/mlp/z_burgers2d_3_fore.sh
 
-tag: 1_L1 # 3-3_a2_va
+tag: test_1b_na # 3-3_a2_va
 description: 4G, outlier scale (3-10), base scale 0.1, 5000 points, fixed_grid measurement
 device: cuda
-wandb_project: naPINN_Burgers_v2 # naPINN_Burgers_v1
+wandb_project: na_temp # naPINN_Burgers_v3 # naPINN_Burgers_v1
 
 batch:
   n_f: 5000
@@ -54,7 +54,8 @@ noise:
   enabled: true
   batch_size: 1000
   kind: 4G # G, Goff, sG, u, 3G, 4G, 3G0, mix0, Gmix, rmix, sGtest
-  par_list: [[-8.0, 2],[0.7,4],[3.7,0.6],[9.5,1]]
+  par_list: [[-9.0, 2],[-0.3,4],[2.7,0.6],[8.5,1]]
+  # par_list: [[-8.0, 2],[0.7,4],[3.7,0.6],[9.5,1]]
   pars: [0.0, 4.0]
   
   scale: 0.1 # not used in the recent version
@@ -70,9 +71,9 @@ noise:
 
 # phase
 phase:
-  enabled: false # true / false
-  phase1_epochs: 5000
-  phase2_epochs: 25000
+  enabled: true # true / false
+  phase1_epochs: 500
+  phase2_epochs: 2500
 
 ebm:
   enabled: true
@@ -86,13 +87,13 @@ ebm:
   init_train_epochs: 5000
 
 data_loss:
-  kind: L1 # mse, L1, q_gaussian
+  kind: mse # mse, L1, q_gaussian
   # q-Gaussian settings
   q: 2.9
   beta: null
 
 data_loss_balancer:
-  use_loss_balancer: false # true / false
+  use_loss_balancer: true # true / false
   kind: gated_trainable # pw, inverse, mlp, gated, gated_trainable
   rejection_cost: 0.5 # only for gated_trainable
   weight_net:

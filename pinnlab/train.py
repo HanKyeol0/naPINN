@@ -264,16 +264,17 @@ def main(args):
         pbar1.set_postfix({k: f"{v:.3e}" for k,v in log_payload.items() if "loss" in k})
         global_step += 1
 
-        # Simple validation metric (relative L2 on a fixed grid)
+        # Simple validation metric (rMAE and rMSE on a fixed grid)
         if (ep % eval_every == 0 or ep == epochs-1) and (ep > 0):
             print("Evaluating...")
             with torch.no_grad():
-                rel_l2 = exp.relative_l2_on_grid(model, base_cfg["eval"]["grid"])
-            wandb_log({"eval/rel_l2": rel_l2, "epoch": ep})
+                eval_result = exp.eval_on_grid(model, base_cfg["eval"]["grid"])
+                rMAE, rMSE = eval_result["rMAE"], eval_result["rMSE"]
+            wandb_log({"eval/rMAE": rMAE, "eval/rMSE": rMSE, "epoch": ep})
 
             best_path = os.path.join(out_dir, "best.pt")
-            if rel_l2 < (best_metric - es_cfg.get("min_delta", 0.0)):
-                best_metric = rel_l2
+            if rMSE < (best_metric - es_cfg.get("min_delta", 0.0)):
+                best_metric = rMSE
                 
                 best_model_state = state_to_cpu(model.state_dict())
                 best_state = {k: v.clone() for k, v in model.state_dict().items()}
@@ -290,8 +291,8 @@ def main(args):
                 
                 torch.save(save_dict, best_path)
 
-            if early and early.step(rel_l2):
-                print(f"\n[EarlyStopping] Stopping at epoch {ep}. Best rel_l2={best_metric:.3e}")
+            if early and early.step(rMSE):
+                print(f"\n[EarlyStopping] Stopping at epoch {ep}. Best rMSE={best_metric:.3e}")
                 break
             
         if enable_video and (ep % make_video_every == 0 and ep > 0):
@@ -300,8 +301,8 @@ def main(args):
             fps      = exp_cfg.get("video", {}).get("fps", 10)
             out_fmt  = exp_cfg.get("video", {}).get("format", "mp4")  # "mp4" or "gif"
 
-            if early and early.step(rel_l2):
-                print(f"\n[EarlyStopping] Stopping at epoch {ep}. Best rel_l2={best_metric:.3e}")
+            if early and early.step(rMSE):
+                print(f"\n[EarlyStopping] Stopping at epoch {ep}. Best rMSE={best_metric:.3e}")
                 break
             
         if enable_video and (ep % make_video_every == 0 and ep > 0):
@@ -424,15 +425,16 @@ def main(args):
             pbar2.set_postfix({k: f"{v:.3e}" for k,v in log_payload.items() if "loss" in k})
             global_step += 1
             
-            # Simple validation metric (relative L2 on a fixed grid)
+            # Simple validation metric (rMAE and rMSE on a fixed grid)
             if (ep % eval_every == 0 or ep == phase2_epochs-1):
                 with torch.no_grad():
-                    rel_l2 = exp.relative_l2_on_grid(model, base_cfg["eval"]["grid"])
-                wandb_log({"eval/rel_l2": rel_l2, "epoch": ep + phase1_epochs})
+                    eval_result = exp.eval_on_grid(model, base_cfg["eval"]["grid"])
+                    rMAE, rMSE = eval_result["rMAE"], eval_result["rMSE"]
+                wandb_log({"eval/rMAE": rMAE, "eval/rMSE": rMSE, "epoch": ep + phase1_epochs})
                 
                 best_path = os.path.join(out_dir, "best.pt")
-                if rel_l2 < (best_metric - es_cfg.get("min_delta", 0.0)):
-                    best_metric = rel_l2
+                if rMSE < (best_metric - es_cfg.get("min_delta", 0.0)):
+                    best_metric = rMSE
                     
                     best_model_state = state_to_cpu(model.state_dict())
                     if hasattr(exp, "state_dict"):
@@ -443,8 +445,8 @@ def main(args):
                         save_dict["experiment"] = best_exp_state
                     torch.save(save_dict, best_path)
                 
-                if early and early.step(rel_l2):
-                    print(f"\n[EarlyStopping] Stopping at epoch {ep + phase1_epochs}. Best rel_l2={best_metric:.3e}")
+                if early and early.step(rMSE):
+                    print(f"\n[EarlyStopping] Stopping at epoch {ep + phase1_epochs}. Best rMSE={best_metric:.3e}")
                     break
 
             if enable_video and ((ep + phase1_epochs) % make_video_every == 0 and ep > 0):
@@ -460,6 +462,15 @@ def main(args):
                     gate_plots = exp.evaluate_gate_performance(model, out_dir, filename_prefix=f"eval_ep{ep + phase1_epochs}")
                     if gate_plots and base_cfg["log"]["wandb"]["enabled"]:
                         wandb_log({f"val/{k}": wandb.Image(v) for k, v in gate_plots.items()})
+        
+        final_path = os.path.join(out_dir, "final.pt")
+        final_model_state = state_to_cpu(model.state_dict())
+        if hasattr(exp, "state_dict"):
+            final_exp_state = state_to_cpu(exp.state_dict())
+        save_dict = {"model": final_model_state}
+        if final_exp_state is not None:
+            save_dict["experiment"] = final_exp_state
+        torch.save(save_dict, final_path)
         
         if enable_video:
             vid_grid = exp_cfg.get("video", {}).get("grid", base_cfg["eval"]["grid"])
@@ -487,7 +498,7 @@ def main(args):
             if gate_plots and base_cfg["log"]["wandb"]["enabled"]:
                 wandb_log({f"val/{k}": wandb.Image(v) for k, v in gate_plots.items()})
 
-    wandb_log({"eval/best_rel_l2": best_metric})
+    wandb_log({"eval/best_rMSE": best_metric})
     training_end_time = time.time()
     
     final_perf = {

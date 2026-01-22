@@ -45,10 +45,10 @@ measurement:
 # experiment(back) run: scripts/mlp/lambdaomega2d.sh
 # experiment(fore) run: scripts/mlp/z_lambdaomega2d_fore.sh
 
-tag: "1a_na_test"
+tag: test_1a_na
 exp_description: 
 device: cuda
-wandb_project: "naPINN_LambdaOmega"
+wandb_project: na_temp # naPINN_LambdaOmega_v1
 
 batch:
   n_f: 10000 # Higher collocation needed for large domain
@@ -57,7 +57,8 @@ noise:
   enabled: true
   batch_size: 2000
   kind: 4G
-  par_list: [[-8.0, 2],[0.7,4],[3.7,0.6],[9.5,1]]
+  par_list: [[-9.0, 2],[-0.3,4],[2.7,0.6],[8.5,1]]
+  # par_list: [[-8.0, 2],[0.7,4],[3.7,0.6],[9.5,1]]
   scale: 0.1 # Not used if relative_scale is set
   # relative_scale: 0.05  # 5% relative noise
   # floor_scale: 0.01     # Noise floor
@@ -65,15 +66,15 @@ noise:
   extra_noise:
     enabled: true
     kind: std  # 'std' or 'mean_level'
-    n_points: 5000 # ~20% of measurements if N=5000
+    n_points: 2500 # ~20% of measurements if N=5000
     scale_min: 3.0
     scale_max: 10.0
 
 # phase
 phase:
   enabled: true # true / false
-  phase1_epochs: 50
-  phase2_epochs: 25000
+  phase1_epochs: 500
+  phase2_epochs: 2500
 
 ebm:
   enabled: true

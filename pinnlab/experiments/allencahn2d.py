@@ -536,22 +536,34 @@ class AllenCahn2D(BaseExperiment):
         return params
 
     # ----- eval / plots -----
-    def relative_l2_on_grid(self, model, grid_cfg):
+    def eval_on_grid(self, model, grid_cfg):
         model.eval()
         nx, ny, nt = grid_cfg["nx"], grid_cfg["ny"], grid_cfg["nt"]
         Xg, Yg = linspace_2d(self.rect.xa, self.rect.xb, self.rect.ya, self.rect.yb, nx, ny, self.rect.device)
         ts = torch.linspace(self.t0, self.t1, nt, device=self.rect.device)
         idxs = [0, nt//2, nt-1] if nt >= 3 else list(range(nt))
-        rels = []
+        rMAE_list, rMSE_list = [], []
         with torch.no_grad():
             for ti in idxs:
                 T = torch.full_like(Xg, ts[ti])
-                XYT = torch.stack([Xg.reshape(-1), Yg.reshape(-1), T.reshape(-1)], 1)
+                XYT = torch.stack([Xg.reshape(-1), Yg.reshape(-1), T.reshape(-1)], dim=1)
                 U_pred = model(XYT).reshape(nx, ny)
                 U_true = self.u_star(Xg, Yg, T)
-                rel = torch.linalg.norm((U_pred - U_true).reshape(-1)) / torch.linalg.norm(U_true.reshape(-1))
-                rels.append(rel.item())
-        return float(np.mean(rels))
+                
+                diff = (U_pred - U_true).reshape(-1)
+                true_flat = U_true.reshape(-1)
+                # rMAE
+                mae = diff.abs().mean()
+                denom_mae = true_flat.abs().mean()
+                rmae = mae / denom_mae
+                # rMSE
+                rmse = torch.sqrt((diff**2).mean())
+                denom_rmse = torch.sqrt((true_flat**2).mean())
+                rrmse = rmse / denom_rmse
+                
+                rMAE_list.append(rmae.item())
+                rMSE_list.append(rrmse.item())
+        return {"rMAE": float(np.mean(rMAE_list)), "rMSE": float(np.mean(rMSE_list))}
 
     def plot_final(self, model, grid_cfg, out_dir):
         nx, ny, nt = grid_cfg["nx"], grid_cfg["ny"], grid_cfg["nt"]
@@ -568,29 +580,11 @@ class AllenCahn2D(BaseExperiment):
         return figs
     
     def make_video(self, model, grid, out_dir, fps=10, filename="final_evolution.mp4", phase=0):
-        """
-        Make a video over t ∈ [t0, t1] with 4 panels:
-
-            [0,0] Noisy data over entire domain: u*(x,y,t) + ε(x,y,t)
-            [0,1] True solution u*(x,y,t)
-            [1,0] Predicted solution u_hat(x,y,t)
-            [1,1] Absolute error |u* - u_hat|
-
-        - Color scales for u / noisy panels are consistent across time.
-        - Error color scale is also global across time.
-        - If noise is disabled (no self.noise_model), the noisy panel = true solution.
-
-        Args:
-            model: trained PINN model
-            grid: dict with keys {"nx","ny","nt"}
-            out_dir: directory to save video
-            fps: frames per second
-            filename: video file name (default: final_evolution.mp4)
-
-        Returns:
-            Full path to the main evolution video.
-        """
         os.makedirs(out_dir, exist_ok=True)
+        frame_dir_name = filename.replace(".mp4", "_frames")
+        frames_dir = os.path.join(out_dir, frame_dir_name)
+        os.makedirs(frames_dir, exist_ok=True)
+        
         nx = int(grid.get("nx", 100))
         ny = int(grid.get("ny", 100))
         nt = int(grid.get("nt", 100))
@@ -709,6 +703,10 @@ class AllenCahn2D(BaseExperiment):
                 fig.colorbar(im4, ax=ax4, fraction=0.046, pad=0.04)
 
                 fig.tight_layout(rect=[0, 0.03, 1, 0.95])
+                
+                # save PDF frame
+                frame_path = os.path.join(frames_dir, f"frame_t{float(tval):.5f}.pdf")
+                fig.savefig(frame_path, format='pdf', bbox_inches='tight')
 
                 # Convert figure to frame
                 fig.canvas.draw()
@@ -739,28 +737,9 @@ class AllenCahn2D(BaseExperiment):
         return path
     
     def _make_noise_videos(self, model, grid, out_dir, fps, filename):
-        """
-        Create a single video visualizing noise over the whole domain.
-
-        For each time slice t_k, the figure has 4 panels:
-
-            [0,0]  True noise field ε*(x,y,t_k) sampled on the full grid
-            [0,1]  Residual field r(x,y,t_k) = y_noisy - u_pred
-
-                   where y_noisy = u*(x,y,t_k) + ε*(x,y,t_k)
-
-            [1,0]  Histograms of ε* and r on the same axes
-            [1,1]  True noise pdf vs EBM pdf on the same axes
-
-        This satisfies:
-          - True vs predicted noise distributions in the SAME figure.
-          - Noise distribution measured over the WHOLE domain, not just sampled data points.
-        """
-        # Need both true noise model and EBM to make this meaningful
         if getattr(self, "noise_model", None) is None:
             return None, None
         if getattr(self, "ebm", None) is None:
-            # You could still visualize true noise only, but here we require both.
             return None, None
 
         base, ext = os.path.splitext(filename)
@@ -768,6 +747,9 @@ class AllenCahn2D(BaseExperiment):
             ext = ".mp4"
 
         os.makedirs(out_dir, exist_ok=True)
+        frame_dir_name = filename.replace(".mp4", "_noise_frames")
+        frames_dir = os.path.join(out_dir, frame_dir_name)
+        os.makedirs(frames_dir, exist_ok=True)
 
         nx = int(grid.get("nx", 100))
         ny = int(grid.get("ny", 100))
@@ -911,12 +893,17 @@ class AllenCahn2D(BaseExperiment):
                 axes[1, 1].legend(loc="upper right", fontsize=8)
 
                 fig.tight_layout(rect=[0, 0.03, 1, 0.95])
+                
+                # save PDF frame
+                frame_path = os.path.join(frames_dir, f"t_{float(tval):.3f}.pdf")
+                fig.savefig(frame_path, format='pdf', bbox_inches='tight')
 
                 # Convert figure to frame
                 fig.canvas.draw()
                 w, h = fig.canvas.get_width_height()
                 buf = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
                 frame = buf.reshape(h, w, 3)
+                
                 frames.append(frame.copy())
                 plt.close(fig)
 

@@ -8,7 +8,6 @@ from pinnlab.experiments.burgers2d import Burgers2D
 from pinnlab.experiments.helmholtz2d import Helmholtz2D
 from pinnlab.experiments.navierstokes2d_cylinder import NavierStokesCylinder
 from pinnlab.experiments.allencahn2d import AllenCahn2D
-from pinnlab.experiments.lambda_omega_rd2d import LambdaOmegaRD2D
 from pinnlab.experiments.lambdaomega2d import LambdaOmega2D
 from pinnlab.experiments.fitzhugh_nagumo_rd2d import FitzHughNagumoRD2D
 
@@ -23,7 +22,6 @@ _EXP_REG = {
     "helmholtz2d": Helmholtz2D,
     "navierstokes2d_cylinder": NavierStokesCylinder,
     "allencahn2d": AllenCahn2D,
-    "lambda_omega_rd2d": LambdaOmegaRD2D,
     "lambdaomega2d": LambdaOmega2D,
     "fitzhugh_nagumo_rd2d": FitzHughNagumoRD2D,
 }

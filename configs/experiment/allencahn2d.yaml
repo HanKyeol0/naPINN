@@ -1,9 +1,9 @@
 # scripts/mlp/allencahn2d.sh
 # scripts/mlp/z_allencahn2d_fore.sh
 
-tag: test3_na # na / va / L1 / qG2 / qG3
+tag: test_1a_qG3 # na / va / L1 / qG2 / qG3
 device: cuda
-wandb_project: naPINN_temp
+wandb_project: na_temp # naPINN_AllenCahn_v2
 
 domain:
   x: [0.0, 2.0]
@@ -34,8 +34,9 @@ noise:
   kind: 4G # G, Goff, sG, u, 3G, 3G0, mix0, Gmix, rmix, sGtest
   scale: 0.1 # default: 0.1
   pars: [0.0, 4.0]
+  par_list: [[-9.0, 2],[-0.3,4],[2.7,0.6],[8.5,1]]
+  # par_list: [[-8.0, 2],[0.7,4],[3.7,0.6],[9.5,1]] # 4G
   # par_list: [[-2.0,4],[2.0,8],[6.0,2]] # 3G
-  par_list: [[-8.0, 2],[0.7,4],[3.7,0.6],[9.5,1]]
 
   sensor_mode: fixed_grid # random / fixed_random / fixed_grid
   n_train: 5000 # only for random
@@ -46,15 +47,15 @@ noise:
   extra_noise:
     enabled: true
     kind: std # 'std' or 'mean_level'
-    n_points: 2000
+    n_points: 1000
     scale_min: 3.0
     scale_max: 10.0
 
 # phase
 phase:
   enabled: true # true / false
-  phase1_epochs: 5000
-  phase2_epochs: 25000
+  phase1_epochs: 50
+  phase2_epochs: 250
 
 ebm:
   enabled: true
@@ -67,7 +68,7 @@ ebm:
   init_train_epochs: 5000
 
 data_loss:
-  kind: mse # mse, L1, q_gaussian
+  kind: q_gaussian # mse, L1, q_gaussian
   # q-Gaussian settings
   q: 2.9 # 1.9 / 2.9
   beta: null
