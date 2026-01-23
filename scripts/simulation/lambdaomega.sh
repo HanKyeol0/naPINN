@@ -4,4 +4,4 @@
 set -e
 
 python -m pinnlab.simulation.lambdaomega_simulation \
-  --config configs/experiment/lambdaomega2d.yamlscripts/simulation/lambdaomega.sh
+  --config configs/experiment/lambdaomega2d.yaml

@@ -18,7 +18,7 @@ pde:
   beta: 1.0       # Used for simulation generation only
 
 # simulation
-simulation_tag: "LambdaOmega_Spiral_1"
+simulation_tag: "LambdaOmega_Spiral_2"
 sim_description: "Spiral waves, fixed grid measurement"
 dir_path: "pinnlab/simulation/simulation_result/"
 
@@ -28,8 +28,8 @@ collocation_points:
   dt: 0.1
 
 simulation_points: # for solving (finite difference needs finer grid)
-  nx: 128
-  ny: 128
+  nx: 120
+  ny: 120
   dt: 0.002
   every: 20  # Save every 20 steps
 
@@ -38,17 +38,17 @@ measurement:
   n_measurement: 5000 # for random
   n_sensors: 200      # for fixed_random
   sensor_nx: 15       # for fixed_grid (15x15 = 225 sensors)
-  sensor_ny: 15 
+  sensor_ny: 15
 
 ### --- experiment --- ###
 
 # experiment(back) run: scripts/mlp/lambdaomega2d.sh
 # experiment(fore) run: scripts/mlp/z_lambdaomega2d_fore.sh
 
-tag: test_1a_na
-exp_description: 
+tag: a1_na
+exp_description: 4G noise, outlier scale (3-10), base scale 0.1, 5% outliers, fixed_grid measurement
 device: cuda
-wandb_project: na_temp # naPINN_LambdaOmega_v1
+wandb_project: naPINN_LambdaOmega_v2
 
 batch:
   n_f: 10000 # Higher collocation needed for large domain
@@ -66,15 +66,15 @@ noise:
   extra_noise:
     enabled: true
     kind: std  # 'std' or 'mean_level'
-    n_points: 2500 # ~20% of measurements if N=5000
+    n_points: 2800 # ~5% of measurements
     scale_min: 3.0
     scale_max: 10.0
 
 # phase
 phase:
   enabled: true # true / false
-  phase1_epochs: 500
-  phase2_epochs: 2500
+  phase1_epochs: 5000
+  phase2_epochs: 25000
 
 ebm:
   enabled: true

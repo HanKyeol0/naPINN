@@ -463,6 +463,11 @@ def main(args):
                     if gate_plots and base_cfg["log"]["wandb"]["enabled"]:
                         wandb_log({f"val/{k}": wandb.Image(v) for k, v in gate_plots.items()})
         
+        with torch.no_grad():
+            eval_result = exp.eval_on_grid(model, base_cfg["eval"]["grid"])
+            rMAE, rMSE = eval_result["rMAE"], eval_result["rMSE"]
+        wandb_log({"eval/final_rMAE": rMAE, "eval/final_rMSE": rMSE})
+                
         final_path = os.path.join(out_dir, "final.pt")
         final_model_state = state_to_cpu(model.state_dict())
         if hasattr(exp, "state_dict"):

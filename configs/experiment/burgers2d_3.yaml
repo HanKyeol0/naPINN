@@ -16,7 +16,7 @@ pde:
 
 # simulation
 simulation_tag: "Burgers2D_3-5"
-description: fixed_grid measurement, 15*15 points
+sim_description: fixed_grid measurement, 15*15 points
 dir_path: pinnlab/simulation/simulation_result/
 
 collocation_points:
@@ -42,10 +42,10 @@ measurement:
 # experiment(back) run: scripts/mlp/burgers2d_3.sh
 # experiment(fore) run: scripts/mlp/z_burgers2d_3_fore.sh
 
-tag: test_1b_na # 3-3_a2_va
-description: 4G, outlier scale (3-10), base scale 0.1, 5000 points, fixed_grid measurement
+tag: a1_na # 3-3_a2_va
+exp_description: 4G, outlier scale (3-10), base scale 0.1, 5% outliers, fixed_grid measurement
 device: cuda
-wandb_project: na_temp # naPINN_Burgers_v3 # naPINN_Burgers_v1
+wandb_project: naPINN_Burgers_v4
 
 batch:
   n_f: 5000
@@ -65,15 +65,15 @@ noise:
   extra_noise:
     enabled: true
     kind: std  # 'std' or 'mean_level'
-    n_points: 5000
+    n_points: 1690
     scale_min: 3.0
     scale_max: 10.0
 
 # phase
 phase:
   enabled: true # true / false
-  phase1_epochs: 500
-  phase2_epochs: 2500
+  phase1_epochs: 5000
+  phase2_epochs: 25000
 
 ebm:
   enabled: true
@@ -113,8 +113,8 @@ video:
   enabled: true
   every: 10000
   grid:
-    nx: 100
-    ny: 100
-    nt: 100
+    nx: 120
+    ny: 120
+    nt: 120
   fps: 10
   format: mp4
