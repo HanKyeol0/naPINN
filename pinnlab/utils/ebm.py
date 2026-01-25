@@ -4,15 +4,6 @@ import torch.nn.functional as F
 import torch.distributions as D
 
 class EBM(nn.Module):
-    """Simple 1D Energy-Based Model for residuals r in R.
-
-    This model learns an unnormalized log-density log q_theta(r) via a small MLP.
-    We train it by minimizing an approximate negative log-likelihood (NLL)
-    using 1D numerical integration to estimate the partition function.
-
-    The partition function is only needed during training; for per-point
-    weighting we only need relative log-densities, so we can skip Z there.
-    """
     def __init__(
         self,
         hidden_dim: int = 32, 
@@ -43,22 +34,11 @@ class EBM(nn.Module):
         
         print("[EBM] Initialized 1D EBM")
 
-    def forward(self, r: torch.Tensor) -> torch.Tensor:
-        """Return unnormalized log-density log q_theta(r).
-
-        r: tensor of shape [..., 1] or [...]
-        returns: same shape as r (broadcasted), containing log q_theta(r)
-        """
-            
+    def forward(self, r: torch.Tensor) -> torch.Tensor:     
         return self.net(r)
 
     @torch.no_grad()
     def make_grid(self, res: torch.Tensor, num_grid=None) -> torch.Tensor:
-        """Make an integration grid based on residual range.
-
-        We use a symmetric interval [-R, R] where R is proportional to the
-        max absolute residual in the batch, scaled by max_range_factor.
-        """
         # res = res.view(-1)
         # if res.numel() == 0:
         #     R = 1.0
@@ -78,12 +58,6 @@ class EBM(nn.Module):
         return grid
 
     def mean_nll(self, res: torch.Tensor) -> torch.Tensor:
-        """Approximate mean negative log-likelihood of residuals.
-
-        NLL(r) = -log q_theta(r) + log Z_theta
-        where Z_theta = ∫ exp(log q_theta(s)) ds is approximated via
-        1D trapezoidal integration on a grid.
-        """
         res = res.detach().to(device=self.device, dtype=torch.float32).view(-1, 1)
 
         # partition term log Z
@@ -107,10 +81,6 @@ class EBM(nn.Module):
         return nll, nll_mean
 
     def train_step(self, res: torch.Tensor) -> torch.Tensor:
-        """Perform one optimization step on a batch of residuals.
-
-        Returns detached scalar NLL value (for logging).
-        """
         self.train()
         nll, nll_mean = self.mean_nll(res)
         self.optimizer.zero_grad()
@@ -119,21 +89,6 @@ class EBM(nn.Module):
         return nll.detach(), nll_mean.detach()
     
     def gated_weights(self, res: torch.Tensor, alpha: float = 2.0, steepness: float = 5.0) -> torch.Tensor:
-        """
-        Computes weights using a Soft Sigmoid Gate on Log-Likelihood.
-        
-        Logic:
-           - Standard 'pw' weighting (w ~ p(x)) penalizes tails too aggressively.
-           - This method creates a 'plateau' of trust. If a point's log-likelihood 
-             is within 'alpha' std-devs of the mean, weight is ~1.0. 
-             If it drops below that, weight slides to 0.0.
-             
-        Args:
-            res: Residuals [N, 2]
-            alpha: Threshold factor. Cutoff = Mean_LL - alpha * Std_LL.
-                   Higher alpha = more tolerant (includes more tails).
-            steepness: How sharp the transition is from weight 1 to 0.
-        """
         res = res.detach().to(device=self.device, dtype=torch.float32)
         orig_shape = res.shape # [N, 2]
         
@@ -170,23 +125,12 @@ class EBM(nn.Module):
     def data_weight(self, res: torch.Tensor, kind: str = "pw") -> torch.Tensor:
         if kind == "pw":
             return self.pointwise_weights(res)
-        elif kind == "inverse":
-            return self.inverse_pointwise_weights(res)
         elif kind == "gated":
             return self.gated_weights(res, alpha=2.5, steepness=10.0)
         else:
             raise ValueError(f"Unknown data weight kind: {kind}")
     
     def pointwise_weights(self, res: torch.Tensor) -> torch.Tensor:
-        """Compute noise-adaptive weights for each residual.
-
-        We use w_i ∝ exp(log q_theta(r_i)) and normalize such that
-        mean(w_i) ≈ 1 (so the global scale of the data loss is preserved).
-
-        These weights can be treated as reliability weights: points
-        that are more likely under the learned noise distribution
-        receive larger weight, and outliers receive smaller weight.
-        """
         res = res.detach().to(device=self.device, dtype=torch.float32)
         orig_shape = res.shape
         res_flat = res.view(-1, 1)
@@ -194,27 +138,6 @@ class EBM(nn.Module):
         log_q = log_q - log_q.max()  # shift for stability
         w = torch.exp(log_q)
         w = w / (w.mean() + 1e-8)
-        return w.view(orig_shape)
-    
-    def inverse_pointwise_weights(self, res: torch.Tensor):
-        res = res.detach().to(self.device)
-        eps = 1e-8
-        orig_shape = res.shape
-        res_flat = res.view(-1, 1)
-
-        # log q(r)
-        log_q = self.forward(res_flat).squeeze(-1)          # [N]
-        # 수치 안정화
-        log_q = log_q - log_q.max()
-
-        # q(r) ≈ exp(log_q)
-        q = torch.exp(log_q)                                # [N]
-
-        # 1 / q(r)
-        w_raw = 1.0 / (q + eps)
-
-        # 평균을 1로 정규화
-        w = w_raw / (w_raw.mean() + 1e-8)
         return w.view(orig_shape)
 
 class ResidualWeightNet(nn.Module):

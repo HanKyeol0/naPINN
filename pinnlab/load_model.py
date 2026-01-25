@@ -76,15 +76,16 @@ def main(args):
         grid = base_cfg["eval"]["grid"]
         model.eval()
         with torch.no_grad():
-            rel_l2 = exp.relative_l2_on_grid(model, grid)
-        print(f"Relative L2 Error: {rel_l2:.5e}")
+            eval_result  = exp.eval_on_grid(model, grid)
+            rMAE, rMSE = eval_result["rMAE"], eval_result["rMSE"]
+        print(f"rMAE: {rMAE:.5e}, rMSE: {rMSE:.5e}")
         
         # # 2. Gate Performance Evaluation (Sigmoid + Confusion Matrix)
-        # if hasattr(exp, "evaluate_gate_performance"):
-        #     print("Evaluating Gate Performance...")
-        #     exp.evaluate_gate_performance(model, folder_path)
-        # else:
-        #     print("Experiment does not support 'evaluate_gate_performance'. Skipping.")
+        if hasattr(exp, "evaluate_gate_performance"):
+            print("Evaluating Gate Performance...")
+            exp.evaluate_gate_performance(model=model, out_dir=folder_path, filename_prefix="remade")
+        else:
+            print("Experiment does not support 'evaluate_gate_performance'. Skipping.")
 
     if do_make_video:
         model.eval()

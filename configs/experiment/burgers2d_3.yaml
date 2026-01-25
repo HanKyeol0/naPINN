@@ -42,7 +42,7 @@ measurement:
 # experiment(back) run: scripts/mlp/burgers2d_3.sh
 # experiment(fore) run: scripts/mlp/z_burgers2d_3_fore.sh
 
-tag: a1_na # 3-3_a2_va
+tag: b2_L1 # 3-3_a2_va
 exp_description: 4G, outlier scale (3-10), base scale 0.1, 5% outliers, fixed_grid measurement
 device: cuda
 wandb_project: naPINN_Burgers_v4
@@ -65,13 +65,13 @@ noise:
   extra_noise:
     enabled: true
     kind: std  # 'std' or 'mean_level'
-    n_points: 1690
+    n_points: 3360
     scale_min: 3.0
     scale_max: 10.0
 
 # phase
 phase:
-  enabled: true # true / false
+  enabled: false # true / false
   phase1_epochs: 5000
   phase2_epochs: 25000
 
@@ -87,13 +87,13 @@ ebm:
   init_train_epochs: 5000
 
 data_loss:
-  kind: mse # mse, L1, q_gaussian
+  kind: L1 # mse, L1, q_gaussian
   # q-Gaussian settings
   q: 2.9
   beta: null
 
 data_loss_balancer:
-  use_loss_balancer: true # true / false
+  use_loss_balancer: false # true / false
   kind: gated_trainable # pw, inverse, mlp, gated, gated_trainable
   rejection_cost: 0.5 # only for gated_trainable
   weight_net:

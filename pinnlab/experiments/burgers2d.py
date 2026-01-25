@@ -187,7 +187,7 @@ def render_noise_worker(args):
 
     # --- [1,1] PDF Curves ---
     if pdf_true is not None:
-        axes[1, 1].plot(r_grid, pdf_true, 'k-', lw=2, label='True Noise Model')
+        axes[1, 1].plot(r_grid, pdf_true, 'k-', label='True Noise Model')
     
     if pdf_ebm is not None:
         axes[1, 1].plot(r_grid, pdf_ebm, 'b--', lw=2, label='EBM Learned $p(r,0)$')
@@ -197,7 +197,6 @@ def render_noise_worker(args):
     axes[1, 1].set_xlim(-vm, vm)
     axes[1, 1].set_ylim(bottom=0)
     axes[1, 1].set_xlabel("Value")
-    axes[1, 1].grid(True, alpha=0.3, linestyle='--')
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
     
@@ -845,12 +844,32 @@ class Burgers2D(BaseExperiment):
             # Normalize PDF over the ORIGINAL grid range (r_grid_np)
             Z = torch.trapezoid(q_unn, r_grid_torch.squeeze())
             pdf_ebm = (q_unn / Z).cpu().numpy()
+        
+        ebm_filename = filename.replace(".mp4", "_ebm_pdf.npz")
+        ebm_pdf_path = os.path.join(out_dir, ebm_filename)
+        np.savez_compressed(
+            ebm_pdf_path,
+            r_grid=r_grid_np,          # x-axis grid (unscaled residual values)
+            pdf_ebm=pdf_ebm,           # learned pdf on r_grid
+            ref_std=np.float32(ref_std),
+            R_range=np.float32(R_range),
+        )
 
         # 3. Pre-calculate True PDF (1D)
         r_cpu = torch.from_numpy(r_grid_np)
         noise_scale = self.sigma_local.mean().item()
         print("Average noise scale:", noise_scale)
         pdf_true = (self.noise_model.pdf(r_cpu / noise_scale) / noise_scale).numpy()
+        
+        true_pdf_filename = filename.replace(".mp4", "_true_pdf.npz")
+        true_pdf_path = os.path.join(out_dir, true_pdf_filename)
+        np.savez_compressed(
+            true_pdf_path,
+            r_grid=r_grid_np,          # x-axis grid (unscaled residual values)
+            pdf_true=pdf_true,         # true pdf on r_grid
+            noise_scale=np.float32(noise_scale),
+            R_range=np.float32(R_range),
+        )
 
         render_args_list = []
         

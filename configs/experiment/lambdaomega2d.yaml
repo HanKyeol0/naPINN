@@ -45,8 +45,8 @@ measurement:
 # experiment(back) run: scripts/mlp/lambdaomega2d.sh
 # experiment(fore) run: scripts/mlp/z_lambdaomega2d_fore.sh
 
-tag: a1_na
-exp_description: 4G noise, outlier scale (3-10), base scale 0.1, 5% outliers, fixed_grid measurement
+tag: b3_na
+exp_description: 4G noise, outlier scale (3-10), base scale 0.1, 10% outliers, fixed_grid measurement
 device: cuda
 wandb_project: naPINN_LambdaOmega_v2
 
@@ -66,7 +66,7 @@ noise:
   extra_noise:
     enabled: true
     kind: std  # 'std' or 'mean_level'
-    n_points: 2800 # ~5% of measurements
+    n_points: 5700 # ~5% of measurements
     scale_min: 3.0
     scale_max: 10.0
 
@@ -90,7 +90,7 @@ ebm:
 data_loss:
   kind: mse # mse, L1, q_gaussian
   # q-Gaussian settings
-  q: 2.9
+  q: 1.9
   beta: null
 
 data_loss_balancer:
@@ -108,9 +108,9 @@ offset:
 video:
   enabled: true
   fps: 20
-  every: 10000
+  every: 30000
   grid: # not used, actually
-    nx: 128
-    ny: 128
-    nt: 128
+    nx: 120
+    ny: 120
+    nt: 120
   format: mp4

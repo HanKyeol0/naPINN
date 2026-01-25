@@ -341,6 +341,16 @@ def main(args):
         
     if use_phase:
         exp.initialize_EBM(model)
+        phase = 2
+        # vid_grid = exp_cfg.get("video", {}).get("grid", base_cfg["eval"]["grid"])
+        # fps      = exp_cfg.get("video", {}).get("fps", 10)
+        # out_fmt  = exp_cfg.get("video", {}).get("format", "mp4")  # "mp4" or "gif"
+        # vid_filename = f"after_init.{out_fmt}"
+        # vid_path = exp.make_video(
+        #     model, vid_grid, out_dir,
+        #     fps=fps, filename=vid_filename,
+        #     phase=phase
+        # )
         
         print("[Optimizer] Resetting Adam state for Phase 2 fine-tuning.")
         phase2_lr = opt_cfg["lr"]
@@ -355,8 +365,7 @@ def main(args):
         for ep in pbar2:
             model.train()
             batch = exp.sample_batch(n_f=n_f, n_b=n_b, n_0=n_0)
-            phase = 2
-            
+
             loss_res = exp.pde_residual_loss(model, batch).mean() if batch.get("X_f") is not None else torch.tensor(0., device=device)
             loss_data = exp.data_loss(model, batch, phase).mean() if batch.get("X_d") is not None else torch.tensor(0., device=device)
             # loss_data, loss_idx1, loss_idx2, count_idx1, count_idx2 = exp.data_loss(model, batch, phase) if batch.get("X_d") is not None else torch.tensor(0., device=device)
@@ -460,13 +469,8 @@ def main(args):
                 )
                 if hasattr(exp, "evaluate_gate_performance"):
                     gate_plots = exp.evaluate_gate_performance(model, out_dir, filename_prefix=f"eval_ep{ep + phase1_epochs}")
-                    if gate_plots and base_cfg["log"]["wandb"]["enabled"]:
-                        wandb_log({f"val/{k}": wandb.Image(v) for k, v in gate_plots.items()})
-        
-        with torch.no_grad():
-            eval_result = exp.eval_on_grid(model, base_cfg["eval"]["grid"])
-            rMAE, rMSE = eval_result["rMAE"], eval_result["rMSE"]
-        wandb_log({"eval/final_rMAE": rMAE, "eval/final_rMSE": rMSE})
+                    # if gate_plots and base_cfg["log"]["wandb"]["enabled"]:
+                    #     wandb_log({f"val/{k}": wandb.Image(v) for k, v in gate_plots.items()})
                 
         final_path = os.path.join(out_dir, "final.pt")
         final_model_state = state_to_cpu(model.state_dict())
@@ -481,8 +485,6 @@ def main(args):
             vid_grid = exp_cfg.get("video", {}).get("grid", base_cfg["eval"]["grid"])
             fps      = exp_cfg.get("video", {}).get("fps", 10)
             out_fmt  = exp_cfg.get("video", {}).get("format", "mp4")  # "mp4" or "gif"
-            model = get_model(args.model_name)(model_cfg).to(device)
-            model.load_state_dict(torch.load(best_path)["model"])
             vid_path = exp.make_video(
                 model, vid_grid, out_dir,
                 fps=fps, filename=f"final_evolution.{out_fmt}",
@@ -500,8 +502,13 @@ def main(args):
                 
         if hasattr(exp, "evaluate_gate_performance"):
             gate_plots = exp.evaluate_gate_performance(model, out_dir, filename_prefix="final")
-            if gate_plots and base_cfg["log"]["wandb"]["enabled"]:
-                wandb_log({f"val/{k}": wandb.Image(v) for k, v in gate_plots.items()})
+            # if gate_plots and base_cfg["log"]["wandb"]["enabled"]:
+            #     wandb_log({f"val/{k}": wandb.Image(v) for k, v in gate_plots.items()})
+    
+    with torch.no_grad():
+        eval_result = exp.eval_on_grid(model, base_cfg["eval"]["grid"])
+        rMAE, rMSE = eval_result["rMAE"], eval_result["rMSE"]
+    wandb_log({"eval/final_rMAE": rMAE, "eval/final_rMSE": rMSE})
 
     wandb_log({"eval/best_rMSE": best_metric})
     training_end_time = time.time()

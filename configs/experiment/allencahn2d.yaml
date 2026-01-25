@@ -1,7 +1,7 @@
 # scripts/mlp/allencahn2d.sh
 # scripts/mlp/z_allencahn2d_fore.sh
 
-tag: a6_na # na / va / L1 / qG2 / qG3
+tag: b4_na # na / va / L1 / qG2 / qG3
 device: cuda
 wandb_project: naPINN_AllenCahn_v3
 exp_description: 4G noise, outlier scale (3-10), base scale 0.1, 5% outliers, fixed_grid measurement
@@ -48,14 +48,14 @@ noise:
   extra_noise:
     enabled: true
     kind: std # 'std' or 'mean_level'
-    n_points: 1120
+    n_points: 2250
     scale_min: 3.0
     scale_max: 10.0
 
 # phase
 phase:
   enabled: true # true / false
-  phase1_epochs: 5000
+  phase1_epochs: 50
   phase2_epochs: 25000
 
 ebm:
@@ -71,7 +71,7 @@ ebm:
 data_loss:
   kind: mse # mse, L1, q_gaussian
   # q-Gaussian settings
-  q: 1.9 # 1.9 / 2.9
+  q: 2.9 # 1.9 / 2.9
   beta: null
 
 data_loss_balancer:

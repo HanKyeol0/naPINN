@@ -782,12 +782,32 @@ class AllenCahn2D(BaseExperiment):
             
             Z = torch.trapezoid(q_unn, r_grid_torch.squeeze())
             pdf_ebm = (q_unn / Z).cpu().numpy()
+        
+        ebm_filename = filename.replace(".mp4", "_ebm_pdf.npz")
+        ebm_pdf_path = os.path.join(out_dir, ebm_filename)
+        np.savez_compressed(
+            ebm_pdf_path,
+            r_grid=r_grid_np,          # x-axis grid (unscaled residual values)
+            pdf_ebm=pdf_ebm,           # learned pdf on r_grid
+            ref_std=np.float32(ref_std),
+            R_range=np.float32(R_range),
+        )
 
         # True noise pdf
         r_cpu = torch.from_numpy(r_grid_np).float()
         noise_scale = self.sigma_local
         print("Average noise scale:", noise_scale)
         pdf_true = (self.noise_model.pdf(r_cpu / noise_scale) / noise_scale).numpy()
+        
+        true_pdf_filename = filename.replace(".mp4", "_true_pdf.npz")
+        true_pdf_path = os.path.join(out_dir, true_pdf_filename)
+        np.savez_compressed(
+            true_pdf_path,
+            r_grid=r_grid_np,          # x-axis grid (unscaled residual values)
+            pdf_true=pdf_true,         # true pdf on r_grid
+            noise_scale=np.float32(noise_scale),
+            R_range=np.float32(R_range),
+        )
 
         frames = []
 
@@ -877,20 +897,19 @@ class AllenCahn2D(BaseExperiment):
                 if pdf_true is not None:
                     axes[1, 1].plot(
                         r_grid_np, pdf_true,
-                        label="true noise pdf",
-                        linewidth=1.5,
+                        'k-', lw=2,
+                        label="True Noise Distribution",
                     )
                 axes[1, 1].plot(
                     r_grid_np, pdf_ebm,
-                    label="EBM pdf",
-                    linestyle="--",
-                    linewidth=1.5,
+                    'b--', lw=2,
+                    label="PDF learned by EBM",
                 )
-                axes[1, 1].set_xlim(-R_range, R_range)
-                axes[1, 1].set_xlabel("value")
-                axes[1, 1].set_ylabel("density")
                 axes[1, 1].set_title("True vs EBM noise pdf")
                 axes[1, 1].legend(loc="upper right", fontsize=8)
+                axes[1, 1].set_xlabel("value")
+                axes[1, 1].set_ylabel("density")
+                axes[1, 1].set_xlim(-R_range, R_range)
 
                 fig.tight_layout(rect=[0, 0.03, 1, 0.95])
                 
@@ -926,10 +945,6 @@ class AllenCahn2D(BaseExperiment):
         return path_noise, None
 
     def evaluate_gate_performance(self, model, out_dir, filename_prefix=None):
-        """
-        Evaluates and visualizes the Trainable Gate's ability to distinguish outliers.
-        Generates a Sigmoid Plot and a Confusion Matrix.
-        """
         if not self.use_extra_noise:
             print("[Evaluate] Extra noise not used in this experiment. Skipping gate evaluation.")
             return
@@ -940,12 +955,26 @@ class AllenCahn2D(BaseExperiment):
 
         print("[Evaluate] Analyzing Gate Performance on all measurement data...")
         
+        plt.rcParams.update({
+            "font.family": "serif",           # Serif fonts for body text
+            "mathtext.fontset": "cm",         # Computer Modern for math (LaTeX look)
+            "font.size": 12,
+            "pdf.fonttype": 42,   # embed TrueType fonts (editable/selectable text)
+            "ps.fonttype": 42,
+            "axes.labelsize": 13,
+            "axes.titlesize": 14,
+            "xtick.labelsize": 11,
+            "ytick.labelsize": 11,
+            "legend.fontsize": 20,
+            "axes.spines.top": False,
+            "axes.spines.right": False,
+        })
+        
         model.eval()
         self.gate_module.eval()
         self.ebm.eval()
         
         # 1. Get Residuals for ALL data
-        # We process in one large batch (or chunk if memory is tight, but 5k points is fine)
         with torch.no_grad():
             pred = model(self.X_data)
             if self.use_offset and self.offset is not None:
@@ -953,11 +982,6 @@ class AllenCahn2D(BaseExperiment):
             
             # Raw residuals [N, 2]
             residual = self.y_data - pred
-            
-            # Flatten to 1D for EBM [2N, 1]
-            # NOTE: We must track which indices are outliers in the FLATTENED array.
-            # Original outliers are indices `idx` in range [0, N).
-            # In flattened array [u0, v0, u1, v1...], outlier i affects 2*i and 2*i+1.
             res_flat = residual.view(-1, 1)
             
             # 2. Standardization
@@ -977,7 +1001,6 @@ class AllenCahn2D(BaseExperiment):
             beta = torch.nn.functional.softplus(self.gate_module.steepness).item()
             
             # Calculate final weights [2N]
-            # w = sigmoid(beta * (z + alpha))
             weights = torch.sigmoid(beta * (z_scores + alpha))
             
             # Move to CPU
@@ -989,8 +1012,6 @@ class AllenCahn2D(BaseExperiment):
             labels = np.zeros(N, dtype=int) # 0 = Normal
             
             if len(self.outlier_indices) > 0:
-                # Mark outlier indices (both u and v components)
-                # idx i corresponds to 2*i and 2*i+1 in flattened array
                 outlier_idx = self.outlier_indices
                 labels[outlier_idx] = 1 # 1 = Outlier
         
@@ -1002,59 +1023,65 @@ class AllenCahn2D(BaseExperiment):
         z_grid = np.linspace(z_cpu.min() - 0.5, z_cpu.max() + 0.5, 500)
         w_curve = 1.0 / (1.0 + np.exp(-beta * (z_grid + alpha)))
         
-        ax.plot(z_grid, w_curve, 'k--', linewidth=2, label=f'Learned Gate (α={alpha:.2f}, β={beta:.2f})')
+        ax.plot(z_grid, w_curve, 'k--', linewidth=2.5, label=f'Learned Gate (α={alpha:.2f}, β={beta:.2f})')
         
         # B. Scatter Data Points
         # Normal Points (Green)
         mask_norm = (labels == 0)
-        ax.scatter(z_cpu[mask_norm], w_cpu[mask_norm], c='green', alpha=0.3, s=10, label='Normal')
+        ax.scatter(z_cpu[mask_norm], w_cpu[mask_norm], c='green', alpha=0.3, s=17, label=f'Normal ({np.sum(mask_norm)} points)')
         
         # Outlier Points (Red)
         mask_out = (labels == 1)
-        ax.scatter(z_cpu[mask_out], w_cpu[mask_out], c='red', alpha=0.6, s=15, label='Outlier')
+        ax.scatter(z_cpu[mask_out], w_cpu[mask_out], c='red', alpha=0.6, s=17, label=f'Outlier ({np.sum(mask_out)} points)')
         
         # Decorate
-        ax.axvline(-alpha, color='gray', linestyle=':', label='Cutoff Threshold')
-        ax.set_xlabel("Log-Likelihood Z-Score")
-        ax.set_ylabel("Assigned Weight (Probability of Validity)")
-        ax.set_title("Gate Optimization Result: Weights vs. Likelihood")
-        ax.legend(loc='lower right')
-        ax.grid(True, alpha=0.3)
+        ax.axvline(-alpha, color='gray', linestyle=':', linewidth=2, label='Cutoff Threshold')
+        ax.set_xlabel("Log-Likelihood (${z}$-score)", fontsize=20)
+        ax.set_ylabel("Reliability Weight (${g_i}$)", fontsize=20)
+        ax.legend(loc='upper left', fontsize=15)
+        ax.grid(True, alpha=0.3, linewidth=2)
         
-        save_path = os.path.join(out_dir, f"{filename_prefix}_gate_sigmoid_analysis.png")
-        plt.savefig(save_path, dpi=150)
+        save_path = os.path.join(out_dir, f"{filename_prefix}_gate_sigmoid_analysis.pdf")
+        plt.savefig(save_path, format='pdf', bbox_inches='tight', pad_inches=0.02)
         plt.close(fig)
         
         # --- PLOT 2: Confusion Matrix ---
-        # Classification Rule: Weight < 0.5 => REJECTED (Predicted Outlier)
-        #                      Weight >= 0.5 => ACCEPTED (Predicted Normal)
-        
-        # Map to standard Confusion Matrix format:
-        # Class 0: Negative (Normal Data)
-        # Class 1: Positive (Outlier Data)
-        
-        # Prediction: 1 if w < 0.5 (Rejected), 0 if w >= 0.5 (Accepted)
         preds = (w_cpu < 0.5).astype(int)
         
-        cm = confusion_matrix(labels, preds) 
-        # Structure of cm:
-        # [[TN, FP],
-        #  [FN, TP]]
-        # TN: Normal classified as Normal (Accepted)
-        # FP: Normal classified as Outlier (Rejected - False Alarm)
-        # FN: Outlier classified as Normal (Accepted - Missed Detection)
-        # TP: Outlier classified as Outlier (Rejected - Success)
+        cm = confusion_matrix(labels, preds)
+        cm_sum = np.sum(cm)
+        cm_perc = cm / cm_sum
+        
+        annots = np.empty_like(cm).astype(str)
+        nrows, ncols = cm.shape
+        for i in range(nrows):
+            for j in range(ncols):
+                c = cm[i, j]
+                p = cm_perc[i, j] * 100
+                if i == 0 and j == 0:
+                    label = "TN"
+                elif i == 0 and j == 1:
+                    label = "FP"
+                elif i == 1 and j == 0:
+                    label = "FN"
+                elif i == 1 and j == 1:
+                    label = "TP"
+                
+                # Format: "1250\n(25.0%)"
+                annots[i, j] = f"{c}\n({p:.1f}%)"
 
         fig, ax = plt.subplots(figsize=(6, 5))
-        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax,
-                    xticklabels=['Accepted (Normal)', 'Rejected (Outlier)'],
-                    yticklabels=['True Normal', 'True Outlier'])
-        ax.set_xlabel("Gate Prediction")
-        ax.set_ylabel("Ground Truth")
-        ax.set_title("Outlier Rejection Confusion Matrix")
+        hm = sns.heatmap(cm, annot=annots, fmt='', cmap='Greens', ax=ax,
+                    linewidths=1, linecolor='black',
+                    cbar=False, square=True,
+                    annot_kws={"size": 14, "weight": "regular"},
+                    xticklabels=['Accepted', 'Rejected'],
+                    yticklabels=['Normal', 'Outlier'])
+        if hm.collections:
+            hm.collections[0].set_rasterized(True)
         
-        cm_path = os.path.join(out_dir, f"{filename_prefix}_gate_confusion_matrix.png")
-        plt.savefig(cm_path, dpi=150)
+        cm_path = os.path.join(out_dir, f"{filename_prefix}_gate_confusion_matrix.pdf")
+        plt.savefig(cm_path, format='pdf', bbox_inches='tight', pad_inches=0.02,)
         plt.close(fig)
         
         print(f"[Evaluate] Plots saved to {out_dir}")

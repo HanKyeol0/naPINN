@@ -61,9 +61,10 @@ def render_frame_worker_u(args):
     ax[1, 0].imshow(u_true, origin='lower', extent=extent, vmin=vmin, vmax=vmax, cmap='gray', alpha=0.15)
     
     if X_meas_slice is not None and len(X_meas_slice) > 0:
-        sc = ax[1, 0].scatter(X_meas_slice[:, 0], X_meas_slice[:, 1], c='k', 
-                              s=5, alpha=0.5, label='Sensors')
-        ax[1, 0].legend(loc='upper right')
+        sc = ax[1, 0].scatter(X_meas_slice[:, 0], X_meas_slice[:, 1], c=mag_meas_slice, vmin=vmin, vmax=vmax,
+                              cmap='twilight', s=15, edgecolors='none') # label='Sensors'
+        # ax[1, 0].legend(loc='upper right')
+        plt.colorbar(sc, ax=ax[1, 0], fraction=0.046, pad=0.04)
         ax[1, 0].set_title(f"Sensor Locations (N={len(X_meas_slice)})")
     else:
         ax[1, 0].set_title("No Measurements")
