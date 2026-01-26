@@ -475,7 +475,7 @@ def main(args):
         final_path = os.path.join(out_dir, "final.pt")
         final_model_state = state_to_cpu(model.state_dict())
         if hasattr(exp, "state_dict"):
-            final_exp_state = state_to_cpu(exp.state_dict())
+            final_exp_state = state_to_cpu  (exp.state_dict())
         save_dict = {"model": final_model_state}
         if final_exp_state is not None:
             save_dict["experiment"] = final_exp_state

@@ -45,7 +45,7 @@ measurement:
 # experiment(back) run: scripts/mlp/lambdaomega2d.sh
 # experiment(fore) run: scripts/mlp/z_lambdaomega2d_fore.sh
 
-tag: b3_na
+tag: b5_na
 exp_description: 4G noise, outlier scale (3-10), base scale 0.1, 10% outliers, fixed_grid measurement
 device: cuda
 wandb_project: naPINN_LambdaOmega_v2
