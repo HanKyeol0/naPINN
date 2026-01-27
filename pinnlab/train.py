@@ -73,7 +73,7 @@ def main(args):
     if exp_cfg.get("device"):
         base_cfg["device"] = exp_cfg["device"]
     device = torch.device(base_cfg["device"] if torch.cuda.is_available() else "cpu")
-    torch.cuda.reset_peak_memory_stats(device)
+    # torch.cuda.reset_peak_memory_stats(device)
     
     exp = get_experiment(args.experiment_name)(exp_cfg, device)
     model = get_model(args.model_name)(model_cfg).to(device)

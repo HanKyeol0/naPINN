@@ -42,9 +42,9 @@ measurement:
 # experiment(back) run: scripts/mlp/burgers2d_3.sh
 # experiment(fore) run: scripts/mlp/z_burgers2d_3_fore.sh
 
-tag: b2_L1 # 3-3_a2_va
-exp_description: 4G, outlier scale (3-10), base scale 0.1, 5% outliers, fixed_grid measurement
-device: cuda
+tag: o7 # 3-3_a2_va
+exp_description: 4G, outlier scale (3-10), base scale 0.1, 10% outliers, fixed_grid measurement
+device: "cuda:5"
 wandb_project: naPINN_Burgers_v4
 
 batch:
@@ -58,12 +58,12 @@ noise:
   # par_list: [[-8.0, 2],[0.7,4],[3.7,0.6],[9.5,1]]
   pars: [0.0, 4.0]
   
-  scale: 0.1 # not used in the recent version
+  scale: 0.0 # not used in the recent version
   # relative_scale: 0.20  # 20% relative error proportional to velocity
   # floor_scale: 0.05     # 5% of global mean as minimum noise floor
 
   extra_noise:
-    enabled: true
+    enabled: false
     kind: std  # 'std' or 'mean_level'
     n_points: 3360
     scale_min: 3.0
@@ -87,9 +87,9 @@ ebm:
   init_train_epochs: 5000
 
 data_loss:
-  kind: L1 # mse, L1, q_gaussian
+  kind: mse # mse, L1, q_gaussian
   # q-Gaussian settings
-  q: 2.9
+  q: 1.9
   beta: null
 
 data_loss_balancer:

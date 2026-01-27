@@ -27,7 +27,7 @@ def plot_gmm_illustration(output_path="gmm_learned_density.svg"):
     pdf_total = pdf1 + pdf2 + pdf3
 
     # --- 2. Create Plot ---
-    fig, ax = plt.subplots(figsize=(11, 5))
+    fig, ax = plt.subplots(figsize=(10, 5))
 
     # # Plot underlying components (dashed, lighter colors)
     # ax.plot(x, pdf1, color='green', linestyle='--', linewidth=2, alpha=0.6)
@@ -39,14 +39,17 @@ def plot_gmm_illustration(output_path="gmm_learned_density.svg"):
     # ax.plot(x, pdf3, color='orange', linestyle='--', linewidth=2, alpha=0.6)
     # ax.fill_between(x, pdf3, color='orange', alpha=0.1)
     # # Plot Total Density (Solid, prominent color)
-    ax.plot(x, pdf_total, color='#E15759', linewidth=10, linestyle='--')
-
+    ax.plot(x, pdf_total, color='#E15759', linewidth=13, linestyle='--')
+    # erase x-axis line and y-axis line
+    ax.spines['bottom'].set_visible(False)
+    ax.spines['left'].set_visible(False)
+    
     # --- 3. Annotations and Styling ---
     # Main Title using your chosen terminology
     # ax.set_title("Illustration: Learned Noise Density (GMM)", fontsize=16, fontweight='bold', pad=20)
     
-    ax.set_xlabel("Residual Value", fontsize=38)
-    ax.set_ylabel("PDF", fontsize=38)
+    # ax.set_xlabel("Residual Value", fontsize=50)
+    # ax.set_ylabel("PDF", fontsize=50)
     ax.set_yticks([]) # Hide Y-ticks as exact density values don't matter for concept
     ax.set_xticks([])
     ax.set_xlim(-1, 1)

@@ -89,16 +89,18 @@ def plot_noise_pdfs_overlay(
 
     # 1. True PDF: Filled area + Line
     # This visually separates "Ground Truth" from "Estimations"
-    ax.fill_between(r_true, pdf_true, color=c_fill, alpha=0.6, label=None, zorder=1)
+    # ax.fill_between(r_true, pdf_true, color=c_fill, alpha=0.6, label=None, zorder=1)
     ax.plot(r_true, pdf_true, color=c_true, lw=2.5, label="True noise PDF", zorder=2)
 
     # 2. EBM PDFs
     # t1: Initialization (Dashed, Blue)
+    ax.fill_between(r_true, pdf_a_on_true, color=c_a, alpha=0.6, label=None, zorder=2)
     ax.plot(r_true, pdf_a_on_true, color=c_a, lw=2.5, ls="--", 
             label=label_a, zorder=3, alpha=0.9)
     
     # t2: Final Training (Dash-Dot or Solid, Red)
     # Using a distinct line style helps distinguish the two learned steps
+    ax.fill_between(r_true, pdf_b_on_true, color=c_b, alpha=0.6, label=None, zorder=3)
     ax.plot(r_true, pdf_b_on_true, color=c_b, lw=2.5, ls="--", 
             label=label_b, zorder=4)
 

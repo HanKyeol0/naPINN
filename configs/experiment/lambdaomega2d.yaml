@@ -45,9 +45,9 @@ measurement:
 # experiment(back) run: scripts/mlp/lambdaomega2d.sh
 # experiment(fore) run: scripts/mlp/z_lambdaomega2d_fore.sh
 
-tag: b5_na
+tag: o9
 exp_description: 4G noise, outlier scale (3-10), base scale 0.1, 10% outliers, fixed_grid measurement
-device: cuda
+device: "cuda:6"
 wandb_project: naPINN_LambdaOmega_v2
 
 batch:
@@ -59,12 +59,12 @@ noise:
   kind: 4G
   par_list: [[-9.0, 2],[-0.3,4],[2.7,0.6],[8.5,1]]
   # par_list: [[-8.0, 2],[0.7,4],[3.7,0.6],[9.5,1]]
-  scale: 0.1 # Not used if relative_scale is set
+  scale: 0.0 # Not used if relative_scale is set
   # relative_scale: 0.05  # 5% relative noise
   # floor_scale: 0.01     # Noise floor
 
   extra_noise:
-    enabled: true
+    enabled: false
     kind: std  # 'std' or 'mean_level'
     n_points: 5700 # ~5% of measurements
     scale_min: 3.0
@@ -72,7 +72,7 @@ noise:
 
 # phase
 phase:
-  enabled: true # true / false
+  enabled: false # true / false
   phase1_epochs: 5000
   phase2_epochs: 25000
 
@@ -94,7 +94,7 @@ data_loss:
   beta: null
 
 data_loss_balancer:
-  use_loss_balancer: true # true / false
+  use_loss_balancer: false # true / false
   kind: gated_trainable
   rejection_cost: 0.5 
 
