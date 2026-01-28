@@ -633,11 +633,13 @@ class AllenCahn2D(BaseExperiment):
 
                 # Error scale
                 err_max = max(err_max, (U_true - U_pred).abs().max().item())
+                # print(f"err_max: {err_max}")
 
         # Safety
         if err_max <= 0:
             err_max = 1e-6
 
+        force_vmax = 0.283
         # ---------- Second pass: render frames ----------
         frames = []
         with torch.no_grad():
@@ -670,7 +672,8 @@ class AllenCahn2D(BaseExperiment):
                 )
                 ax1.set_title("Noisy data: u*(x,y,t) + ε")
                 ax1.set_xlabel("x"); ax1.set_ylabel("y")
-                fig.colorbar(im1, ax=ax1, fraction=0.046, pad=0.04)
+                cbar1 = fig.colorbar(im1, ax=ax1, fraction=0.08, pad=0.04)
+                cbar1.ax.tick_params(labelsize=14)
 
                 # [0,1] True solution
                 ax2 = plt.subplot(2, 2, 2)
@@ -680,7 +683,8 @@ class AllenCahn2D(BaseExperiment):
                 )
                 ax2.set_title("True solution u*(x,y,t)")
                 ax2.set_xlabel("x"); ax2.set_ylabel("y")
-                fig.colorbar(im2, ax=ax2, fraction=0.046, pad=0.04)
+                cbar2 = fig.colorbar(im2, ax=ax2, fraction=0.08, pad=0.04)
+                cbar2.ax.tick_params(labelsize=14)
 
                 # [1,0] Predicted solution
                 ax3 = plt.subplot(2, 2, 3)
@@ -690,17 +694,19 @@ class AllenCahn2D(BaseExperiment):
                 )
                 ax3.set_title("Predicted solution û(x,y,t)")
                 ax3.set_xlabel("x"); ax3.set_ylabel("y")
-                fig.colorbar(im3, ax=ax3, fraction=0.046, pad=0.04)
+                cbar3 = fig.colorbar(im3, ax=ax3, fraction=0.08, pad=0.04)
+                cbar3.ax.tick_params(labelsize=14)
 
                 # [1,1] Absolute error
                 ax4 = plt.subplot(2, 2, 4)
                 im4 = ax4.imshow(
                     U_err.T, origin="lower", extent=extent,
-                    vmin=0.0, vmax=err_max, aspect="auto"
+                    vmin=0.0, vmax=force_vmax, aspect="auto"
                 )
                 ax4.set_title("|Error| = |u* - û|")
                 ax4.set_xlabel("x"); ax4.set_ylabel("y")
-                fig.colorbar(im4, ax=ax4, fraction=0.046, pad=0.04)
+                cbar4 = fig.colorbar(im4, ax=ax4, fraction=0.046, pad=0.04)
+                cbar4.ax.tick_params(labelsize=14)
 
                 fig.tight_layout(rect=[0, 0.03, 1, 0.95])
                 

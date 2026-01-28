@@ -2,16 +2,20 @@
 
 set -e
 
-EXPERIMENT_NAME=allencahn2d
+# allencahn2d / c5_na & c5_va_rewind
+# burgers2d / c9_na & c7_va_rewind
+# lambdaomega2d / c3_na & c7_va_rewind
+
+EXPERIMENT_NAME=burgers2d
 MODEL_NAME=mlp
-EXPERIMENT_TAG=b4_na
-DEVICE=cuda
+EXPERIMENT_TAG=c7_va_rewind
+DEVICE="cuda:4"
 
 FOLDER="outputs/${EXPERIMENT_NAME}/${EXPERIMENT_NAME}_${MODEL_NAME}_${EXPERIMENT_TAG}"
 
 TRAIN=false
-EVALUATE=true
-MAKE_VIDEO=false
+EVALUATE=false
+MAKE_VIDEO=true
 VIDEO_FILE_NAME=remade_video.mp4
 VIDEO_GRID='{"nx":120,"ny":120,"nt":120}'
 

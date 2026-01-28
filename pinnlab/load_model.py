@@ -41,7 +41,7 @@ def main(args):
     exp = get_experiment(args.experiment_name)(exp_cfg, device)
     model = get_model(args.model_name)(model_cfg).to(device)
     
-    checkpoint_path = os.path.join(folder_path, "best.pt")
+    checkpoint_path = os.path.join(folder_path, "final.pt")
     ckpt = torch.load(checkpoint_path, map_location=device)
     print(f"Loaded checkpoint from: {checkpoint_path}")
     

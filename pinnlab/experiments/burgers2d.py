@@ -70,7 +70,9 @@ def render_frame_worker_u(args):
 
     # [1,1] Absolute Error
     error = np.abs(u_true - u_pred)
+    error_max = 0.893
     im2 = ax[1, 1].imshow(error, origin='lower', extent=extent, vmin=0, vmax=error_max, cmap='inferno')
+    print(f"u error_max: {error_max}")
     ax[1, 1].set_title(f"Absolute Error |u* - \hat{{u}}|")
     ax[1, 1].set_xlabel("x")
     plt.colorbar(im2, ax=ax[1, 1], fraction=0.046, pad=0.04)
@@ -124,10 +126,13 @@ def render_frame_worker_v(args):
 
     # [1,1] Absolute Error
     error = np.abs(v_true - v_pred)
+    error_max = 0.893
     im2 = ax[1, 1].imshow(error, origin='lower', extent=extent, vmin=0, vmax=error_max, cmap='inferno')
+    print(f"v error_max: {error_max}")
     ax[1, 1].set_title(f"Absolute Error |v* - \hat{{v}}|")
     ax[1, 1].set_xlabel("x")
     plt.colorbar(im2, ax=ax[1, 1], fraction=0.046, pad=0.04)
+    plt.tick_params(labelsize=14)
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
        

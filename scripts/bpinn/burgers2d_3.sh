@@ -1,12 +1,12 @@
-# run: scripts/mlp/burgers2d_4.sh
-# tmux attach: tmux attach -t train_burgers2d_4_mlp_naPINN_4
+# run: scripts/mlp/burgers2d_3.sh
+# tmux attach: tmux attach -t train_burgers2d_2_mlp_naPINN_2
 
 #!/usr/bin/env bash
 set -euo pipefail
 
-MODEL_NAME=mlp
+MODEL_NAME=bpinn
 EXPERIMENT_NAME=burgers2d
-TAG=2_vaPINN_2
+TAG=b9
 SESSION_NAME="train_${EXPERIMENT_NAME}_${MODEL_NAME}_${TAG}"
 
 # ==== Check tmux ====
@@ -22,7 +22,7 @@ TRAIN_CMD="python -m pinnlab.train \
   --experiment_name ${EXPERIMENT_NAME} \
   --common_config configs/common_config.yaml \
   --model_config configs/model/${MODEL_NAME}.yaml \
-  --exp_config configs/experiment/${EXPERIMENT_NAME}_4.yaml"
+  --exp_config configs/experiment/${EXPERIMENT_NAME}_3.yaml"
 
 # ==== Start (or restart) tmux session ====
 if tmux has-session -t "${SESSION_NAME}" 2>/dev/null; then

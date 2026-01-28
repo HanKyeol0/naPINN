@@ -1,12 +1,12 @@
-# run: scripts/mlp/navierstokes2d_cylinder.sh
-# tmux attach: tmux attach -t train_navierstokes2d_cylinder_mlp_{tag}
+# run: scripts/mlp/lambdaomega2d.sh
+# tmux attach: tmux attach -t train_lambdaomega2d_mlp_a1_qG2
 
 #!/usr/bin/env bash
 set -euo pipefail
 
-MODEL_NAME=mlp
-EXPERIMENT_NAME=navierstokes2d_cylinder
-TAG=a2_qG3
+MODEL_NAME=bpinn
+EXPERIMENT_NAME=lambdaomega2d
+TAG=o9
 SESSION_NAME="train_${EXPERIMENT_NAME}_${MODEL_NAME}_${TAG}"
 
 # ==== Check tmux ====

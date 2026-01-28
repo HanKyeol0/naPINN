@@ -1,8 +1,10 @@
+# run: scripts/mlp/z_allencahn2d_fore.sh
+
 #!/usr/bin/env bash
 set -e
 
-MODEL_NAME=residual_network
-EXPERIMENT_NAME=convection1d
+MODEL_NAME=bpinn
+EXPERIMENT_NAME=allencahn2d
 
 python -m pinnlab.train \
   --model_name $MODEL_NAME \

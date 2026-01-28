@@ -1,0 +1,9 @@
+in_features: 2
+out_features: 1
+hidden_layers: 5
+hidden_width: 80
+activation: tanh
+
+prior_mu: 0.0
+prior_sigma: 1.0
+kl_weight: 1.0e-6

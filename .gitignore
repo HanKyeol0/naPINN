@@ -8,3 +8,4 @@ idea_memo.txt
 __pycache__/
 .npz
 simulation_result/
+figures/

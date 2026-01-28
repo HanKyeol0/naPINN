@@ -224,6 +224,12 @@ def main(args):
             total_loss, w_dict, aux = balancer(losses, step=global_step, model=model)
             w_now = {k.split("/", 1)[1]: float(v) for k, v in w_dict.items()}
 
+        kl_loss = None
+        if hasattr(model, "kl_loss"):
+            kl_weight = float(getattr(model, "kl_weight", 1.0))
+            kl_loss = model.kl_loss()
+            total_loss = total_loss + kl_weight * kl_loss
+
         # write one row per epoch/step
         _ensure_weights_header(w_now.keys())
         with open(weights_csv, "a", newline="") as f:
@@ -251,6 +257,9 @@ def main(args):
             "perf/elapsed_sec": elapsed_s if elapsed_s is not None else 0.0,
             **gpu_now,
         }
+        if kl_loss is not None:
+            log_payload["loss/kl"] = float(kl_loss.detach().cpu())
+            log_payload["loss/kl_weight"] = kl_weight
         
         mom, var = get_optimizer_stats(optimizer)
         log_payload["optim/mom_buffer"] = mom
@@ -267,6 +276,7 @@ def main(args):
         # Simple validation metric (rMAE and rMSE on a fixed grid)
         if (ep % eval_every == 0 or ep == epochs-1) and (ep > 0):
             print("Evaluating...")
+            model.eval()
             with torch.no_grad():
                 eval_result = exp.eval_on_grid(model, base_cfg["eval"]["grid"])
                 rMAE, rMSE = eval_result["rMAE"], eval_result["rMSE"]
@@ -386,6 +396,12 @@ def main(args):
             else:
                 total_loss, w_dict, aux = balancer(losses, step=global_step, model=model)
                 w_now = {k.split("/", 1)[1]: float(v) for k, v in w_dict.items()}
+
+            kl_loss = None
+            if hasattr(model, "kl_loss"):
+                kl_weight = float(getattr(model, "kl_weight", 1.0))
+                kl_loss = model.kl_loss()
+                total_loss = total_loss + kl_weight * kl_loss
             
             # write one row per epoch/step
             _ensure_weights_header(w_now.keys())
@@ -418,6 +434,9 @@ def main(args):
                 # "count/data_idx1": count_idx1,
                 # "count/data_idx2": count_idx2,
             }
+            if kl_loss is not None:
+                log_payload["loss/kl"] = float(kl_loss.detach().cpu())
+                log_payload["loss/kl_weight"] = kl_weight
             if hasattr(exp, "running_std"):
                 log_payload["running_std"] = float(exp.running_std.detach().cpu())
             if hasattr(exp, "nu") and isinstance(exp.nu, torch.nn.Parameter):
@@ -436,6 +455,7 @@ def main(args):
             
             # Simple validation metric (rMAE and rMSE on a fixed grid)
             if (ep % eval_every == 0 or ep == phase2_epochs-1):
+                model.eval()
                 with torch.no_grad():
                     eval_result = exp.eval_on_grid(model, base_cfg["eval"]["grid"])
                     rMAE, rMSE = eval_result["rMAE"], eval_result["rMSE"]
@@ -505,6 +525,7 @@ def main(args):
             # if gate_plots and base_cfg["log"]["wandb"]["enabled"]:
             #     wandb_log({f"val/{k}": wandb.Image(v) for k, v in gate_plots.items()})
     
+    model.eval()
     with torch.no_grad():
         eval_result = exp.eval_on_grid(model, base_cfg["eval"]["grid"])
         rMAE, rMSE = eval_result["rMAE"], eval_result["rMSE"]

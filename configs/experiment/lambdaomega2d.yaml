@@ -1,6 +1,8 @@
 # simuation run: scripts/simulation/lambdaomega.sh
-# experiment(back) run: scripts/mlp/lambdaomega2d.sh
-# experiment(fore) run: scripts/mlp/z_lambdaomega2d_fore.sh
+# experiment(back): scripts/mlp/lambdaomega2d.sh
+# experiment(fore): scripts/mlp/z_lambdaomega2d_fore.sh
+# bpinn exp (back): scripts/bpinn/lambdaomega2d.sh
+# bpinn exp (fore): scripts/bpinn/z_lambdaomega2d_fore.sh
 
 domain:
   x: [-10.0, 10.0]
@@ -45,7 +47,7 @@ measurement:
 # experiment(back) run: scripts/mlp/lambdaomega2d.sh
 # experiment(fore) run: scripts/mlp/z_lambdaomega2d_fore.sh
 
-tag: o9
+tag: c7_va_rewind
 exp_description: 4G noise, outlier scale (3-10), base scale 0.1, 10% outliers, fixed_grid measurement
 device: "cuda:6"
 wandb_project: naPINN_LambdaOmega_v2
@@ -59,14 +61,14 @@ noise:
   kind: 4G
   par_list: [[-9.0, 2],[-0.3,4],[2.7,0.6],[8.5,1]]
   # par_list: [[-8.0, 2],[0.7,4],[3.7,0.6],[9.5,1]]
-  scale: 0.0 # Not used if relative_scale is set
+  scale: 0.1 # Not used if relative_scale is set
   # relative_scale: 0.05  # 5% relative noise
   # floor_scale: 0.01     # Noise floor
 
   extra_noise:
-    enabled: false
+    enabled: true
     kind: std  # 'std' or 'mean_level'
-    n_points: 5700 # ~5% of measurements
+    n_points: 8450 # ~5% of measurements
     scale_min: 3.0
     scale_max: 10.0
 

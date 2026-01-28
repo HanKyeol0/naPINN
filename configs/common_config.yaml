@@ -1,4 +1,4 @@
-seed: 47 # 40 - 49
+seed: 49 # 40 - 49
 device: "cuda:2"            # "cuda" or "cpu"
 train:
   epochs: 30000

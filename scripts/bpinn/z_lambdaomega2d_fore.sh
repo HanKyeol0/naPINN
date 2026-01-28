@@ -1,8 +1,10 @@
+# run: scripts/mlp/z_lambdaomega2d_fore.sh
+
 #!/usr/bin/env bash
 set -e
 
-MODEL_NAME=fourier_mlp
-EXPERIMENT_NAME=poisson2d
+MODEL_NAME=bpinn
+EXPERIMENT_NAME=lambdaomega2d
 
 python -m pinnlab.train \
   --model_name $MODEL_NAME \

@@ -1,10 +1,12 @@
 # scripts/mlp/allencahn2d.sh
 # scripts/mlp/z_allencahn2d_fore.sh
+# scripts/bpinn/allencahn2d.sh
+# scripts/bpinn/z_allencahn2d_fore.sh
 
-tag: o9 # na / va / L1 / qG2 / qG3
-device: "cuda:4"
+tag: c9 # c5_va_rewind # na / va / L1 / qG2 / qG3
+device: "cuda:6"
 wandb_project: naPINN_AllenCahn_v3
-exp_description: 4G noise, outlier scale (3-10), base scale 0.1, 15% outliers, fixed_grid measurement
+exp_description: 4G noise, outlier scale (3-10), base scale 0.1, 5% outliers, fixed_grid measurement
 
 domain:
   x: [0.0, 2.0]
@@ -33,7 +35,7 @@ noise:
   enabled: true
   batch_size: 1000
   kind: 4G # G, Goff, sG, u, 3G, 3G0, mix0, Gmix, rmix, sGtest
-  scale: 0.0 # default: 0.1
+  scale: 0.1 # default: 0.1
   pars: [0.0, 4.0]
   par_list: [[-9.0, 2],[-0.3,4],[2.7,0.6],[8.5,1]]
   # par_list: [[-8.0, 2],[0.7,4],[3.7,0.6],[9.5,1]] # 4G
@@ -46,9 +48,9 @@ noise:
   sensor_ny: 15 # only for fixed_grid
 
   extra_noise:
-    enabled: false
+    enabled: true
     kind: std # 'std' or 'mean_level'
-    n_points: 2250
+    n_points: 3375 # 1120 / 2250 / 3375
     scale_min: 3.0
     scale_max: 10.0
 
