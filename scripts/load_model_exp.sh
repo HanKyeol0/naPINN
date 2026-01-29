@@ -6,7 +6,7 @@ set -e
 # burgers2d / c9_na & c7_va_rewind
 # lambdaomega2d / c3_na & c7_va_rewind
 
-EXPERIMENT_NAME=burgers2d
+EXPERIMENT_NAME=lambdaomega2d
 MODEL_NAME=mlp
 EXPERIMENT_TAG=c7_va_rewind
 DEVICE="cuda:4"

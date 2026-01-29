@@ -6,7 +6,7 @@ set -euo pipefail
 
 MODEL_NAME=mlp
 EXPERIMENT_NAME=burgers2d
-TAG=c7_va_rewind
+TAG=c_NoPhase_5
 SESSION_NAME="train_${EXPERIMENT_NAME}_${MODEL_NAME}_${TAG}"
 
 # ==== Check tmux ====

@@ -6,6 +6,7 @@ import matplotlib
 import imageio.v2 as imageio
 import sys
 from tqdm import trange
+from matplotlib.ticker import FormatStrFormatter
 
 from pinnlab.experiments.base import BaseExperiment, make_leaf, grad_sum
 from pinnlab.data.noise import get_noise
@@ -45,7 +46,7 @@ def render_frame_worker_u(args):
     # Magnitude is static for spiral waves; 'u' shows the rotation.
     
     # [0,0] True State u
-    # Use a diverging colormap (e.g., 'twilight' or 'seismic') for waves
+    # Use a diverging colormap (e.g., 'twilight' or 'seismic' or 'twilight') for waves
     im0 = ax[0, 0].imshow(u_true, origin='lower', extent=extent, vmin=vmin, vmax=vmax, cmap='twilight')
     ax[0, 0].set_title("True State $u(x,y)$")
     ax[0, 0].set_ylabel("y")
@@ -76,7 +77,8 @@ def render_frame_worker_u(args):
     # [1,1] Absolute Error (Magnitude error is still a good metric)
     # Or use error in u: |u_true - u_pred|
     error = np.abs(u_true - u_pred)
-    im2 = ax[1, 1].imshow(error, origin='lower', extent=extent, vmin=0, vmax=error_max, cmap='inferno')
+    error_vmax = 1.132
+    im2 = ax[1, 1].imshow(error, origin='lower', extent=extent, vmin=0, vmax=error_vmax, cmap='twilight')
     print(f"u error_max: {error_max}")
     ax[1, 1].set_title(f"Absolute Error $|u - \hat{{u}}|$")
     ax[1, 1].set_xlabel("x")
@@ -141,7 +143,8 @@ def render_frame_worker_v(args):
     # [1,1] Absolute Error (Magnitude error is still a good metric)
     # Or use error in u: |v_true - v_pred|
     error = np.abs(v_true - v_pred)
-    im2 = ax[1, 1].imshow(error, origin='lower', extent=extent, vmin=0, vmax=error_max, cmap='inferno')
+    error_vmax = 1.132
+    im2 = ax[1, 1].imshow(error, origin='lower', extent=extent, vmin=0, vmax=error_vmax, cmap='twilight')
     print(f"v error_max: {error_max}")
     ax[1, 1].set_title(f"Absolute Error $|v - \hat{{v}}|$")
     ax[1, 1].set_xlabel("x")

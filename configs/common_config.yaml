@@ -1,5 +1,5 @@
-seed: 49 # 40 - 49
-device: "cuda:2"            # "cuda" or "cpu"
+seed: 44 # 40 - 49
+device: "cuda:1"            # "cuda" or "cpu"
 train:
   epochs: 30000
   batch:

@@ -6,6 +6,7 @@ import matplotlib
 import imageio.v2 as imageio
 import sys
 from tqdm import trange
+from matplotlib.ticker import FormatStrFormatter
 
 from pinnlab.experiments.base import BaseExperiment, make_leaf, grad_sum
 from pinnlab.data.noise import get_noise
@@ -37,6 +38,11 @@ def render_frame_worker_u(args):
     """
     (t_val, u_true, v_true, u_pred, v_pred, 
      X_meas_slice, mag_meas_slice, umin, umax, vmin, vmax, error_max, extent, frames_dir) = args
+    
+    CBAR_FRACTION = 0.08   # wider than 0.046
+    CBAR_PAD      = 0.04
+    CBAR_TICKSIZE = 14
+    CBAR_LABELSIZE = 16
 
     fig, ax = plt.subplots(2, 2, figsize=(10, 10), dpi=100)
     plt.suptitle(f"Burgers 2D Flow | t={t_val:.3f}", y=0.95, fontsize=14)
@@ -45,12 +51,14 @@ def render_frame_worker_u(args):
     im0 = ax[0, 0].imshow(u_true, origin='lower', extent=extent, vmin=umin, vmax=umax, cmap='jet')
     ax[0, 0].set_title("True State $u(x,y)$")
     ax[0, 0].set_ylabel("y")
-    plt.colorbar(im0, ax=ax[0, 0], fraction=0.046, pad=0.04)
+    cbar0 = plt.colorbar(im0, ax=ax[0, 0], fraction=CBAR_FRACTION, pad=CBAR_PAD)
+    cbar0.ax.tick_params(labelsize=CBAR_TICKSIZE)
 
     # [0,1] Predicted Magnitude
     im1 = ax[0, 1].imshow(u_pred, origin='lower', extent=extent, vmin=umin, vmax=umax, cmap='jet')
     ax[0, 1].set_title("Predicted State $\hat{u}(x,y)$")
-    plt.colorbar(im1, ax=ax[0, 1], fraction=0.046, pad=0.04)
+    cbar1 = plt.colorbar(im1, ax=ax[0, 1], fraction=CBAR_FRACTION, pad=CBAR_PAD)
+    cbar1.ax.tick_params(labelsize=CBAR_TICKSIZE)
 
     # [1,0] Noisy Measurement Data
     # Background: Faint gray true flow to see context
@@ -59,7 +67,8 @@ def render_frame_worker_u(args):
     if X_meas_slice is not None and len(X_meas_slice) > 0:
         sc = ax[1, 0].scatter(X_meas_slice[:, 0], X_meas_slice[:, 1], c=mag_meas_slice, 
                               vmin=umin, vmax=umax, cmap='jet', s=15, edgecolors='none', alpha=0.9)
-        plt.colorbar(sc, ax=ax[1, 0], fraction=0.046, pad=0.04)
+        cbar_sc = plt.colorbar(sc, ax=ax[1, 0], fraction=CBAR_FRACTION, pad=CBAR_PAD)
+        cbar_sc.ax.tick_params(labelsize=CBAR_TICKSIZE)
         ax[1, 0].set_title(f"Noisy Measurements (N={len(X_meas_slice)})")
     else:
         ax[1, 0].set_title("No Measurements")
@@ -71,11 +80,11 @@ def render_frame_worker_u(args):
     # [1,1] Absolute Error
     error = np.abs(u_true - u_pred)
     error_max = 0.893
-    im2 = ax[1, 1].imshow(error, origin='lower', extent=extent, vmin=0, vmax=error_max, cmap='inferno')
-    print(f"u error_max: {error_max}")
+    im2 = ax[1, 1].imshow(error, origin='lower', extent=extent, vmin=0, vmax=error_max, cmap='jet')
     ax[1, 1].set_title(f"Absolute Error |u* - \hat{{u}}|")
     ax[1, 1].set_xlabel("x")
-    plt.colorbar(im2, ax=ax[1, 1], fraction=0.046, pad=0.04)
+    cbar2 = plt.colorbar(im2, ax=ax[1, 1], fraction=CBAR_FRACTION, pad=CBAR_PAD)
+    cbar2.ax.tick_params(labelsize=CBAR_TICKSIZE)
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
     
@@ -94,6 +103,11 @@ def render_frame_worker_v(args):
     (t_val, u_true, v_true, u_pred, v_pred, 
      X_meas_slice, mag_meas_slice, umin, umax, vmin, vmax, error_max, extent, frames_dir) = args
 
+    CBAR_FRACTION = 0.08   # wider than 0.046
+    CBAR_PAD      = 0.04
+    CBAR_TICKSIZE = 14
+    CBAR_LABELSIZE = 16
+    
     fig, ax = plt.subplots(2, 2, figsize=(10, 10), dpi=100)
     plt.suptitle(f"Burgers 2D Flow | t={t_val:.3f}", y=0.95, fontsize=14)
 
@@ -101,12 +115,14 @@ def render_frame_worker_v(args):
     im0 = ax[0, 0].imshow(v_true, origin='lower', extent=extent, vmin=vmin, vmax=vmax, cmap='jet')
     ax[0, 0].set_title("True State $v(x,y)$")
     ax[0, 0].set_ylabel("y")
-    plt.colorbar(im0, ax=ax[0, 0], fraction=0.046, pad=0.04)
+    cbar0 = plt.colorbar(im0, ax=ax[0, 0], fraction=CBAR_FRACTION, pad=CBAR_PAD)
+    cbar0.ax.tick_params(labelsize=CBAR_TICKSIZE)
 
     # [0,1] Predicted Magnitude
     im1 = ax[0, 1].imshow(v_pred, origin='lower', extent=extent, vmin=vmin, vmax=vmax, cmap='jet')
     ax[0, 1].set_title("Predicted State $\hat{v}(x,y)$")
-    plt.colorbar(im1, ax=ax[0, 1], fraction=0.046, pad=0.04)
+    cbar1 = plt.colorbar(im1, ax=ax[0, 1], fraction=CBAR_FRACTION, pad=CBAR_PAD)
+    cbar1.ax.tick_params(labelsize=CBAR_TICKSIZE)
 
     # [1,0] Noisy Measurement Data
     # Background: Faint gray true flow to see context
@@ -127,12 +143,11 @@ def render_frame_worker_v(args):
     # [1,1] Absolute Error
     error = np.abs(v_true - v_pred)
     error_max = 0.893
-    im2 = ax[1, 1].imshow(error, origin='lower', extent=extent, vmin=0, vmax=error_max, cmap='inferno')
-    print(f"v error_max: {error_max}")
+    im2 = ax[1, 1].imshow(error, origin='lower', extent=extent, vmin=0, vmax=error_max, cmap='jet')
     ax[1, 1].set_title(f"Absolute Error |v* - \hat{{v}}|")
     ax[1, 1].set_xlabel("x")
-    plt.colorbar(im2, ax=ax[1, 1], fraction=0.046, pad=0.04)
-    plt.tick_params(labelsize=14)
+    cbar2 = plt.colorbar(im2, ax=ax[1, 1], fraction=CBAR_FRACTION, pad=CBAR_PAD)
+    cbar2.ax.tick_params(labelsize=CBAR_TICKSIZE)
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
        

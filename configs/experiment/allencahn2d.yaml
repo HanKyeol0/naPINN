@@ -1,11 +1,9 @@
 # scripts/mlp/allencahn2d.sh
 # scripts/mlp/z_allencahn2d_fore.sh
-# scripts/bpinn/allencahn2d.sh
-# scripts/bpinn/z_allencahn2d_fore.sh
 
-tag: c9 # c5_va_rewind # na / va / L1 / qG2 / qG3
-device: "cuda:6"
-wandb_project: naPINN_AllenCahn_v3
+tag: c_NoPhase_4 # c5_va_rewind # na / va / L1 / qG2 / qG3
+device: "cuda:4"
+wandb_project: naPINN_ablation
 exp_description: 4G noise, outlier scale (3-10), base scale 0.1, 5% outliers, fixed_grid measurement
 
 domain:
@@ -77,9 +75,9 @@ data_loss:
   beta: null
 
 data_loss_balancer:
-  use_loss_balancer: false # true / false
+  use_loss_balancer: true # true / false
   kind: gated_trainable # pw, inverse, mlp, gated, gated_trainable
-  rejection_cost: 0.5 # only for gated_trainable
+  rejection_cost: 1.0 # only for gated_trainable
   weight_net:
     hidden_dim: 32
     depth: 3

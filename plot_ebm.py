@@ -79,7 +79,7 @@ def plot_noise_pdfs_overlay(
         "axes.spines.right": False,
     })
 
-    fig, ax = plt.subplots(1, 1, figsize=(7.0, 4.5), dpi=dpi)
+    fig, ax = plt.subplots(1, 1, figsize=(7.0, 4.0), dpi=dpi)
 
     # Colors (High contrast, colorblind safe)
     c_true = "#333333"      # Dark Grey
@@ -90,18 +90,18 @@ def plot_noise_pdfs_overlay(
     # 1. True PDF: Filled area + Line
     # This visually separates "Ground Truth" from "Estimations"
     # ax.fill_between(r_true, pdf_true, color=c_fill, alpha=0.6, label=None, zorder=1)
-    ax.plot(r_true, pdf_true, color=c_true, lw=2.5, label="True noise PDF", zorder=2)
+    ax.plot(r_true, pdf_true, color=c_true, lw=2.0, label="True noise PDF", zorder=2)
 
     # 2. EBM PDFs
     # t1: Initialization (Dashed, Blue)
-    ax.fill_between(r_true, pdf_a_on_true, color=c_a, alpha=0.6, label=None, zorder=2)
-    ax.plot(r_true, pdf_a_on_true, color=c_a, lw=2.5, ls="--", 
+    ax.fill_between(r_true, pdf_a_on_true, color=c_a, alpha=0.25, label=None, zorder=2)
+    ax.plot(r_true, pdf_a_on_true, color=c_a, lw=2.0, ls="--", 
             label=label_a, zorder=3, alpha=0.9)
     
     # t2: Final Training (Dash-Dot or Solid, Red)
     # Using a distinct line style helps distinguish the two learned steps
-    ax.fill_between(r_true, pdf_b_on_true, color=c_b, alpha=0.6, label=None, zorder=3)
-    ax.plot(r_true, pdf_b_on_true, color=c_b, lw=2.5, ls="--", 
+    ax.fill_between(r_true, pdf_b_on_true, color=c_b, alpha=0.25, label=None, zorder=3)
+    ax.plot(r_true, pdf_b_on_true, color=c_b, lw=2.0, ls="--", 
             label=label_b, zorder=4)
 
     # ---------- Cosmetics ----------
@@ -134,9 +134,10 @@ def plot_noise_pdfs_overlay(
 if __name__ == "__main__":
     # Example usage (paths preserved)
     exp_dir = "outputs/burgers2d/burgers2d_mlp_a8_na_rewind"
+    out_dir = "figures"
     true_pdf_file = f"{exp_dir}/after_init_true_pdf.npz"
     ebm_pdf_file_t1 = f"{exp_dir}/after_init_ebm_pdf.npz"
-    ebm_pdf_file_t2 = f"{exp_dir}/eval_ep20000_ebm_pdf.npz"
+    ebm_pdf_file_t2 = f"{exp_dir}/final_evolution_ebm_pdf.npz"
 
     plot_noise_pdfs_overlay(
         true_pdf_path=true_pdf_file,
@@ -145,8 +146,8 @@ if __name__ == "__main__":
         label_a="After EBM initialization",
         label_b="After naPINN training",
         title="Noise PDF: True vs. EBM",
-        out_path_pdf=f"{exp_dir}/noise_pdf_comparison.pdf",
-        out_path_png=f"{exp_dir}/noise_pdf_comparison.png",
+        out_path_pdf=f"{out_dir}/noise_pdf_comparison.pdf",
+        out_path_png=f"{out_dir}/noise_pdf_comparison.png",
         xlim=(-1.0, 1.0),
         ylim=(0.0, 6.3),
         dpi=300,

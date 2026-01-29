@@ -1,12 +1,12 @@
-# run: scripts/mlp/lambdaomega2d.sh
-# tmux attach: tmux attach -t train_lambdaomega2d_mlp_a1_qG2
+# run: scripts/bpinn/lambdaomega2d.sh
+# tmux attach: tmux attach -t train_lambdaomega2d_bpinn_a1
 
 #!/usr/bin/env bash
 set -euo pipefail
 
 MODEL_NAME=bpinn
 EXPERIMENT_NAME=lambdaomega2d
-TAG=o9
+TAG=c9
 SESSION_NAME="train_${EXPERIMENT_NAME}_${MODEL_NAME}_${TAG}"
 
 # ==== Check tmux ====

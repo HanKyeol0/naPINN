@@ -123,7 +123,7 @@ def _plot_gate_param_on_ax(
 
     ax.set_ylabel(ylabel)
     ax.set_xlim(float(x_all.min()), float(x_all.max()))
-    ax.grid(True, alpha=0.18, linestyle="--", linewidth=0.8)
+    # ax.grid(True, alpha=0.18, linestyle="--", linewidth=0.8)
 
     if legend_position.lower() == "true":
         ax.legend(frameon=False, loc="center right", bbox_to_anchor=legend_bbox, borderaxespad=0.0)
@@ -150,7 +150,7 @@ def plot_two_gate_params_in_one_figure(
 ):
     set_pub_style()
 
-    fig, axes = plt.subplots(2, 1, figsize=(7.0, 7.6), dpi=dpi, sharex=False, sharey=False)
+    fig, axes = plt.subplots(2, 1, figsize=(7.0, 5.0), dpi=dpi, sharex=False, sharey=False)
 
     # Top: cutoff (legend fixed to right side)
     _plot_gate_param_on_ax(
@@ -181,8 +181,8 @@ def plot_two_gate_params_in_one_figure(
         legend_position="False",   # no fixed right-side legend here
     )
     # Increase label font sizes (requested)
+    axes[1].set_xlabel("Step", fontsize=xlabel_fs)
     for ax in axes:
-        ax.set_xlabel("Step", fontsize=xlabel_fs)
         ax.set_ylabel(ax.get_ylabel(), fontsize=ylabel_fs)
 
     plt.tight_layout(h_pad=1.2)
@@ -217,8 +217,8 @@ if __name__ == "__main__":
         smooth_window=31,
         smooth_poly=3,
         dpi=300,
-        xlabel_fs=16,   # <-- bigger x-label
-        ylabel_fs=16,   # <-- bigger y-label
+        xlabel_fs=13,   # <-- bigger x-label
+        ylabel_fs=13,   # <-- bigger y-label
         cutoff_legend_bbox=(1.02, 0.62),  # <-- slightly higher legend
     )
 

@@ -87,6 +87,19 @@ rmse_std = {
 # -----------------------------
 # Plot
 # -----------------------------
+plt.rcParams.update({
+    "font.family": "serif",           # Serif fonts for body text
+    "mathtext.fontset": "cm",         # Computer Modern for math (LaTeX look)
+    "font.size": 12,
+    "axes.labelsize": 13,
+    "axes.titlesize": 14,
+    "xtick.labelsize": 13,
+    "ytick.labelsize": 13,
+    "legend.fontsize": 11,
+    "axes.spines.top": False,
+    "axes.spines.right": False,
+})
+    
 fig, axes = plt.subplots(1, 3, figsize=(15, 4), sharey=True)
 
 for ax, bench in zip(axes, benchmarks):
@@ -115,7 +128,7 @@ for ax, bench in zip(axes, benchmarks):
     ax.set_ylim(0.05, 0.62)
     ax.set_xticks(x)
     ax.set_xticklabels(outlier_ratios)
-    ax.grid(True, linestyle=":", linewidth=0.8, alpha=0.45, zorder=0)
+    # ax.grid(True, linestyle=":", linewidth=0.8, alpha=0.45, zorder=0)
 
 axes[0].set_ylabel("rMSE")
 

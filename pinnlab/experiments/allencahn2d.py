@@ -8,6 +8,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 import imageio
 from tqdm import trange
+from matplotlib.ticker import FormatStrFormatter
 from pinnlab.experiments.base import BaseExperiment, make_leaf, grad_sum
 from pinnlab.data.geometries import Rectangle, linspace_2d
 from pinnlab.data.noise import get_noise
@@ -606,6 +607,10 @@ class AllenCahn2D(BaseExperiment):
         # ---------- First pass: determine global color ranges ----------
         vmin, vmax = None, None
         err_max = 0.0
+        
+        CBAR_FRACTION = 0.4
+        CBAR_PAD = 0.04
+        CBAR_TICKSIZE = 16
 
         model.eval()
         with torch.no_grad():
@@ -672,10 +677,11 @@ class AllenCahn2D(BaseExperiment):
                 )
                 ax1.set_title("Noisy data: u*(x,y,t) + ε")
                 ax1.set_xlabel("x"); ax1.set_ylabel("y")
-                cbar1 = fig.colorbar(im1, ax=ax1, fraction=0.08, pad=0.04)
-                cbar1.ax.tick_params(labelsize=14)
+                cbar1 = fig.colorbar(im1, ax=ax1, fraction=CBAR_FRACTION, pad=CBAR_PAD)
+                cbar1.ax.tick_params(labelsize=CBAR_TICKSIZE)
 
                 # [0,1] True solution
+                true_ticks = [-1.0, 0.0, 1.0]
                 ax2 = plt.subplot(2, 2, 2)
                 im2 = ax2.imshow(
                     U_true.T, origin="lower", extent=extent,
@@ -683,10 +689,12 @@ class AllenCahn2D(BaseExperiment):
                 )
                 ax2.set_title("True solution u*(x,y,t)")
                 ax2.set_xlabel("x"); ax2.set_ylabel("y")
-                cbar2 = fig.colorbar(im2, ax=ax2, fraction=0.08, pad=0.04)
-                cbar2.ax.tick_params(labelsize=14)
+                cbar2 = fig.colorbar(im2, ax=ax2, fraction=CBAR_FRACTION, pad=CBAR_PAD, ticks=true_ticks)
+                cbar2.ax.tick_params(labelsize=CBAR_TICKSIZE)
+                cbar2.ax.yaxis.set_major_formatter(FormatStrFormatter('%.1f'))
 
                 # [1,0] Predicted solution
+                pred_ticks = [-1.0, 0.0, 1.0]
                 ax3 = plt.subplot(2, 2, 3)
                 im3 = ax3.imshow(
                     U_pred.T, origin="lower", extent=extent,
@@ -694,10 +702,12 @@ class AllenCahn2D(BaseExperiment):
                 )
                 ax3.set_title("Predicted solution û(x,y,t)")
                 ax3.set_xlabel("x"); ax3.set_ylabel("y")
-                cbar3 = fig.colorbar(im3, ax=ax3, fraction=0.08, pad=0.04)
-                cbar3.ax.tick_params(labelsize=14)
+                cbar3 = fig.colorbar(im3, ax=ax3, fraction=CBAR_FRACTION, pad=CBAR_PAD, ticks=pred_ticks)
+                cbar3.ax.tick_params(labelsize=CBAR_TICKSIZE)
+                cbar3.ax.yaxis.set_major_formatter(FormatStrFormatter('%.1f'))
 
                 # [1,1] Absolute error
+                error_ticks = [0.0, 0.14, 0.28]
                 ax4 = plt.subplot(2, 2, 4)
                 im4 = ax4.imshow(
                     U_err.T, origin="lower", extent=extent,
@@ -705,8 +715,9 @@ class AllenCahn2D(BaseExperiment):
                 )
                 ax4.set_title("|Error| = |u* - û|")
                 ax4.set_xlabel("x"); ax4.set_ylabel("y")
-                cbar4 = fig.colorbar(im4, ax=ax4, fraction=0.046, pad=0.04)
-                cbar4.ax.tick_params(labelsize=14)
+                cbar4 = fig.colorbar(im4, ax=ax4, fraction=CBAR_FRACTION, pad=CBAR_PAD, ticks=error_ticks)
+                cbar4.ax.tick_params(labelsize=CBAR_TICKSIZE)
+                cbar4.ax.yaxis.set_major_formatter(FormatStrFormatter('%.1f'))
 
                 fig.tight_layout(rect=[0, 0.03, 1, 0.95])
                 

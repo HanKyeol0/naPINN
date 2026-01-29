@@ -9,3 +9,4 @@ __pycache__/
 .npz
 simulation_result/
 figures/
+plot_*.py

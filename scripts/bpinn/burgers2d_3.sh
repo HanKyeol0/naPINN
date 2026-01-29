@@ -1,4 +1,4 @@
-# run: scripts/mlp/burgers2d_3.sh
+# run: scripts/bpinn/burgers2d_3.sh
 # tmux attach: tmux attach -t train_burgers2d_2_mlp_naPINN_2
 
 #!/usr/bin/env bash
@@ -6,7 +6,7 @@ set -euo pipefail
 
 MODEL_NAME=bpinn
 EXPERIMENT_NAME=burgers2d
-TAG=b9
+TAG=c9
 SESSION_NAME="train_${EXPERIMENT_NAME}_${MODEL_NAME}_${TAG}"
 
 # ==== Check tmux ====
