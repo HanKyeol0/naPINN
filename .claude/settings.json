@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(apt-get install:*)",
+      "Bash(pdftoppm -v)",
+      "Bash(pdftotext /root/naPINN/naPINN_preprint.pdf -)",
+      "Bash(chmod +x /root/naPINN/scripts/mlp/ablation_model_size.sh)",
+      "Bash(python3 -:*)",
+      "Bash(nvidia-smi --query-gpu=index,name,memory.used,memory.total,utilization.gpu --format=csv,noheader,nounits)",
+      "Bash(tmux ls:*)",
+      "Bash(tmux new-session:*)",
+      "Read(//tmp/**)",
+      "Bash(nvidia-smi --query-gpu=index,memory.used,memory.total,utilization.gpu --format=csv,noheader,nounits)",
+      "Bash(nvidia-smi --query-compute-apps=pid,used_memory,gpu_uuid --format=csv,noheader)",
+      "Bash(nvidia-smi -i 0 --query-compute-apps=pid,used_memory --format=csv,noheader)",
+      "Bash(ps -p 3157328 -o pid,stat,etime,cmd --no-headers)",
+      "Bash(tmux kill-session:*)",
+      "Bash(ls /tmp/abl_gpu*.sh)",
+      "Bash(tmux kill-server:*)",
+      "Bash(nvidia-smi --query-gpu=index,memory.used,utilization.gpu --format=csv,noheader,nounits)"
+    ]
+  }
+}

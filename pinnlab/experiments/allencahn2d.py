@@ -12,7 +12,8 @@ from pinnlab.experiments.base import BaseExperiment, make_leaf, grad_sum
 from pinnlab.data.geometries import Rectangle, linspace_2d
 from pinnlab.data.noise import get_noise
 from pinnlab.utils.plotting import save_plots_2d
-from pinnlab.utils.ebm import EBM, ResidualWeightNet, TrainableLikelihoodGate
+from pinnlab.utils.ebm import EBM, ResidualWeightNet, TrainableLikelihoodGate, QuantileThresholdGate, LearnableThresholdGate
+from pinnlab.utils.density import create_density_estimator
 from pinnlab.utils.data_loss import (
     data_loss_mse,
     data_loss_l1,
@@ -105,18 +106,13 @@ class AllenCahn2D(BaseExperiment):
         self.use_nll = bool(ebm_cfg.get("use_nll", False))
         self.ebm_init_train_epochs = int(ebm_cfg["init_train_epochs"])
         
+        # running_std is needed for residual scaling (used by EBM and ablation gates)
+        self.running_std = torch.tensor(1.0, device=device)
+        self.std_mode = ebm_cfg.get("std_mode", "ema")  # "ema" | "batch"
+        self.momentum = float(ebm_cfg.get("momentum", 0.05))
+
         if self.use_ebm:
-            self.ebm = EBM(
-                hidden_dim=ebm_cfg.get("hidden_dim", 32),
-                depth=ebm_cfg.get("depth", 3),
-                num_grid=ebm_cfg.get("num_grid", 256),
-                max_range_factor=ebm_cfg.get("max_range_factor", 2.5),
-                lr=ebm_cfg.get("lr", 1e-3),
-                input_dim=1,
-                device=device,
-            )
-            self.running_std = torch.tensor(1.0, device=device)
-            self.momentum = 0.05
+            self.ebm = create_density_estimator(ebm_cfg, input_dim=1, device=device)
         else:
             self.ebm = None
 
@@ -137,7 +133,30 @@ class AllenCahn2D(BaseExperiment):
         if self.data_loss_balancer_kind == "gated_trainable":
             self.rejection_cost = float(data_lb_cfg.get("rejection_cost", 0.5))
             self.gate_module = TrainableLikelihoodGate(device=device, rejection_cost=self.rejection_cost)
-        
+
+        # --- Ablation 1: Quantile thresholding (no EBM) ---
+        self.quantile_gate = None
+        if self.data_loss_balancer_kind == "quantile":
+            self.quantile_gate = QuantileThresholdGate(
+                quantile=float(data_lb_cfg.get("quantile", 0.95)),
+                steepness=float(data_lb_cfg.get("steepness", 10.0)),
+                device=device,
+            )
+            print(f"[AllenCahn2D] Ablation 1: QuantileThresholdGate "
+                  f"(q={data_lb_cfg.get('quantile', 0.95)}, steepness={data_lb_cfg.get('steepness', 10.0)})")
+
+        # --- Ablation 2: Learnable threshold (no EBM, no gate) ---
+        self.threshold_gate = None
+        if self.data_loss_balancer_kind == "threshold":
+            self.threshold_gate = LearnableThresholdGate(
+                init_threshold=float(data_lb_cfg.get("init_threshold", 1.0)),
+                init_steepness=float(data_lb_cfg.get("init_steepness", 10.0)),
+                rejection_cost=float(data_lb_cfg.get("rejection_cost", 0.5)),
+                device=device,
+            )
+            print(f"[AllenCahn2D] Ablation 2: LearnableThresholdGate "
+                  f"(init_tau={data_lb_cfg.get('init_threshold', 1.0)}, rejection_cost={data_lb_cfg.get('rejection_cost', 0.5)})")
+
         # --- Learnable per-point data weights via auxiliary MLP ----
         self.weight_net = None
         if self.use_data_loss_balancer and self.data_loss_balancer_kind == "mlp":
@@ -194,6 +213,9 @@ class AllenCahn2D(BaseExperiment):
         if self.weight_net is not None:
             state['weight_net'] = self.weight_net.state_dict()
 
+        if self.threshold_gate is not None:
+            state['threshold_gate'] = self.threshold_gate.state_dict()
+
         return state
     
     def load_state_dict(self, state_dict):
@@ -223,6 +245,9 @@ class AllenCahn2D(BaseExperiment):
             
         if 'weight_net' in state_dict and self.weight_net is not None:
             self.weight_net.load_state_dict(state_dict['weight_net'])
+
+        if 'threshold_gate' in state_dict and self.threshold_gate is not None:
+            self.threshold_gate.load_state_dict(state_dict['threshold_gate'])
 
     # ----- manufactured truth -----
     def u_star(self, x, y, t):
@@ -357,9 +382,13 @@ class AllenCahn2D(BaseExperiment):
             )
         return residual.pow(2)
 
-    def _get_weights(self, residual): 
+    def _get_weights(self, residual):
         # Note: The 'residual' passed here is ALREADY scaled by the code above
-        if self.data_loss_balancer_kind == "mlp" and self.weight_net is not None:
+        if self.data_loss_balancer_kind == "quantile" and self.quantile_gate is not None:
+            return self.quantile_gate(residual)
+        elif self.data_loss_balancer_kind == "threshold" and self.threshold_gate is not None:
+            return self.threshold_gate(residual)
+        elif self.data_loss_balancer_kind == "mlp" and self.weight_net is not None:
             return self.weight_net(residual), torch.tensor(0.0, device=self.device)
         elif self.data_loss_balancer_kind == "gated_trainable" and self.ebm is not None:
             with torch.no_grad():
@@ -414,6 +443,9 @@ class AllenCahn2D(BaseExperiment):
         return batch
     
     def initialize_EBM(self, model):
+        if self.ebm is None:
+            print("[EBM Init] Skipped — no EBM configured.")
+            return
         use_tty = sys.stdout.isatty()
         pbar_ebm = trange(
             self.ebm_init_train_epochs,
@@ -434,9 +466,14 @@ class AllenCahn2D(BaseExperiment):
             residual = y_d - pred
             with torch.no_grad():
                 batch_std = residual.std()
-                currend_std_clamped = torch.clamp(batch_std, min=1e-6, max=self.running_std * 10)
-                self.running_std.mul(1 - self.momentum).add_(currend_std_clamped * self.momentum)
-            residual_scaled = residual / self.running_std
+                if self.std_mode == "ema":
+                    current_std_clamped = torch.clamp(batch_std, min=1e-6, max=self.running_std * 10)
+                    self.running_std.mul(1 - self.momentum).add_(current_std_clamped * self.momentum)
+                    std_for_scale = self.running_std
+                else:  # "batch"
+                    std_for_scale = torch.clamp(batch_std, min=1e-6)
+                    self.running_std.fill_(std_for_scale)
+            residual_scaled = residual / std_for_scale
             nll_ebm, nll_ebm_mean = self.ebm.train_step(residual_scaled.detach())
 
     # ----- losses -----
@@ -478,27 +515,34 @@ class AllenCahn2D(BaseExperiment):
         
         with torch.no_grad():
             batch_std = residual.std()
-            
+
             if model.training and phase!=1:
-                currend_std_clamped = torch.clamp(batch_std, min=1e-6, max=self.running_std * 10)
-                self.running_std.mul_(1 - self.momentum).add_(currend_std_clamped * self.momentum)
-        
-        residual_scaled = residual / self.running_std
+                if self.std_mode == "ema":
+                    current_std_clamped = torch.clamp(batch_std, min=1e-6, max=self.running_std * 10)
+                    self.running_std.mul_(1 - self.momentum).add_(current_std_clamped * self.momentum)
+                    std_for_scale = self.running_std
+                else:  # "batch"
+                    std_for_scale = torch.clamp(batch_std, min=1e-6)
+                    self.running_std.fill_(std_for_scale)
+            else:
+                std_for_scale = self.running_std
+
+        residual_scaled = residual / std_for_scale
         
         if phase == 0:
             if self.ebm is not None and residual.numel() > 0:
                 # Detach so EBM training does not backprop through PINN/θ0
                 nll_ebm, nll_ebm_mean = self.ebm.train_step(residual_scaled.detach())
                 batch["ebm_nll"] = nll_ebm_mean
-                
-                if self.use_data_loss_balancer:
-                    # Query weights using SCALED residuals
-                    w, gate_reg_loss = self._get_weights(residual_scaled.detach())
-                    weighted_loss = (w * data_loss_value).mean()
-                    total_loss = weighted_loss + gate_reg_loss
-                else:
-                    total_loss = data_loss_value.mean()
-                return total_loss
+
+            if self.use_data_loss_balancer:
+                # Query weights using SCALED residuals
+                w, gate_reg_loss = self._get_weights(residual_scaled.detach())
+                weighted_loss = (w * data_loss_value).mean()
+                total_loss = weighted_loss + gate_reg_loss
+            else:
+                total_loss = data_loss_value.mean()
+            return total_loss
             
         elif phase == 1:
             return data_loss_value.mean()
@@ -508,17 +552,19 @@ class AllenCahn2D(BaseExperiment):
                 # Detach so EBM training does not backprop through PINN/θ0
                 nll_ebm, nll_ebm_mean = self.ebm.train_step(residual_scaled.detach())
                 batch["ebm_nll"] = nll_ebm_mean
-                
-                loss_metric = nll_ebm if self.use_nll else data_loss_value
 
-                if self.use_data_loss_balancer:
-                    # Query weights using SCALED residuals
-                    w, gate_reg_loss = self._get_weights(residual_scaled.detach())
-                    weighted_loss = (w * loss_metric).mean()
-                    total_loss = weighted_loss + gate_reg_loss
-                else:
-                    total_loss = loss_metric.mean()
-                return total_loss
+            loss_metric = data_loss_value
+            if self.ebm is not None and self.use_nll:
+                loss_metric = nll_ebm
+
+            if self.use_data_loss_balancer:
+                # Query weights using SCALED residuals
+                w, gate_reg_loss = self._get_weights(residual_scaled.detach())
+                weighted_loss = (w * loss_metric).mean()
+                total_loss = weighted_loss + gate_reg_loss
+            else:
+                total_loss = loss_metric.mean()
+            return total_loss
 
         return torch.tensor(0.0, device=self.device)
     
@@ -533,6 +579,8 @@ class AllenCahn2D(BaseExperiment):
             params.extend(list(self.weight_net.parameters()))
         if getattr(self, "gate_module", None) is not None:
             params.extend(list(self.gate_module.parameters()))
+        if getattr(self, "threshold_gate", None) is not None:
+            params.extend(list(self.threshold_gate.parameters()))
         return params
 
     # ----- eval / plots -----

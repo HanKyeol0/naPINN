@@ -1,0 +1,86 @@
+# Ablation 2: Learnable Threshold (no EBM, no density learning, no gate)
+# Single learnable threshold parameter tau applied to |residual|
+
+tag: ablation2_threshold
+device: "cuda:0"
+wandb_project: naPINN_rebuttal
+exp_description: "Ablation 2: learnable threshold without EBM or density estimation"
+
+domain:
+  x: [0.0, 2.0]
+  y: [0.0, 2.0]
+  t: [0.0, 2.0]
+in_features: 3
+out_features: 1
+
+pde:
+  learn_eps: true
+  omega: 8.0
+  init_eps: 1.0
+  eps: 0.3
+
+sampling_mode: grid
+grid:
+  nx: 100
+  ny: 100
+  nt: 100
+batch:
+  n_f: 5000
+
+noise:
+  enabled: true
+  batch_size: 1000
+  kind: 4G
+  scale: 0.1
+  pars: [0.0, 4.0]
+  par_list: [[-9.0, 2],[-0.3,4],[2.7,0.6],[8.5,1]]
+
+  sensor_mode: fixed_grid
+  n_train: 5000
+  n_sensors: 100
+  sensor_nx: 15
+  sensor_ny: 15
+
+  extra_noise:
+    enabled: true
+    kind: std
+    n_points: 1120
+    scale_min: 3.0
+    scale_max: 10.0
+
+phase:
+  enabled: true
+  phase1_epochs: 5000
+  phase2_epochs: 25000
+
+ebm:
+  enabled: false             # No EBM
+  std_mode: batch
+  momentum: 0.05
+  init_train_epochs: 0       # No EBM init
+
+data_loss:
+  kind: mse
+  q: 1.9
+  beta: null
+
+data_loss_balancer:
+  use_loss_balancer: true
+  kind: threshold            # Ablation 2
+  init_threshold: 1.0        # Initial tau (in units of scaled residual std)
+  init_steepness: 10.0       # Initial sigmoid steepness
+  rejection_cost: 0.5        # Penalty for rejecting data
+
+offset:
+  enabled: false
+  init: 0.0
+
+video:
+  enabled: true
+  every: 10000
+  grid:
+    nx: 120
+    ny: 120
+    nt: 120
+  fps: 10
+  format: mp4

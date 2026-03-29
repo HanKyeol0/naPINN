@@ -428,70 +428,147 @@ class EBM2D(nn.Module):
         return w.view(orig_shape)
     
 class TrainableGMM(nn.Module):
-    def __init__(self, n_components=3, input_dim=2, device='cpu', lr=1e-2):
+    def __init__(self, n_components=3, input_dim=1, device='cpu', lr=1e-2, **_kwargs):
         super().__init__()
-        self.device = device
+        self.device = torch.device(device)
         self.n_components = n_components
         self.input_dim = input_dim
-        
+
         # 1. Mixture weights (logits)
-        self.mix_logits = nn.Parameter(torch.zeros(n_components, device=device))
-        
+        self.mix_logits = nn.Parameter(torch.zeros(n_components, device=self.device))
+
         # 2. Means (initialized near 0, but slightly spread)
-        self.means = nn.Parameter(torch.randn(n_components, input_dim, device=device) * 0.1)
-        
+        self.means = nn.Parameter(torch.randn(n_components, input_dim, device=self.device) * 0.1)
+
         # 3. Covariances (Diagonal for stability, parameterized by log_std)
-        # Initializing one narrow mode (clean data) and wider modes (outliers)
-        self.log_stds = nn.Parameter(torch.zeros(n_components, input_dim, device=device))
-        
+        self.log_stds = nn.Parameter(torch.zeros(n_components, input_dim, device=self.device))
+
         self.optimizer = torch.optim.Adam(self.parameters(), lr=lr)
-        self.to(device)
+        self.to(self.device)
+        print(f"[GMM] Initialized {input_dim}D GMM (n_components={n_components})")
 
     def get_distribution(self):
         mix = D.Categorical(logits=self.mix_logits)
-        # Diagonal covariance multivariate gaussians
         comp = D.Independent(D.Normal(self.means, torch.exp(self.log_stds)), 1)
         gmm = D.MixtureSameFamily(mix, comp)
         return gmm
 
     def forward(self, x):
-        """Returns log probability log p(x)"""
+        """Returns log probability log p(x).  Shape: [N, 1]."""
+        if x.dim() == 1:
+            x = x.unsqueeze(-1)
         gmm = self.get_distribution()
-        return gmm.log_prob(x) # [N]
+        return gmm.log_prob(x).unsqueeze(-1)  # [N, 1]
 
     def train_step(self, res):
-        """Minimize Negative Log Likelihood"""
+        """Minimize Negative Log Likelihood."""
         self.train()
         res = res.detach().to(self.device)
-        
-        log_prob = self.forward(res)
+        if res.dim() == 1:
+            res = res.unsqueeze(-1)
+
+        log_prob = self.forward(res).squeeze(-1)
         nll = -log_prob
         nll_mean = nll.mean()
-        
+
         self.optimizer.zero_grad()
         nll_mean.backward()
         self.optimizer.step()
-        
+
         return nll.detach(), nll_mean.detach()
 
     @torch.no_grad()
     def pointwise_weights(self, res):
-        """
-        Standardize weights: w = p(x) / mean(p(x))
-        """
-        res = res.to(self.device)
-        log_prob = self.forward(res)
-        
-        # Shift for stability inside exp (though less critical for GMM than raw MLP)
-        # Using raw likelihoods usually works well for GMM
-        prob = torch.exp(log_prob)
-        
-        # Normalize so mean weight is 1.0
-        w = prob / (prob.mean() + 1e-8)
-        
-        # Return [N, 1] shape
+        res = res.detach().to(self.device)
+        if res.dim() == 1:
+            res = res.unsqueeze(-1)
+        log_prob = self.forward(res).squeeze(-1)
+        log_prob = log_prob - log_prob.max()
+        w = torch.exp(log_prob)
+        w = w / (w.mean() + 1e-8)
         return w.view(-1, 1)
+
+    @torch.no_grad()
+    def gated_weights(self, res, alpha=2.0, steepness=5.0):
+        res = res.detach().to(self.device)
+        if res.dim() == 1:
+            res = res.unsqueeze(-1)
+        log_q = self.forward(res).squeeze(-1)
+        mu = log_q.mean()
+        sigma = log_q.std() + 1e-6
+        cutoff = mu - alpha * sigma
+        w = torch.sigmoid(steepness * (log_q - cutoff))
+        w = w / (w.mean() + 1e-8)
+        return w.view(-1, 1)
+
+    @torch.no_grad()
+    def data_weight(self, res, kind="pw"):
+        if kind == "pw":
+            return self.pointwise_weights(res)
+        elif kind == "gated":
+            return self.gated_weights(res, alpha=2.5, steepness=10.0)
+        else:
+            raise ValueError(f"Unknown data weight kind: {kind}")
     
+class QuantileThresholdGate(nn.Module):
+    """Ablation 1: No density estimation — pure quantile-based filtering on residual magnitudes."""
+    def __init__(self, quantile=0.95, steepness=10.0, device="cpu"):
+        super().__init__()
+        self.quantile = quantile
+        self.steepness = steepness
+        self.device = device
+        self.to(device)
+
+    def forward(self, residual: torch.Tensor):
+        """
+        residual: [N, 1] or [N] — scaled residuals.
+        Returns: (weights [N, 1], reg_loss=0)
+        """
+        r_abs = residual.abs().view(-1)  # [N]
+
+        with torch.no_grad():
+            cutoff = torch.quantile(r_abs, self.quantile)
+
+        # w ≈ 1 if |r| < cutoff, w ≈ 0 if |r| > cutoff
+        w = torch.sigmoid(self.steepness * (cutoff - r_abs))
+
+        return w.view(-1, 1), torch.tensor(0.0, device=self.device)
+
+
+class LearnableThresholdGate(nn.Module):
+    """Ablation 2: Single learnable threshold — no EBM, no density estimation."""
+    def __init__(self, init_threshold=1.0, init_steepness=10.0,
+                 rejection_cost=0.5, device="cpu"):
+        super().__init__()
+        self.device = device
+        self.raw_threshold = nn.Parameter(
+            torch.tensor(float(init_threshold), device=device)
+        )
+        self.raw_steepness = nn.Parameter(
+            torch.tensor(float(init_steepness), device=device)
+        )
+        self.rejection_cost = rejection_cost
+        self.to(device)
+
+    def forward(self, residual: torch.Tensor):
+        """
+        residual: [N, 1] or [N] — scaled residuals.
+        Returns: (weights [N, 1], reg_loss)
+        """
+        r_abs = residual.abs().view(-1)  # [N]
+
+        tau = F.softplus(self.raw_threshold)   # τ > 0
+        beta = F.softplus(self.raw_steepness)  # β > 0
+
+        # w ≈ 1 if |r| < τ, w ≈ 0 if |r| > τ
+        raw_w = torch.sigmoid(beta * (tau - r_abs))
+
+        rejected_mass = (1.0 - raw_w).mean()
+        reg_loss = self.rejection_cost * rejected_mass
+
+        return raw_w.view(-1, 1), reg_loss
+
+
 class TrainableLikelihoodGate(nn.Module):
     def __init__(self, init_cutoff_sigma=2.0, init_steepness=30.0, device="cpu", 
                  rejection_cost=0.5):

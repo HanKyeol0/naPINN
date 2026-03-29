@@ -1,5 +1,5 @@
 in_features: 2         # e.g., (x,t) for 1D+time; experiments can override
 out_features: 1
-hidden_layers: 5
-hidden_width: 80
+hidden_layers: 6 # 4 5 6 7
+hidden_width: 128 # 32, 64, 128
 activation: tanh  # tanh|relu|sine

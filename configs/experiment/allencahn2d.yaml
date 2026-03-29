@@ -3,10 +3,10 @@
 # scripts/bpinn/allencahn2d.sh
 # scripts/bpinn/z_allencahn2d_fore.sh
 
-tag: c9 # c5_va_rewind # na / va / L1 / qG2 / qG3
-device: "cuda:6"
-wandb_project: naPINN_AllenCahn_v3
-exp_description: 4G noise, outlier scale (3-10), base scale 0.1, 5% outliers, fixed_grid measurement
+tag: model_4-128_qG3_c0 # c5_va_rewind # na / va / L1 / qG2 / qG3
+device: "cuda:0"
+wandb_project: naPINN_rebuttal
+exp_description:
 
 domain:
   x: [0.0, 2.0]
@@ -62,6 +62,9 @@ phase:
 
 ebm:
   enabled: true
+  density_estimator: ebm # "ebm" | "gmm" | "kde"
+  std_mode: ema          # "ema" (running EMA std) | "batch" (per-batch std)
+  momentum: 0.05         # EMA momentum (only used when std_mode: ema)
   hidden_dim: 32
   depth: 4
   num_grid: 1024
@@ -71,9 +74,9 @@ ebm:
   init_train_epochs: 5000
 
 data_loss:
-  kind: mse # mse, L1, q_gaussian
+  kind: q_gaussian # mse, L1, q_gaussian
   # q-Gaussian settings
-  q: 1.9 # 1.9 / 2.9
+  q: 2.9 # 1.9 / 2.9
   beta: null
 
 data_loss_balancer:

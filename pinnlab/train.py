@@ -201,7 +201,10 @@ def main(args):
     print("training started")
     training_start_time = time.time()
     global_step = 0
+    phase1_iter_times = []          # per-iteration wall-clock time in Phase 1 (seconds)
+    phase1_mem_alloc_history = []   # per-iteration GPU memory allocated in Phase 1 (MB)
     for ep in pbar1:
+        iter_start = time.time()
         model.train()
         batch = exp.sample_batch(n_f=n_f, n_b=n_b, n_0=n_0)
 
@@ -239,6 +242,9 @@ def main(args):
         optimizer.zero_grad(set_to_none=True)
         total_loss.backward()
         optimizer.step()
+        phase1_iter_times.append(time.time() - iter_start)
+        if torch.cuda.is_available():
+            phase1_mem_alloc_history.append(float(torch.cuda.memory_allocated(device)) / (1024**2))
 
         # Log
         it_per_sec = pbar1.format_dict.get("rate", None)
@@ -371,8 +377,11 @@ def main(args):
             params += list(balancer.extra_params())
 
         optimizer = torch.optim.Adam(params, lr=phase2_lr, weight_decay=opt_cfg.get("weight_decay", 0.0))
-        
+
+        phase2_iter_times = []          # per-iteration wall-clock time in Phase 2 (seconds)
+        phase2_mem_alloc_history = []   # per-iteration GPU memory allocated in Phase 2 (MB)
         for ep in pbar2:
+            iter_start = time.time()
             model.train()
             batch = exp.sample_batch(n_f=n_f, n_b=n_b, n_0=n_0)
 
@@ -412,7 +421,10 @@ def main(args):
             optimizer.zero_grad(set_to_none=True)
             total_loss.backward()
             optimizer.step()
-            
+            phase2_iter_times.append(time.time() - iter_start)
+            if torch.cuda.is_available():
+                phase2_mem_alloc_history.append(float(torch.cuda.memory_allocated(device)) / (1024**2))
+
             # Log
             it_per_sec = pbar2.format_dict.get("rate", None)
             elapsed_s  = pbar2.format_dict.get("elapsed", None)
@@ -443,9 +455,12 @@ def main(args):
                 log_payload["pde/nu"] = float(exp.nu.detach().cpu())
             if hasattr(exp, "eps") and isinstance(exp.eps, torch.nn.Parameter):
                 log_payload["pde/eps"] = float(exp.eps.detach().cpu())
-            if hasattr(exp, "gate_module"):
+            if hasattr(exp, "gate_module") and exp.gate_module is not None:
                 log_payload["gate/cutoff"] = float(exp.gate_module.cutoff_alpha.detach().cpu())
                 log_payload["gate/steepness"]  = float(exp.gate_module.steepness.detach().cpu())
+            if hasattr(exp, "threshold_gate") and exp.threshold_gate is not None:
+                log_payload["gate/threshold"] = float(exp.threshold_gate.raw_threshold.detach().cpu())
+                log_payload["gate/steepness"] = float(exp.threshold_gate.raw_steepness.detach().cpu())
             mom, var = get_optimizer_stats(optimizer)
             log_payload["optim/mom_buffer"] = mom
             log_payload["optim/var_buffer"] = var
@@ -534,12 +549,29 @@ def main(args):
     wandb_log({"eval/best_rMSE": best_metric})
     training_end_time = time.time()
     
+    all_iter_times = phase1_iter_times + (phase2_iter_times if use_phase else [])
     final_perf = {
         "perf/total_time_sec": training_end_time - training_start_time,
+        "perf/avg_sec_per_iter": sum(all_iter_times) / len(all_iter_times) if all_iter_times else 0.0,
         "gpu/peak_mem_alloc_mb": float(torch.cuda.max_memory_allocated(device)) / (1024**2),
         "gpu/peak_mem_reserved_mb": float(torch.cuda.max_memory_reserved(device)) / (1024**2),
+        # Phase 1
+        "perf/phase1/total_iter_time_sec": sum(phase1_iter_times),
+        "perf/phase1/avg_sec_per_iter": sum(phase1_iter_times) / len(phase1_iter_times) if phase1_iter_times else 0.0,
     }
-    
+    if phase1_mem_alloc_history:
+        final_perf["gpu/phase1/min_mem_alloc_mb"] = min(phase1_mem_alloc_history)
+        final_perf["gpu/phase1/avg_mem_alloc_mb"] = sum(phase1_mem_alloc_history) / len(phase1_mem_alloc_history)
+        final_perf["gpu/phase1/max_mem_alloc_mb"] = max(phase1_mem_alloc_history)
+    # Phase 2 (only when phased training is enabled)
+    if use_phase:
+        final_perf["perf/phase2/total_iter_time_sec"] = sum(phase2_iter_times)
+        final_perf["perf/phase2/avg_sec_per_iter"] = sum(phase2_iter_times) / len(phase2_iter_times) if phase2_iter_times else 0.0
+        if phase2_mem_alloc_history:
+            final_perf["gpu/phase2/min_mem_alloc_mb"] = min(phase2_mem_alloc_history)
+            final_perf["gpu/phase2/avg_mem_alloc_mb"] = sum(phase2_mem_alloc_history) / len(phase2_mem_alloc_history)
+            final_perf["gpu/phase2/max_mem_alloc_mb"] = max(phase2_mem_alloc_history)
+
     wandb_log(final_perf)
 
     weights_png = os.path.join(out_dir, "loss_weights.png")

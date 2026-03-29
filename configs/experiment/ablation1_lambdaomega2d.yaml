@@ -1,0 +1,100 @@
+# Ablation 1: Quantile Thresholding (no EBM, no density learning)
+# Uses fixed quantile of |residual| as threshold for sigmoid gate
+
+# simulation run: scripts/simulation/lambdaomega.sh
+
+domain:
+  x: [-10.0, 10.0]
+  y: [-10.0, 10.0]
+  burn_in_time: 0.0
+  record_time: 10.0
+
+pde:
+  learn_params: true
+  init_beta: 0.0
+  d_u: 1.0
+  d_v: 1.0
+  beta: 1.0
+
+simulation_tag: "LambdaOmega_Spiral_2"
+sim_description: "Spiral waves, fixed grid measurement"
+dir_path: "pinnlab/simulation/simulation_result/"
+
+collocation_points:
+  nx: 100
+  ny: 100
+  dt: 0.1
+
+simulation_points:
+  nx: 120
+  ny: 120
+  dt: 0.002
+  every: 20
+
+measurement:
+  measure_kind: fixed_grid
+  n_measurement: 5000
+  n_sensors: 200
+  sensor_nx: 15
+  sensor_ny: 15
+
+tag: ablation1_quantile
+exp_description: "Ablation 1: quantile thresholding without density estimation"
+device: "cuda:0"
+wandb_project: naPINN_rebuttal
+
+batch:
+  n_f: 10000
+
+noise:
+  enabled: true
+  batch_size: 2000
+  kind: 4G
+  par_list: [[-9.0, 2],[-0.3,4],[2.7,0.6],[8.5,1]]
+  scale: 0.1
+
+  extra_noise:
+    enabled: true
+    kind: std
+    n_points: 8450
+    scale_min: 3.0
+    scale_max: 10.0
+
+phase:
+  enabled: true
+  phase1_epochs: 5000
+  phase2_epochs: 25000
+
+ebm:
+  enabled: false             # No EBM
+  std_mode: ema
+  momentum: 0.05
+  kind: 1D
+  init_train_epochs: 0       # No EBM init
+
+data_loss:
+  kind: mse
+  q: 1.9
+  beta: null
+
+data_loss_balancer:
+  use_loss_balancer: true
+  kind: quantile             # Ablation 1
+  quantile: 0.95             # Top 5% of |residual| are filtered
+  steepness: 10.0            # Sigmoid transition sharpness
+
+in_features: 3
+out_features: 2
+
+offset:
+  enabled: false
+
+video:
+  enabled: true
+  fps: 20
+  every: 30000
+  grid:
+    nx: 120
+    ny: 120
+    nt: 120
+  format: mp4

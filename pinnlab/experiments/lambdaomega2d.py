@@ -9,7 +9,8 @@ from tqdm import trange
 
 from pinnlab.experiments.base import BaseExperiment, make_leaf, grad_sum
 from pinnlab.data.noise import get_noise
-from pinnlab.utils.ebm import EBM, EBM2D, ResidualWeightNet, TrainableLikelihoodGate
+from pinnlab.utils.ebm import EBM, EBM2D, ResidualWeightNet, TrainableLikelihoodGate, QuantileThresholdGate, LearnableThresholdGate
+from pinnlab.utils.density import create_density_estimator
 from pinnlab.utils.data_loss import (
     data_loss_mse,
     data_loss_l1,
@@ -302,30 +303,13 @@ class LambdaOmega2D(BaseExperiment):
         self.ebm_kind = ebm_cfg.get("kind", "1D") # 1D / 2D
         self.ebm_init_train_epochs = int(ebm_cfg["init_train_epochs"])
         
+        self.running_std = torch.tensor(1.0, device=device)
+        self.std_mode = ebm_cfg.get("std_mode", "ema")  # "ema" | "batch"
+        self.momentum = float(ebm_cfg.get("momentum", 0.05))
+
         if self.use_ebm:
-            if self.ebm_kind == "2D":
-                # Note: input_dim=2 because LambdaOmega has (u, v)
-                self.ebm = EBM2D(
-                    hidden_dim=ebm_cfg.get("hidden_dim", 32),
-                    depth=ebm_cfg.get("depth", 3),
-                    num_grid=ebm_cfg.get("num_grid", 256),
-                    max_range_factor=ebm_cfg.get("max_range_factor", 2.5),
-                    lr=ebm_cfg.get("lr", 1e-3),
-                    input_dim=2, 
-                    device=device,
-                )
-            else: # 1D EBM
-                self.ebm = EBM(
-                    hidden_dim=ebm_cfg.get("hidden_dim", 32),
-                    depth=ebm_cfg.get("depth", 3),
-                    num_grid=ebm_cfg.get("num_grid", 256),
-                    max_range_factor=ebm_cfg.get("max_range_factor", 2.5),
-                    lr=ebm_cfg.get("lr", 1e-3),
-                    input_dim=1, 
-                    device=device,
-                )
-            self.running_std = torch.tensor(1.0, device=device)
-            self.momentum = 0.05 # Update rate (alpha)
+            input_dim = 2 if self.ebm_kind == "2D" else 1
+            self.ebm = create_density_estimator(ebm_cfg, input_dim=input_dim, device=device)
         else:
             self.ebm = None
 
@@ -334,16 +318,33 @@ class LambdaOmega2D(BaseExperiment):
         self.q_gauss_q = float(data_loss_cfg.get("q", 1.2))
         beta_val = data_loss_cfg.get("beta", None)
         self.q_gauss_beta = float(beta_val) if beta_val is not None else None
-        
+
         data_lb_cfg = cfg.get("data_loss_balancer", {})
         self.use_data_loss_balancer = bool(data_lb_cfg.get("use_loss_balancer", False))
         self.data_loss_balancer_kind = data_lb_cfg.get("kind", "pw")
-        
+
         self.gate_module = None
         if self.data_loss_balancer_kind == "gated_trainable":
             self.rejection_cost = float(data_lb_cfg.get("rejection_cost", 0.5))
             self.gate_module = TrainableLikelihoodGate(device=device, rejection_cost=self.rejection_cost)
-        
+
+        self.quantile_gate = None
+        if self.data_loss_balancer_kind == "quantile":
+            self.quantile_gate = QuantileThresholdGate(
+                quantile=float(data_lb_cfg.get("quantile", 0.95)),
+                steepness=float(data_lb_cfg.get("steepness", 10.0)),
+                device=device,
+            )
+
+        self.threshold_gate = None
+        if self.data_loss_balancer_kind == "threshold":
+            self.threshold_gate = LearnableThresholdGate(
+                init_threshold=float(data_lb_cfg.get("init_threshold", 1.0)),
+                init_steepness=float(data_lb_cfg.get("init_steepness", 10.0)),
+                rejection_cost=float(data_lb_cfg.get("rejection_cost", 0.5)),
+                device=device,
+            )
+
         self.weight_net = None
         if self.use_data_loss_balancer and self.data_loss_balancer_kind == "mlp":
             wn_cfg = data_lb_cfg.get("weight_net", {}) or {}
@@ -384,33 +385,39 @@ class LambdaOmega2D(BaseExperiment):
         # Save WeightNet state if it exists
         if self.weight_net is not None:
             state['weight_net'] = self.weight_net.state_dict()
-            
+
+        if self.threshold_gate is not None:
+            state['threshold_gate'] = self.threshold_gate.state_dict()
+
         return state
 
     def load_state_dict(self, state_dict):
         if 'running_std' in state_dict:
             self.running_std.copy_(state_dict['running_std'].to(self.device))
             print(f"[LambdaOmega2D] Loaded running_std: {self.running_std.item():.4f}")
-            
+
         if 'offset' in state_dict and self.offset is not None:
             with torch.no_grad():
                 self.offset.copy_(state_dict['offset'].to(self.device))
-                
+
         if 'beta' in state_dict and self.learn_params:
             with torch.no_grad():
                 self.beta.copy_(state_dict['beta'].to(self.device))
                 print(f"[LambdaOmega2D] Loaded learned beta: {self.beta.item():.6f}")
-                
+
         if 'ebm' in state_dict and self.ebm is not None:
             self.ebm.load_state_dict(state_dict['ebm'])
             if 'ebm_optimizer' in state_dict:
                 self.ebm.optimizer.load_state_dict(state_dict['ebm_optimizer'])
-            
+
         if 'gate_module' in state_dict and self.gate_module is not None:
             self.gate_module.load_state_dict(state_dict['gate_module'])
-            
+
         if 'weight_net' in state_dict and self.weight_net is not None:
             self.weight_net.load_state_dict(state_dict['weight_net'])
+
+        if 'threshold_gate' in state_dict and self.threshold_gate is not None:
+            self.threshold_gate.load_state_dict(state_dict['threshold_gate'])
 
     def _init_noisy_dataset(self):
         y_clean = self.Y_u_clean # [N, 2]
@@ -500,6 +507,9 @@ class LambdaOmega2D(BaseExperiment):
         return batch
     
     def initialize_EBM(self, model):
+        if self.ebm is None:
+            print("[EBM Init] Skipped — no EBM configured.")
+            return
         use_tty = sys.stdout.isatty()
         pbar_ebm = trange(
             self.ebm_init_train_epochs,
@@ -522,9 +532,14 @@ class LambdaOmega2D(BaseExperiment):
                 residual = residual.view(-1, 1)
             with torch.no_grad():
                 batch_std = residual.std()
-                currend_std_clamped = torch.clamp(batch_std, min=1e-6, max=self.running_std * 10)
-                self.running_std.mul(1 - self.momentum).add_(currend_std_clamped * self.momentum)
-            residual_scaled = residual / self.running_std
+                if self.std_mode == "ema":
+                    currend_std_clamped = torch.clamp(batch_std, min=1e-6, max=self.running_std * 10)
+                    self.running_std.mul(1 - self.momentum).add_(currend_std_clamped * self.momentum)
+                    std_for_scale = self.running_std
+                else:  # "batch"
+                    std_for_scale = torch.clamp(batch_std, min=1e-6)
+                    self.running_std.fill_(std_for_scale)
+            residual_scaled = residual / std_for_scale
             nll_ebm, nll_ebm_mean = self.ebm.train_step(residual_scaled.detach())
 
     def pde_residual_loss(self, model, batch):
@@ -575,16 +590,19 @@ class LambdaOmega2D(BaseExperiment):
         # We calculate the standard deviation of the current batch of residuals.
         # This keeps the input to the EBM roughly N(0, 1), preventing collapse.
         with torch.no_grad():
-            # Calculate scale per component (u and v might have different scales)
-            # or global scale. Global is usually safer to preserve relative structure.
             batch_std = residual.std()
-            
+
             if model.training and phase!=1:
-                # Robust update: Clamp batch_std to avoid explosions from single bad batches
-                # If running_std is 1.0, don't let batch_std force it to 100.0 instantly.
-                current_std_clamped = torch.clamp(batch_std, min=1e-6, max=self.running_std * 10)
-                self.running_std.mul_(1 - self.momentum).add_(current_std_clamped * self.momentum)
-        residual_scaled = residual / self.running_std
+                if self.std_mode == "ema":
+                    current_std_clamped = torch.clamp(batch_std, min=1e-6, max=self.running_std * 10)
+                    self.running_std.mul_(1 - self.momentum).add_(current_std_clamped * self.momentum)
+                    std_for_scale = self.running_std
+                else:  # "batch"
+                    std_for_scale = torch.clamp(batch_std, min=1e-6)
+                    self.running_std.fill_(std_for_scale)
+            else:
+                std_for_scale = self.running_std
+        residual_scaled = residual / std_for_scale
         
         if self.ebm_kind == "1D":
             data_loss_value = data_loss_value.view(-1, 1) # [2*N, 1]
@@ -592,19 +610,17 @@ class LambdaOmega2D(BaseExperiment):
         # --- Phase Logic ---
         if phase == 0:
             if self.ebm is not None:
-                # TRAIN on SCALED residuals
                 nll_ebm, nll_ebm_mean = self.ebm.train_step(residual_scaled.detach())
                 batch["ebm_nll"] = nll_ebm_mean
-                
-                if self.use_data_loss_balancer:
-                    # Query weights using SCALED residuals
-                    w, gate_reg_loss = self._get_weights(residual_scaled.detach())
-                    weighted_loss = (w * data_loss_value).mean()
-                    total_loss = weighted_loss + gate_reg_loss
-                else:
-                    total_loss = data_loss_value.mean()
-                return total_loss
-                
+
+            if self.use_data_loss_balancer:
+                w, gate_reg_loss = self._get_weights(residual_scaled.detach())
+                weighted_loss = (w * data_loss_value).mean()
+                total_loss = weighted_loss + gate_reg_loss
+            else:
+                total_loss = data_loss_value.mean()
+            return total_loss
+
         elif phase == 1: # Standard PINN training
             return data_loss_value.mean()
             
@@ -613,21 +629,19 @@ class LambdaOmega2D(BaseExperiment):
                 # TRAIN on SCALED residuals
                 nll_ebm, nll_ebm_mean = self.ebm.train_step(residual_scaled.detach())
                 batch["ebm_nll"] = nll_ebm_mean
-                
-                loss_metric = nll_ebm if self.use_nll else data_loss_value
-                
-                if self.use_data_loss_balancer:
-                    # Query weights using SCALED residuals
-                    w, gate_reg_loss = self._get_weights(residual_scaled.detach())
-                    idx1 = (w < 0.5).nonzero(as_tuple=True)[0]
-                    idx2 = (w >= 0.5).nonzero(as_tuple=True)[0]
-                    loss_metric_idx1 = loss_metric[idx1].clone()
-                    loss_metric_idx2 = loss_metric[idx2].clone()
-                    weighted_loss = (w * loss_metric).mean()
-                    total_loss = weighted_loss + gate_reg_loss
-                else:
-                    total_loss = loss_metric.mean()
-                return total_loss #, loss_metric_idx1.mean().item(), loss_metric_idx2.mean().item(), len(idx1), len(idx2)
+
+            loss_metric = data_loss_value
+            if self.ebm is not None and self.use_nll:
+                loss_metric = nll_ebm
+
+            if self.use_data_loss_balancer:
+                # Query weights using SCALED residuals
+                w, gate_reg_loss = self._get_weights(residual_scaled.detach())
+                weighted_loss = (w * loss_metric).mean()
+                total_loss = weighted_loss + gate_reg_loss
+            else:
+                total_loss = loss_metric.mean()
+            return total_loss
 
         return torch.tensor(0.0, device=self.device)
 
@@ -640,9 +654,13 @@ class LambdaOmega2D(BaseExperiment):
             return data_loss_q_gaussian(residual, q=self.q_gauss_q, beta=self.q_gauss_beta)
         return residual.pow(2)
 
-    def _get_weights(self, residual): 
+    def _get_weights(self, residual):
         # Note: The 'residual' passed here is ALREADY scaled by the code above
-        if self.data_loss_balancer_kind == "mlp" and self.weight_net is not None:
+        if self.data_loss_balancer_kind == "quantile" and self.quantile_gate is not None:
+            return self.quantile_gate(residual)
+        elif self.data_loss_balancer_kind == "threshold" and self.threshold_gate is not None:
+            return self.threshold_gate(residual)
+        elif self.data_loss_balancer_kind == "mlp" and self.weight_net is not None:
             return self.weight_net(residual), torch.tensor(0.0, device=self.device)
         elif self.data_loss_balancer_kind == "gated_trainable" and self.ebm is not None:
             with torch.no_grad():
@@ -661,6 +679,8 @@ class LambdaOmega2D(BaseExperiment):
             params.extend(list(self.weight_net.parameters()))
         if getattr(self, "gate_module", None) is not None:
             params.extend(list(self.gate_module.parameters()))
+        if getattr(self, "threshold_gate", None) is not None:
+            params.extend(list(self.threshold_gate.parameters()))
         return params
 
     def eval_on_grid(self, model, grid_cfg=None, batch_size=10000):

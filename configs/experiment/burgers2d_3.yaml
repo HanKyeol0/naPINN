@@ -44,10 +44,10 @@ measurement:
 # bpinn exp (back): scripts/bpinn/burgers2d_3.sh
 # bpinn exp (fore): scripts/bpinn/z_burgers2d_3_fore.sh
 
-tag: b9 # 3-3_a2_va
-exp_description: 4G, outlier scale (3-10), base scale 0.1, 10% outliers, fixed_grid measurement
-device: "cuda:5"
-wandb_project: naPINN_Burgers_v4
+tag: model_6-128_va_c0 # 3-3_a2_va
+exp_description:
+device: "cuda:3"
+wandb_project: naPINN_rebuttal
 
 batch:
   n_f: 5000
@@ -67,7 +67,7 @@ noise:
   extra_noise:
     enabled: true
     kind: std  # 'std' or 'mean_level'
-    n_points: 3360 # 1690 / 3360 / 5030
+    n_points: 5030 # 1690 / 3360 / 5030
     scale_min: 3.0
     scale_max: 10.0
 
@@ -79,6 +79,9 @@ phase:
 
 ebm:
   enabled: true
+  density_estimator: ebm # "ebm" | "gmm" | "kde"
+  std_mode: ema          # "ema" (running EMA std) | "batch" (per-batch std)
+  momentum: 0.05         # EMA momentum (only used when std_mode: ema)
   kind: 1D # 1D / 2D
   hidden_dim: 32
   depth: 4
