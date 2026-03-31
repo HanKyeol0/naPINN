@@ -461,6 +461,9 @@ def main(args):
             if hasattr(exp, "threshold_gate") and exp.threshold_gate is not None:
                 log_payload["gate/threshold"] = float(exp.threshold_gate.raw_threshold.detach().cpu())
                 log_payload["gate/steepness"] = float(exp.threshold_gate.raw_steepness.detach().cpu())
+            if hasattr(exp, "_last_n_filtered") and hasattr(exp, "_last_n_total"):
+                log_payload["gate/n_filtered"] = exp._last_n_filtered
+                log_payload["gate/pct_filtered"] = 100.0 * exp._last_n_filtered / max(exp._last_n_total, 1)
             mom, var = get_optimizer_stats(optimizer)
             log_payload["optim/mom_buffer"] = mom
             log_payload["optim/var_buffer"] = var

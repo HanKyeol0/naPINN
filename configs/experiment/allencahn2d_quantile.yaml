@@ -1,7 +1,9 @@
 # Ablation 1: Quantile Thresholding (no EBM, no density learning)
 # Uses fixed quantile of |residual| as threshold for sigmoid gate
 
-tag: ablation1_quantile
+# run: scripts/mlp/allencahn2d_quantile.sh
+
+tag: thres_quantile_95_c0
 device: "cuda:0"
 wandb_project: naPINN_rebuttal
 exp_description: "Ablation 1: quantile thresholding without density estimation"
@@ -44,7 +46,7 @@ noise:
   extra_noise:
     enabled: true
     kind: std
-    n_points: 1120
+    n_points: 3375 # 1120 / 2250 / 3375
     scale_min: 3.0
     scale_max: 10.0
 

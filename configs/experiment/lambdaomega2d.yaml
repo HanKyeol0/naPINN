@@ -47,9 +47,9 @@ measurement:
 # experiment(back) run: scripts/mlp/lambdaomega2d.sh
 # experiment(fore) run: scripts/mlp/z_lambdaomega2d_fore.sh
 
-tag: model_4-32_va_c0
+tag: thres_train_c3
 exp_description:
-device: "cuda:0"
+device: "cuda:2"
 wandb_project: naPINN_rebuttal
 
 batch:
@@ -74,13 +74,13 @@ noise:
 
 # phase
 phase:
-  enabled: false # true / false
+  enabled: true # true / false
   phase1_epochs: 5000
   phase2_epochs: 25000
 
 ebm:
-  enabled: true
-  density_estimator: ebm # "ebm" | "gmm" | "kde"
+  enabled: false
+  density_estimator: kde # "ebm" | "gmm" | "kde"
   std_mode: ema          # "ema" (running EMA std) | "batch" (per-batch std)
   momentum: 0.05         # EMA momentum (only used when std_mode: ema)
   kind: 1D
@@ -90,7 +90,7 @@ ebm:
   max_range_factor: 3.0
   lr: 1.0e-3
   use_nll: false
-  init_train_epochs: 5000
+  init_train_epochs: 0 # 0 / 5000
 
 data_loss:
   kind: mse # mse, L1, q_gaussian
@@ -99,8 +99,10 @@ data_loss:
   beta: null
 
 data_loss_balancer:
-  use_loss_balancer: false # true / false
-  kind: gated_trainable
+  use_loss_balancer: true # true / false
+  kind: threshold
+  init_threshold: 1.0  # Initial tau (in units of scaled residual std)
+  init_steepness: 10.0 # Initial sigmoid steepness (for gated
   rejection_cost: 0.5 
 
 # Model I/O

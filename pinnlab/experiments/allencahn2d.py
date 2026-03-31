@@ -560,6 +560,8 @@ class AllenCahn2D(BaseExperiment):
             if self.use_data_loss_balancer:
                 # Query weights using SCALED residuals
                 w, gate_reg_loss = self._get_weights(residual_scaled.detach())
+                self._last_n_filtered = int((w < 0.5).sum().item())
+                self._last_n_total = w.numel()
                 weighted_loss = (w * loss_metric).mean()
                 total_loss = weighted_loss + gate_reg_loss
             else:
@@ -567,7 +569,7 @@ class AllenCahn2D(BaseExperiment):
             return total_loss
 
         return torch.tensor(0.0, device=self.device)
-    
+
     def extra_params(self):
         """Experiment-specific trainable parameters (e.g., θ0, weight_net)."""
         params = []

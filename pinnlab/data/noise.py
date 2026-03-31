@@ -9,9 +9,13 @@ from scipy.special import erf
 
 def get_noise(n_opt, f, pars=0, par_list=[]):
     #load desired noise function
-    
+
     if n_opt == 'G': #Gaussian
         return n_G(n_opt, f, pars)
+    if n_opt == 'Laplace': #Laplace (double exponential)
+        return n_Laplace(n_opt, f, pars)
+    if n_opt == 'StudentT': #Student's t
+        return n_StudentT(n_opt, f, pars)
     if n_opt == 'Goff': #Gaussian with non-zero mean
         return n_G(n_opt, f, [5,2.5])
     if n_opt == 'sG': #skewed Gaussian
@@ -263,12 +267,90 @@ class n_mixture(Noise):
     
     
     
+class n_Laplace(Noise):
+    """Laplace (double-exponential) noise: p(x) = 1/(2b) exp(-|x-mu|/b).
+    pars = [mu, b]  (location, scale)
+    Variance = 2b^2.  Corresponds to the implicit prior of L1/LAD regression.
+    """
+
+    def __init__(self, n_opt, f, pars):
+        if type(pars) == int:
+            pars = self.init_pars(pars)
+        Noise.__init__(self, n_opt, f, pars)
+        self.mu, self.b = pars
+
+    def sample(self, Ns):
+        dist = distributions.Laplace(self.mu * self.f, self.b * self.f)
+        return dist.sample((Ns,))
+
+    def pdf(self, x):
+        dist = distributions.Laplace(
+            torch.tensor(self.mu * self.f, dtype=x.dtype),
+            torch.tensor(self.b * self.f, dtype=x.dtype),
+        )
+        return torch.exp(dist.log_prob(x))
+
+    def init_pars(self, pars):
+        if pars == 0:
+            return [0.0, 1.0]   # zero-mean, scale=1 (σ_eff = √2 ≈ 1.41)
+        else:
+            mu = (5 * (torch.rand(1) - 0.5)).item()
+            b  = (0.5 + 3 * torch.rand(1)).abs().item()
+            return [mu, b]
+
+    def __str__(self):
+        return f'Laplace Noise (mu={self.mu}, b={self.b})'
+
+
+class n_StudentT(Noise):
+    """Student's t noise: heavy-tailed symmetric distribution.
+    pars = [df, mu, sigma]   (degrees-of-freedom, location, scale)
+    df=3  →  heavier tails than Gaussian, finite variance.
+    df=1  →  Cauchy (no finite mean/variance).
+    Matches the implicit prior of B-PINN (which uses Student-t likelihood).
+    """
+
+    def __init__(self, n_opt, f, pars):
+        if type(pars) == int:
+            pars = self.init_pars(pars)
+        Noise.__init__(self, n_opt, f, pars)
+        self.df, self.mu, self.sigma = pars
+
+    def sample(self, Ns):
+        dist = distributions.StudentT(
+            df=self.df,
+            loc=self.mu * self.f,
+            scale=self.sigma * self.f,
+        )
+        return dist.sample((Ns,))
+
+    def pdf(self, x):
+        dist = distributions.StudentT(
+            df=torch.tensor(self.df, dtype=x.dtype),
+            loc=torch.tensor(self.mu * self.f, dtype=x.dtype),
+            scale=torch.tensor(self.sigma * self.f, dtype=x.dtype),
+        )
+        return torch.exp(dist.log_prob(x))
+
+    def init_pars(self, pars):
+        if pars == 0:
+            return [3.0, 0.0, 1.0]   # df=3, zero-mean, unit scale
+        else:
+            df    = max(1.0, (1.0 + 4 * torch.rand(1)).item())
+            mu    = (5 * (torch.rand(1) - 0.5)).item()
+            sigma = (0.5 + 3 * torch.rand(1)).abs().item()
+            return [df, mu, sigma]
+
+    def __str__(self):
+        return f'StudentT Noise (df={self.df}, mu={self.mu}, sigma={self.sigma})'
+
+
 ###################################
 ###################################
 ###################################
 ###################################
 
-        
+
 
 
 def sG_pdf(x, a=10, xi=0,w=4): 

@@ -1,0 +1,108 @@
+# Laplace noise experiment for Lambda-Omega 2D
+# Identical to lambdaomega2d.yaml except noise.kind = Laplace
+
+domain:
+  x: [-10.0, 10.0]
+  y: [-10.0, 10.0]
+  burn_in_time: 0.0
+  record_time: 10.0
+
+pde:
+  learn_params: true
+  init_beta: 0.0
+  d_u: 1.0
+  d_v: 1.0
+  beta: 1.0
+
+simulation_tag: "LambdaOmega_Spiral_2"
+sim_description: "Spiral waves, fixed grid measurement"
+dir_path: "pinnlab/simulation/simulation_result/"
+
+collocation_points:
+  nx: 100
+  ny: 100
+  dt: 0.1
+
+simulation_points:
+  nx: 120
+  ny: 120
+  dt: 0.002
+  every: 20
+
+measurement:
+  measure_kind: fixed_grid
+  n_measurement: 5000
+  n_sensors: 200
+  sensor_nx: 15
+  sensor_ny: 15
+
+### --- experiment --- ###
+
+# experiment(back) run: scripts/mlp/lambdaomega2d_laplace.sh
+# experiment(fore) run: scripts/mlp/z_lambdaomega2d_fore.sh
+
+tag: noise_laplace_va_c0
+exp_description: "Laplace noise robustness experiment"
+device: "cuda:1"
+wandb_project: naPINN_rebuttal
+
+batch:
+  n_f: 10000
+
+noise:
+  enabled: true
+  batch_size: 2000
+  kind: Laplace       # Laplace(mu=0, b=1)
+  pars: [0.0, 4.0]   # [mu, b]
+
+  extra_noise:
+    enabled: true
+    kind: std
+    n_points: 8450 # 2800 5700 8450
+    scale_min: 3.0
+    scale_max: 10.0
+
+phase:
+  enabled: false # true / false
+  phase1_epochs: 5000
+  phase2_epochs: 25000
+
+ebm:
+  enabled: true
+  density_estimator: ebm # "ebm" | "gmm" | "kde"
+  std_mode: ema
+  momentum: 0.05
+  kind: 1D
+  hidden_dim: 32
+  depth: 4
+  num_grid: 512
+  max_range_factor: 3.0
+  lr: 1.0e-3
+  use_nll: false
+  init_train_epochs: 5000
+
+data_loss:
+  kind: mse # mse, L1, q_gaussian
+  q: 2.9
+  beta: null
+
+data_loss_balancer:
+  use_loss_balancer: false # true / false
+  kind: gated_trainable
+  rejection_cost: 0.5
+
+in_features: 3
+out_features: 2
+
+offset:
+  enabled: false
+
+video:
+  enabled: true
+  fps: 20
+  every: 30000
+  grid:
+    nx: 120
+    ny: 120
+    nt: 120
+  format: mp4

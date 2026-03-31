@@ -3,10 +3,10 @@
 # scripts/bpinn/allencahn2d.sh
 # scripts/bpinn/z_allencahn2d_fore.sh
 
-tag: model_4-128_qG3_c0 # c5_va_rewind # na / va / L1 / qG2 / qG3
+tag: thres_train_a0 # c5_va_rewind # na / va / L1 / qG2 / qG3
 device: "cuda:0"
 wandb_project: naPINN_rebuttal
-exp_description:
+exp_description: "Ablation: learnable threshold without EBM or density estimation"
 
 domain:
   x: [0.0, 2.0]
@@ -50,18 +50,18 @@ noise:
   extra_noise:
     enabled: true
     kind: std # 'std' or 'mean_level'
-    n_points: 3375 # 1120 / 2250 / 3375
+    n_points: 1120 # 1120 / 2250 / 3375
     scale_min: 3.0
     scale_max: 10.0
 
 # phase
 phase:
-  enabled: false # true / false
+  enabled: true # true / false
   phase1_epochs: 5000
   phase2_epochs: 25000
 
 ebm:
-  enabled: true
+  enabled: false
   density_estimator: ebm # "ebm" | "gmm" | "kde"
   std_mode: ema          # "ema" (running EMA std) | "batch" (per-batch std)
   momentum: 0.05         # EMA momentum (only used when std_mode: ema)
@@ -74,14 +74,16 @@ ebm:
   init_train_epochs: 5000
 
 data_loss:
-  kind: q_gaussian # mse, L1, q_gaussian
+  kind: mse # mse, L1, q_gaussian
   # q-Gaussian settings
-  q: 2.9 # 1.9 / 2.9
+  q: 1.9 # 1.9 / 2.9
   beta: null
 
 data_loss_balancer:
-  use_loss_balancer: false # true / false
-  kind: gated_trainable # pw, inverse, mlp, gated, gated_trainable
+  use_loss_balancer: true # true / false
+  kind: threshold # pw, inverse, mlp, gated, gated_trainable
+  init_threshold: 1.0        # Initial tau (in units of scaled residual std)
+  init_steepness: 10.0       # Initial sigmoid steepness
   rejection_cost: 0.5 # only for gated_trainable
   weight_net:
     hidden_dim: 32

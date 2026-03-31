@@ -1,4 +1,4 @@
-# run: scripts/mlp/allencahn2d.sh
+# run: scripts/mlp/allencahn2d_studentt.sh
 # tmux attach: tmux attach -t train_allencahn2d_mlp_tag
 
 #!/usr/bin/env bash
@@ -6,7 +6,7 @@ set -euo pipefail
 
 MODEL_NAME=mlp
 EXPERIMENT_NAME=allencahn2d
-TAG=thres_train_a0
+TAG=noise_studentt_na_c0
 SESSION_NAME="train_${EXPERIMENT_NAME}_${MODEL_NAME}_${TAG}"
 
 # ==== Check tmux ====
@@ -22,7 +22,7 @@ TRAIN_CMD="python -m pinnlab.train \
   --experiment_name ${EXPERIMENT_NAME} \
   --common_config configs/common_config.yaml \
   --model_config configs/model/${MODEL_NAME}.yaml \
-  --exp_config configs/experiment/${EXPERIMENT_NAME}.yaml"
+  --exp_config configs/experiment/${EXPERIMENT_NAME}_studentt.yaml"
 
 # ==== Start (or restart) tmux session ====
 if tmux has-session -t "${SESSION_NAME}" 2>/dev/null; then

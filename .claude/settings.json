@@ -17,7 +17,18 @@
       "Bash(tmux kill-session:*)",
       "Bash(ls /tmp/abl_gpu*.sh)",
       "Bash(tmux kill-server:*)",
-      "Bash(nvidia-smi --query-gpu=index,memory.used,utilization.gpu --format=csv,noheader,nounits)"
+      "Bash(nvidia-smi --query-gpu=index,memory.used,utilization.gpu --format=csv,noheader,nounits)",
+      "Bash(xargs ls:*)",
+      "Bash(xargs -I {} basename {})",
+      "Bash(grep -B 2 \"1690 / 3360 / 5030\\\\|1120 / 2250 / 3375\\\\|2800 5700 8450\" /root/naPINN/configs/experiment/*.yaml)",
+      "Bash(grep -rn \"std_mode\\\\|momentum\\\\|ema\\\\|batch_std\" /root/naPINN/pinnlab/experiments/*.py)",
+      "Bash(grep -rn \"kind: 2D\\\\|input_dim.*2\\\\|ebm_kind.*2D\" /root/naPINN/configs/ --include=*.yaml)",
+      "Bash(ls /root/naPINN/configs/experiment/ablation*)",
+      "Bash(ls /root/naPINN/configs/experiment/*density*)",
+      "Bash(ls /root/naPINN/configs/experiment/*kde*)",
+      "Bash(ls /root/naPINN/configs/experiment/*gmm*)",
+      "Bash(ls /root/naPINN/outputs/allencahn2d/allencahn2d_mlp_density_kde_a0/wandb/run-*/files/)",
+      "Read(//dev/**)"
     ]
   }
 }

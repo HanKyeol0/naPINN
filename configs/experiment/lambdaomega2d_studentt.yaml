@@ -1,7 +1,5 @@
-# Ablation 1: Quantile Thresholding (no EBM, no density learning)
-# Uses fixed quantile of |residual| as threshold for sigmoid gate
-
-# simulation run: scripts/simulation/lambdaomega.sh
+# Student-t noise experiment for Lambda-Omega 2D
+# Identical to lambdaomega2d.yaml except noise.kind = StudentT (df=3)
 
 domain:
   x: [-10.0, 10.0]
@@ -38,9 +36,14 @@ measurement:
   sensor_nx: 15
   sensor_ny: 15
 
-tag: ablation1_quantile
-exp_description: "Ablation 1: quantile thresholding without density estimation"
-device: "cuda:0"
+### --- experiment --- ###
+
+# experiment(back) run: scripts/mlp/lambdaomega2d.sh
+# experiment(fore) run: scripts/mlp/z_lambdaomega2d_fore.sh
+
+tag: noise_studentt_na_c0
+exp_description: "Student-t (df=3) noise robustness experiment"
+device: "cuda:1"
 wandb_project: naPINN_rebuttal
 
 batch:
@@ -49,39 +52,44 @@ batch:
 noise:
   enabled: true
   batch_size: 2000
-  kind: 4G
-  par_list: [[-9.0, 2],[-0.3,4],[2.7,0.6],[8.5,1]]
-  scale: 0.1
+  kind: StudentT         # Student-t(df=3, mu=0, sigma=1)
+  pars: [3.0, 0.0, 1.0]  # [df, mu, sigma]
 
   extra_noise:
     enabled: true
     kind: std
-    n_points: 8450
+    n_points: 8450 # 2800 5700 8450
     scale_min: 3.0
     scale_max: 10.0
 
 phase:
-  enabled: true
+  enabled: true # true / false
   phase1_epochs: 5000
   phase2_epochs: 25000
 
 ebm:
-  enabled: false             # No EBM
+  enabled: true
+  density_estimator: ebm
   std_mode: ema
   momentum: 0.05
   kind: 1D
-  init_train_epochs: 0       # No EBM init
+  hidden_dim: 32
+  depth: 4
+  num_grid: 512
+  max_range_factor: 3.0
+  lr: 1.0e-3
+  use_nll: false
+  init_train_epochs: 5000
 
 data_loss:
-  kind: mse
-  q: 1.9
+  kind: mse # mse, L1, q_gaussian
+  q: 2.9
   beta: null
 
 data_loss_balancer:
-  use_loss_balancer: true
-  kind: quantile             # Ablation 1
-  quantile: 0.95             # Top 5% of |residual| are filtered
-  steepness: 10.0            # Sigmoid transition sharpness
+  use_loss_balancer: true # true / false
+  kind: gated_trainable
+  rejection_cost: 0.5
 
 in_features: 3
 out_features: 2

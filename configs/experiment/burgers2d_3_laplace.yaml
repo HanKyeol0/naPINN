@@ -1,0 +1,112 @@
+# Laplace noise experiment for Burgers 2D
+# Identical to burgers2d_3.yaml except noise.kind = Laplace
+
+domain:
+  x: [0.0, 4.0]
+  y: [0.0, 4.0]
+  burn_in_time: 0.1
+  record_time: 3.0
+
+pde:
+  learn_nu: true
+  init_nu: 0.0
+  nu: 0.01
+
+simulation_tag: "Burgers2D_3-5"
+sim_description: fixed_grid measurement, 15*15 points
+dir_path: pinnlab/simulation/simulation_result/
+
+collocation_points:
+  nx: 100
+  ny: 100
+  dt: 0.002
+
+simulation_points:
+  nx: 120
+  ny: 120
+  dt: 0.002
+  every: 10
+
+measurement:
+  measure_kind: fixed_grid
+  n_measurement: 5000
+  n_sensors: 100
+  sensor_nx: 15
+  sensor_ny: 15
+
+# experiment
+
+# experiment(back) run: scripts/mlp/burgers2d_3.sh
+# experiment(fore) run: scripts/mlp/z_burgers2d_3_fore.sh
+# bpinn exp (back): scripts/bpinn/burgers2d_3.sh
+# bpinn exp (fore): scripts/bpinn/z_burgers2d_3_fore.sh
+
+tag: noise_laplace_na_c0
+exp_description: "Laplace noise robustness experiment"
+device: "cuda:2"
+wandb_project: naPINN_rebuttal
+
+batch:
+  n_f: 5000
+
+noise:
+  enabled: true
+  batch_size: 1000
+  kind: Laplace       # Laplace(mu=0, b=1); scale by sigma_local at runtime
+  pars: [0.0, 4.0]   # [mu, b]
+
+  extra_noise:
+    enabled: true
+    kind: std
+    n_points: 5030 # 1690 / 3360 / 5030
+    scale_min: 3.0
+    scale_max: 10.0
+
+phase:
+  enabled: true # true / false
+  phase1_epochs: 5000
+  phase2_epochs: 25000
+
+ebm:
+  enabled: true
+  density_estimator: ebm
+  std_mode: ema
+  momentum: 0.05
+  kind: 1D
+  hidden_dim: 32
+  depth: 4
+  num_grid: 1024
+  max_range_factor: 2.5
+  lr: 1.0e-3
+  use_nll: false
+  init_train_epochs: 5000
+
+data_loss:
+  kind: mse # mse, L1, q_gaussian
+  q: 2.9
+  beta: null
+
+data_loss_balancer:
+  use_loss_balancer: true # true / false
+  kind: gated_trainable
+  rejection_cost: 0.5
+  weight_net:
+    hidden_dim: 32
+    depth: 3
+
+in_features: 3
+out_features: 2
+
+offset:
+  enabled: false
+  init: 0.0
+
+video:
+  enabled: true
+  every: 10000
+  grid:
+    nx: 120
+    ny: 120
+    nt: 120
+  fps: 10
+  format: mp4
