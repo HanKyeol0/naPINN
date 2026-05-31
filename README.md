@@ -1,96 +1,87 @@
-# PINN-Lab — A Modular Pipeline for Physics-Informed Neural Networks
+# naPINN: Prediction Videos
 
-> **TL;DR**: Swap models and PDE experiments with a YAML config, train with tidy logs, and auto-plot predictions + errors. Built for fast iteration across classic PDE benchmarks.
+This page provides qualitative prediction videos for **naPINN**
+(**Noise-Adaptive Physics-Informed Neural Networks**), a framework for robustly recovering physical dynamics from corrupted measurement data.
 
----
+naPINN is designed for measurement-driven inverse PDE problems where observations may contain complex non-Gaussian noise and gross outliers. The model estimates residual reliability during training and uses a trainable reliability gate to downweight unreliable measurements, enabling more robust reconstruction of the underlying physical solution.
 
-## ✨ Highlights
+## Video Results
 
-- **Pluggable experiments** (1D/2D; steady & time-dependent)  
-- **Model zoo**: vanilla MLP, Fourier-feature MLP, ResNet-style PINN (and room for more)  
-- **One-line training** via `train.py` with YAML configs  
-- **Early stopping & progress bar** out of the box  
-- **W&B logging** + **automatic plots** (true/pred/abs-error)  
-- **Deterministic seeds** for reproducibility
+The following videos show model prediction results on three benchmark PDE systems.
 
----
+### 1. 2D Allen–Cahn Equation
 
-## 📁 Repository Structure
+The Allen–Cahn benchmark evaluates whether naPINN can recover scalar field dynamics from sparse and corrupted measurements.
 
-pinnlab/ \
-├─ train.py # CLI entrypoint: loads configs, trains, logs, plots \
-├─ registry.py # Central registry (models & experiments) \
-├─ models/ (keep updating) \
-│ ├─ mlp.py # Baseline MLP \
-│ ├─ fourier_mlp.py # Fourier features + MLP \
-│ └─ residual_network.py # Residual (skip-connected) PINN (optional/extend) \
-├─ experiments/ (keep updating) \
-│ ├─ base.py \
-│ ├─ allencahn1d.py \
-│ ├─ allencahn2d.py \
-│ ├─ burgers1d.py \
-│ ├─ convection1d.py \
-│ ├─ helmholtz2d_steady.py \
-│ ├─ helmholtz2d.py \
-│ ├─ navierstokes2d.py \
-│ ├─ poisson2d.py \
-│ ├─ reactiondiffusion1d.py \
-│ └─ reactiondiffusion2d.py \
-├─ data/ \
-│ ├─ geometries.py # Define simple domain shape (Interval, Rectangle) \
-│ └─ samplers.py # Sampling data points \
-└─ utils/ \
-  ├─ early_stopping.py \
-  ├─ gradflow.py \
-  ├─ plotting.py \
-  ├─ seed.py \
-  └─ wandb_utils.py \
-configs/ \
-├─ common_config.yaml # global training/log/eval settings \
-├─ model/.yaml # per-model configs \
-└─ experiment/.yaml # per-experiment configs \
-scripts/ \
-└─ model_name/experiment_name.sh # per-model-per-experiment sh files
-
-
-> Tip: The code is deliberately lightweight—add new models or PDEs by dropping a file and registering it in `registry.py`.
+[Watch video](VIDEO_LINK_1)
 
 ---
 
-## 🚀 Quickstart
+### 2. 2D Burgers’ Equation
 
-### 1) Install
-pip install -r requirements.txt
+The Burgers benchmark evaluates reconstruction of nonlinear convection–diffusion dynamics with two coupled state variables.
 
-### 2) Run experiments
-e.g. scripts/mlp/allencahn1d.sh
+[Watch video](VIDEO_LINK_2)
 
+---
 
-🧩 Models (with original papers)
-- MLP (baseline PINN) — based on the original PINNs framework
-Raissi et al., J. Comput. Phys., 2019. arXiv/ADS/Elsevier:
-[paper]
+### 3. 2D λ–ω Reaction–Diffusion System
 
-- Fourier-feature MLP — random Fourier feature mapping before MLP
-Tancik et al., NeurIPS 2020.
-[PDF]
+The λ–ω reaction–diffusion benchmark evaluates whether naPINN can recover complex spatiotemporal pattern formation under corrupted measurements.
 
+[Watch video](VIDEO_LINK_3)
 
-Each experiment provides:
-- minibatch samplers for interior/boundary/initial points,
-- residual/BC/IC losses,
-- grid evaluation via relative L2,
-- plotting functions that save true/pred/abs-error images.
+---
 
-📊 Logging & Visuals
-- W&B: enable in common_config.yaml to log losses, metrics, and final figures automatically.
-- Plots: After training, the script saves side-by-side true, pred, and |error| for 1D/2D time slices into the run folder.
-- Metric: Relative L2 error on a fixed grid is computed periodically.
+## Overview
 
-🧪 Add a New Experiment (sketch)
-1. Create experiments/my_pde.py with a subclass of BaseExperiment.
-2. Implement:
-    - sample_batch(n_f, n_b, n_0) → dict of tensors for residual/BC/IC
-    - pde_residual_loss / boundary_loss / initial_loss → per-point squared residuals
-    - relative_l2_on_grid and plot_final
-    - Register it in registry.py and add a config under configs/exp.
+Physics-Informed Neural Networks (PINNs) are effective for solving inverse problems and discovering governing equations from observational data. However, standard PINNs can be highly sensitive to corrupted measurements because unreliable data points may dominate the data-fitting loss.
+
+naPINN addresses this limitation by introducing:
+
+* **Residual-based noise distribution estimation**
+* **Trainable reliability gating**
+* **Adaptive downweighting of unreliable measurements**
+* **Rejection-cost regularization to prevent excessive data rejection**
+
+Through this mechanism, naPINN can suppress corrupted observations while preserving valid measurement data, leading to more accurate reconstruction of physical dynamics.
+
+## Benchmarks
+
+The qualitative videos correspond to the three PDE benchmarks used in the study:
+
+| Benchmark                 | Description                                         |
+| ------------------------- | --------------------------------------------------- |
+| 2D Allen–Cahn             | Phase separation and interface dynamics             |
+| 2D Burgers                | Nonlinear convection–diffusion dynamics             |
+| 2D λ–ω Reaction–Diffusion | Spatiotemporal reaction–diffusion pattern formation |
+
+## Experimental Setting
+
+The videos visualize model predictions under sparse measurement conditions with corrupted observations. Measurements are contaminated by complex non-Gaussian noise and gross outliers, while the model is required to reconstruct the clean physical solution.
+
+In the experiments, naPINN is compared with standard and robust PINN baselines, including Vanilla PINN, B-PINN, LAD-PINN, and OrPINN. Across the evaluated benchmarks, naPINN shows improved robustness under increasing outlier ratios and produces reconstructions that more closely match the reference physical dynamics.
+
+## Citation
+
+If you find this work useful, please cite:
+
+**naPINN: Noise-Adaptive Physics-Informed Neural Networks for Recovering Physics from Corrupted Measurement**
+
+```bibtex
+@inproceedings{napinn2026,
+  title={naPINN: Noise-Adaptive Physics-Informed Neural Networks for Recovering Physics from Corrupted Measurement},
+  author={Anonymous},
+  booktitle={Submitted to NeurIPS},
+  year={2026}
+}
+```
+
+## Contact
+
+For questions or further information, please contact:
+
+**[Your Name]**
+**[Your Email]**
+
+Presented at **[Conference Name]**.
