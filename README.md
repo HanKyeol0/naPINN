@@ -9,7 +9,7 @@ naPINN is designed for measurement-driven inverse PDE problems where observation
 
 ### 1. 2D Allen–Cahn Equation
 
-<video src="assets/naPINN_allencahn_15.mp4" controls muted playsinline width="50%"></video>
+<video src="./assets/naPINN_allencahn_15.mp4" controls muted playsinline width="50%"></video>
 
 ---
 
