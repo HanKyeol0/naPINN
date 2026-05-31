@@ -9,21 +9,21 @@ naPINN is designed for measurement-driven inverse PDE problems where observation
 
 ### 1. 2D Allen–Cahn Equation
 
-<video src="./assets/naPINN_allencahn_15.mp4" controls muted playsinline width="50%"></video>
+![Allen-Cahn prediction](./assets/naPINN_allencahn_15.gif)
 
 ---
 
 ### 2. 2D Burgers’ Equation
 
-<video src="./assets/naPINN_burgers_u_15.mp4" controls muted playsinline width="50%"></video>
-<video src="./assets/naPINN_burgers_v_15.mp4" controls muted playsinline width="50%"></video>
+![Burgers u prediction](./assets/naPINN_burgers_u_15.gif)
+![Burgers v prediction](./assets/naPINN_burgers_v_15.gif)
 
 ---
 
 ### 3. 2D λ–ω Reaction–Diffusion System
 
-<video src="./assets/naPINN_lambdaomega_u_15.mp4" controls muted playsinline width="50%"></video>
-<video src="./assets/naPINN_lambdaomega_v_15.mp4" controls muted playsinline width="50%"></video>
+![λ-ω Reaction-Diffusion u prediction](./assets/naPINN_lambdaomega_u_15.gif)
+![λ-ω Reaction-Diffusion v prediction](./assets/naPINN_lambdaomega_v_15.gif)
 
 ---
 
