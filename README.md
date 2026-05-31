@@ -1,4 +1,4 @@
-# naPINN: Prediction Videos
+# naPINN
 
 This page provides qualitative prediction videos for **naPINN**
 (**Noise-Adaptive Physics-Informed Neural Networks**), a framework for robustly recovering physical dynamics from corrupted measurement data.
@@ -7,29 +7,23 @@ naPINN is designed for measurement-driven inverse PDE problems where observation
 
 ## Video Results
 
-The following videos show model prediction results on three benchmark PDE systems.
-
 ### 1. 2D Allen–Cahn Equation
 
-The Allen–Cahn benchmark evaluates whether naPINN can recover scalar field dynamics from sparse and corrupted measurements.
-
-[Watch video](VIDEO_LINK_1)
+<video src="./assets/naPINN_allencahn_15.mp4" controls muted playsinline width="50%"></video>
 
 ---
 
 ### 2. 2D Burgers’ Equation
 
-The Burgers benchmark evaluates reconstruction of nonlinear convection–diffusion dynamics with two coupled state variables.
-
-[Watch video](VIDEO_LINK_2)
+<video src="./assets/naPINN_burgers_u_15.mp4" controls muted playsinline width="50%"></video>
+<video src="./assets/naPINN_burgers_v_15.mp4" controls muted playsinline width="50%"></video>
 
 ---
 
 ### 3. 2D λ–ω Reaction–Diffusion System
 
-The λ–ω reaction–diffusion benchmark evaluates whether naPINN can recover complex spatiotemporal pattern formation under corrupted measurements.
-
-[Watch video](VIDEO_LINK_3)
+<video src="./assets/naPINN_lambdaomega_u_15.mp4" controls muted playsinline width="50%"></video>
+<video src="./assets/naPINN_lambdaomega_v_15.mp4" controls muted playsinline width="50%"></video>
 
 ---
 
