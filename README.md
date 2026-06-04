@@ -1,5 +1,11 @@
 # naPINN
 
+### Paper
+
+https://arxiv.org/abs/2602.02547
+
+### Overview
+
 This page provides qualitative prediction videos for **naPINN**
 (**Noise-Adaptive Physics-Informed Neural Networks**), a framework for robustly recovering physical dynamics from corrupted measurement data.
 
