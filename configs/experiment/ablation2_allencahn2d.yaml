@@ -71,10 +71,6 @@ data_loss_balancer:
   init_steepness: 10.0       # Initial sigmoid steepness
   rejection_cost: 0.5        # Penalty for rejecting data
 
-offset:
-  enabled: false
-  init: 0.0
-
 video:
   enabled: true
   every: 10000

@@ -9,7 +9,11 @@ from tqdm import trange
 
 from pinnlab.experiments.base import BaseExperiment, make_leaf, grad_sum
 from pinnlab.data.noise import get_noise
-from pinnlab.utils.ebm import EBM, EBM2D, ResidualWeightNet, TrainableLikelihoodGate, QuantileThresholdGate, LearnableThresholdGate
+from pinnlab.utils.ebm import (
+    LearnableThresholdGate,
+    QuantileThresholdGate,
+    TrainableLikelihoodGate,
+)
 from pinnlab.utils.density import create_density_estimator
 from pinnlab.utils.data_loss import (
     data_loss_mse,
@@ -18,9 +22,7 @@ from pinnlab.utils.data_loss import (
 )
 
 from concurrent.futures import ProcessPoolExecutor
-import matplotlib.pyplot as plt
 import seaborn as sns
-import scipy.stats as stats
 from sklearn.metrics import confusion_matrix
 import traceback
 
@@ -50,7 +52,7 @@ def render_frame_worker_u(args):
 
     # [0,1] Predicted Magnitude
     im1 = ax[0, 1].imshow(u_pred, origin='lower', extent=extent, vmin=umin, vmax=umax, cmap='jet')
-    ax[0, 1].set_title("Predicted State $\hat{u}(x,y)$")
+    ax[0, 1].set_title(r"Predicted State $\hat{u}(x,y)$")
     plt.colorbar(im1, ax=ax[0, 1], fraction=0.046, pad=0.04)
 
     # [1,0] Noisy Measurement Data
@@ -74,7 +76,7 @@ def render_frame_worker_u(args):
     error_max = 0.893
     im2 = ax[1, 1].imshow(error, origin='lower', extent=extent, vmin=0, vmax=error_max, cmap='inferno')
     print(f"u error_max: {error_max}")
-    ax[1, 1].set_title(f"Absolute Error |u* - \hat{{u}}|")
+    ax[1, 1].set_title(r"Absolute Error |u* - $\hat{u}$|")
     ax[1, 1].set_xlabel("x")
     plt.colorbar(im2, ax=ax[1, 1], fraction=0.046, pad=0.04)
 
@@ -106,7 +108,7 @@ def render_frame_worker_v(args):
 
     # [0,1] Predicted Magnitude
     im1 = ax[0, 1].imshow(v_pred, origin='lower', extent=extent, vmin=vmin, vmax=vmax, cmap='jet')
-    ax[0, 1].set_title("Predicted State $\hat{v}(x,y)$")
+    ax[0, 1].set_title(r"Predicted State $\hat{v}(x,y)$")
     plt.colorbar(im1, ax=ax[0, 1], fraction=0.046, pad=0.04)
 
     # [1,0] Noisy Measurement Data
@@ -130,7 +132,7 @@ def render_frame_worker_v(args):
     error_max = 0.893
     im2 = ax[1, 1].imshow(error, origin='lower', extent=extent, vmin=0, vmax=error_max, cmap='inferno')
     print(f"v error_max: {error_max}")
-    ax[1, 1].set_title(f"Absolute Error |v* - \hat{{v}}|")
+    ax[1, 1].set_title(r"Absolute Error |v* - $\hat{v}$|")
     ax[1, 1].set_xlabel("x")
     plt.colorbar(im2, ax=ax[1, 1], fraction=0.046, pad=0.04)
     plt.tick_params(labelsize=14)
@@ -171,19 +173,19 @@ def render_noise_worker(args):
     # --- [0,0] True Noise Field (u-component) ---
     im0 = axes[0, 0].imshow(eps_u_grid, origin='lower', extent=extent, 
                           vmin=-vm, vmax=vm, cmap=cmap)
-    axes[0, 0].set_title("True Noise Field $\epsilon_u(x,y)$")
+    axes[0, 0].set_title(r"True Noise Field $\epsilon_u(x,y)$")
     axes[0, 0].set_ylabel("y")
     fig.colorbar(im0, ax=axes[0, 0], fraction=0.046, pad=0.04)
 
     # --- [0,1] Residual Field (u-component) ---
     im1 = axes[0, 1].imshow(res_u_grid, origin='lower', extent=extent, 
                           vmin=-vm, vmax=vm, cmap=cmap)
-    axes[0, 1].set_title("Residual Field $r_u = y_u - \hat{u}$")
+    axes[0, 1].set_title(r"Residual Field $r_u = y_u - \hat{u}$")
     fig.colorbar(im1, ax=axes[0, 1], fraction=0.046, pad=0.04)
 
     # --- [1,0] Histograms (Combined u and v) ---
     # We combine u and v to see the aggregate noise statistics
-    axes[1, 0].hist(eps_flat_all, bins=60, density=True, alpha=0.5, color='gray', label='True Noise $\epsilon$')
+    axes[1, 0].hist(eps_flat_all, bins=60, density=True, alpha=0.5, color='gray', label=r'True Noise $\epsilon$')
     axes[1, 0].hist(res_flat_all, bins=60, density=True, alpha=0.5, color='red', label='Residual $r$')
     axes[1, 0].set_title("Empirical Distributions (u & v pooled)")
     axes[1, 0].legend(loc='upper right', fontsize=9)
@@ -283,8 +285,6 @@ class Burgers2D(BaseExperiment):
         # EBM and Loss Balancer Setup
         ebm_cfg = cfg.get("ebm", {}) or {}
         self.use_ebm = bool(ebm_cfg.get("enabled", False))
-        self.use_nll = bool(ebm_cfg.get("use_nll", False))
-        self.ebm_kind = ebm_cfg.get("kind", "1D") # 1D / 2D
         self.ebm_init_train_epochs = int(ebm_cfg["init_train_epochs"])
         
         self.running_std = torch.tensor(1.0, device=device)
@@ -292,8 +292,7 @@ class Burgers2D(BaseExperiment):
         self.momentum = float(ebm_cfg.get("momentum", 0.05))
 
         if self.use_ebm:
-            input_dim = 2 if self.ebm_kind == "2D" else 1
-            self.ebm = create_density_estimator(ebm_cfg, input_dim=input_dim, device=device)
+            self.ebm = create_density_estimator(ebm_cfg, input_dim=1, device=device)
         else:
             self.ebm = None
 
@@ -305,15 +304,15 @@ class Burgers2D(BaseExperiment):
 
         data_lb_cfg = cfg.get("data_loss_balancer", {})
         self.use_data_loss_balancer = bool(data_lb_cfg.get("use_loss_balancer", False))
-        self.data_loss_balancer_kind = data_lb_cfg.get("kind", "pw")
+        self.data_loss_balancer_kind = data_lb_cfg.get("kind", "gated_trainable")
 
         self.gate_module = None
-        if self.data_loss_balancer_kind == "gated_trainable":
+        if self.use_data_loss_balancer and self.data_loss_balancer_kind == "gated_trainable":
             self.rejection_cost = float(data_lb_cfg.get("rejection_cost", 0.5))
             self.gate_module = TrainableLikelihoodGate(device=device, rejection_cost=self.rejection_cost)
 
         self.quantile_gate = None
-        if self.data_loss_balancer_kind == "quantile":
+        if self.use_data_loss_balancer and self.data_loss_balancer_kind == "quantile":
             self.quantile_gate = QuantileThresholdGate(
                 quantile=float(data_lb_cfg.get("quantile", 0.95)),
                 steepness=float(data_lb_cfg.get("steepness", 10.0)),
@@ -321,7 +320,7 @@ class Burgers2D(BaseExperiment):
             )
 
         self.threshold_gate = None
-        if self.data_loss_balancer_kind == "threshold":
+        if self.use_data_loss_balancer and self.data_loss_balancer_kind == "threshold":
             self.threshold_gate = LearnableThresholdGate(
                 init_threshold=float(data_lb_cfg.get("init_threshold", 1.0)),
                 init_steepness=float(data_lb_cfg.get("init_steepness", 10.0)),
@@ -329,33 +328,10 @@ class Burgers2D(BaseExperiment):
                 device=device,
             )
 
-        self.weight_net = None
-        if self.use_data_loss_balancer and self.data_loss_balancer_kind == "mlp":
-            wn_cfg = data_lb_cfg.get("weight_net", {}) or {}
-            self.weight_net = ResidualWeightNet(
-                hidden_dim=int(wn_cfg.get("hidden_dim", 32)),
-                depth=int(wn_cfg.get("depth", 2)),
-                device=device,
-            )
-
-        offset_cfg = cfg.get("offset", {}) or {}
-        self.use_offset = bool(offset_cfg.get("enabled", False))
-        if self.use_offset:
-            init = float(offset_cfg.get("init", 0.0))
-            self.offset = torch.nn.Parameter(torch.tensor([init, init], dtype=torch.float32, device=device))
-        else:
-            self.offset = None
-
     def state_dict(self):
-        state = {
-            'running_std': self.running_std,
-            'offset': self.offset,
-        }
+        state = {'running_std': self.running_std}
         if self.learn_nu:
             state['nu'] = self.nu
-            
-        if self.use_offset and self.offset is not None:
-            state['offset'] = self.offset
         
         # Save EBM state if it exists
         if self.ebm is not None:
@@ -366,10 +342,6 @@ class Burgers2D(BaseExperiment):
         if self.gate_module is not None:
             state['gate_module'] = self.gate_module.state_dict()
             
-        # Save WeightNet state if it exists
-        if self.weight_net is not None:
-            state['weight_net'] = self.weight_net.state_dict()
-
         if self.threshold_gate is not None:
             state['threshold_gate'] = self.threshold_gate.state_dict()
 
@@ -379,10 +351,6 @@ class Burgers2D(BaseExperiment):
         if 'running_std' in state_dict:
             self.running_std.copy_(state_dict['running_std'].to(self.device))
             print(f"[Burgers2D] Loaded running_std: {self.running_std.item():.4f}")
-
-        if 'offset' in state_dict and self.offset is not None:
-            with torch.no_grad():
-                self.offset.copy_(state_dict['offset'].to(self.device))
 
         if 'nu' in state_dict and self.learn_nu:
             with torch.no_grad():
@@ -396,9 +364,6 @@ class Burgers2D(BaseExperiment):
 
         if 'gate_module' in state_dict and self.gate_module is not None:
             self.gate_module.load_state_dict(state_dict['gate_module'])
-
-        if 'weight_net' in state_dict and self.weight_net is not None:
-            self.weight_net.load_state_dict(state_dict['weight_net'])
 
         if 'threshold_gate' in state_dict and self.threshold_gate is not None:
             self.threshold_gate.load_state_dict(state_dict['threshold_gate'])
@@ -419,16 +384,12 @@ class Burgers2D(BaseExperiment):
         
         # Base Noise
         kind = self.noise_cfg.get("kind", "G")
-        if kind in ['3G', '4G', '3G0', 'mix0', 'Gmix', 'rmix']:
+        if kind == "4G":
             self.noise_model = get_noise(kind, f=1.0, pars=self.noise_pars, par_list=self.par_list)
         else:
             self.noise_model = get_noise(kind, f=1.0, pars=self.noise_pars)
         
-        if kind in ['MG2D']:
-            z = self.noise_model.sample(n).float().to(self.device) 
-        else:
-            z_flat = self.noise_model.sample(n * 2).float().to(self.device)
-            z = z_flat.view(n, 2)
+        z = self.noise_model.sample(n * 2).float().to(self.device).view(n, 2)
             
         eps = z * self.sigma_local
         noise_std = eps.std(unbiased=True).item()
@@ -454,18 +415,7 @@ class Burgers2D(BaseExperiment):
                 else:  # 'mean_level'
                     f_outlier = legacy_scale * mean_level
                     amp = factors * f_outlier
-                # signs = torch.randint(0, 2, amp.shape, device=self.device).float() * 2 - 1
-                # print(f"y_clean outlier samples: {y_clean[idx].flatten().cpu().numpy()}")
-                print(f"eps mean: {eps.mean().cpu().numpy()}, std: {eps.std().cpu().numpy()}")
-                print(f"eps samples: {eps[idx].flatten().cpu().numpy()}")
-                print(f"eps max: {eps.max().cpu().numpy()}, min: {eps.min().cpu().numpy()}")
-                eps[idx] += amp # signs * amp
-                print(f"u max: {self.val_u.max()}")
-                print(f"v max: {self.val_v.max()}")
-                print(f"outlier kind: {self.outlier_kind}")
-                print(f"amp mean: {amp.mean().cpu().numpy()}, std: {amp.std().cpu().numpy()}")
-                print(f"amp min: {amp.min().cpu().numpy()}, max: {amp.max().cpu().numpy()}")
-                print(f"amp: {amp.flatten().cpu().numpy()}")
+                eps[idx] += amp
                 
         y_noisy = y_clean + eps
         
@@ -473,9 +423,9 @@ class Burgers2D(BaseExperiment):
         self.y_clean = y_clean
         self.y_data = y_noisy
         
-        print(f"[Noise Init] Global Mean |u,v|: {mean_level:.4f}")
+        print(f"[Noise Init] {n} measurements; mean |u,v|={mean_level:.4f}")
 
-    def sample_batch(self, n_f=None, n_b=None, n_0=None):
+    def sample_batch(self, n_f):
         batch = {}
         n_col = self.X_f_all.shape[0]
         idx_f = torch.randint(0, n_col, (n_f,), device=self.device)
@@ -511,9 +461,7 @@ class Burgers2D(BaseExperiment):
             X_d = self.X_data[idx_d]
             y_d = self.y_data[idx_d]
             pred = model(X_d)
-            residual = y_d - pred
-            if self.ebm_kind == "1D":
-                residual = residual.view(-1, 1)
+            residual = (y_d - pred).view(-1, 1)
             with torch.no_grad():
                 batch_std = residual.std()
                 if self.std_mode == "ema":
@@ -524,7 +472,7 @@ class Burgers2D(BaseExperiment):
                     std_for_scale = torch.clamp(batch_std, min=1e-6)
                     self.running_std.fill_(std_for_scale)
             residual_scaled = residual / std_for_scale
-            nll_ebm, nll_ebm_mean = self.ebm.train_step(residual_scaled.detach())
+            self.ebm.train_step(residual_scaled.detach())
 
     def pde_residual_loss(self, model, batch):
         X = make_leaf(batch["X_f"]) # [N, 3]
@@ -557,19 +505,11 @@ class Burgers2D(BaseExperiment):
         y_d = batch["y_d"] 
         
         pred = model(X_d)
-        
-        if self.use_offset and self.offset is not None:
-            pred = pred + self.offset
-        
-        residual = y_d - pred # [N, 2]
-        data_loss_value = self._data_loss(residual)
-        
-        if self.ebm_kind == "1D":
-            residual = residual.view(-1, 1)
 
-        # --- FIX: ADAPTIVE STANDARDIZATION ---
-        # We calculate the standard deviation of the current batch of residuals.
-        # This keeps the input to the EBM roughly N(0, 1), preventing collapse.
+        residual = y_d - pred # [N, 2]
+        data_loss_value = self._data_loss(residual).view(-1, 1)
+        residual = residual.view(-1, 1)
+
         with torch.no_grad():
             batch_std = residual.std()
 
@@ -584,14 +524,10 @@ class Burgers2D(BaseExperiment):
             else:
                 std_for_scale = self.running_std
         residual_scaled = residual / std_for_scale
-        
-        if self.ebm_kind == "1D":
-            data_loss_value = data_loss_value.view(-1, 1) # [2*N, 1]
 
-        # --- Phase Logic ---
         if phase == 0:
             if self.ebm is not None:
-                nll_ebm, nll_ebm_mean = self.ebm.train_step(residual_scaled.detach())
+                _, nll_ebm_mean = self.ebm.train_step(residual_scaled.detach())
                 batch["ebm_nll"] = nll_ebm_mean
 
             if self.use_data_loss_balancer:
@@ -607,23 +543,17 @@ class Burgers2D(BaseExperiment):
             
         elif phase == 2: # PINN + EBM Weighted
             if self.ebm is not None:
-                # TRAIN on SCALED residuals
-                nll_ebm, nll_ebm_mean = self.ebm.train_step(residual_scaled.detach())
+                _, nll_ebm_mean = self.ebm.train_step(residual_scaled.detach())
                 batch["ebm_nll"] = nll_ebm_mean
 
-            loss_metric = data_loss_value
-            if self.ebm is not None and self.use_nll:
-                loss_metric = nll_ebm
-
             if self.use_data_loss_balancer:
-                # Query weights using SCALED residuals
                 w, gate_reg_loss = self._get_weights(residual_scaled.detach())
                 self._last_n_filtered = int((w < 0.5).sum().item())
                 self._last_n_total = w.numel()
-                weighted_loss = (w * loss_metric).mean()
+                weighted_loss = (w * data_loss_value).mean()
                 total_loss = weighted_loss + gate_reg_loss
             else:
-                total_loss = loss_metric.mean()
+                total_loss = data_loss_value.mean()
             return total_loss
 
         return torch.tensor(0.0, device=self.device)
@@ -643,23 +573,18 @@ class Burgers2D(BaseExperiment):
             return self.quantile_gate(residual)
         elif self.data_loss_balancer_kind == "threshold" and self.threshold_gate is not None:
             return self.threshold_gate(residual)
-        elif self.data_loss_balancer_kind == "mlp" and self.weight_net is not None:
-            return self.weight_net(residual), torch.tensor(0.0, device=self.device)
         elif self.data_loss_balancer_kind == "gated_trainable" and self.ebm is not None:
             with torch.no_grad():
                 log_q = self.ebm(residual.detach())
             return self.gate_module(log_q)
-        else:
-            return self.ebm.data_weight(residual, kind=self.data_loss_balancer_kind), torch.tensor(0.0, device=self.device)
+        raise ValueError(
+            f"Unsupported data_loss_balancer kind: {self.data_loss_balancer_kind}"
+        )
 
     def extra_params(self):
         params = []
-        if isinstance(getattr(self, "offset", None), torch.nn.Parameter):
-            params.append(self.offset)
         if isinstance(self.nu, torch.nn.Parameter):
             params.append(self.nu)
-        if getattr(self, "weight_net", None) is not None:
-            params.extend(list(self.weight_net.parameters()))
         if getattr(self, "gate_module", None) is not None:
             params.extend(list(self.gate_module.parameters()))
         if getattr(self, "threshold_gate", None) is not None:
@@ -918,14 +843,8 @@ class Burgers2D(BaseExperiment):
                 # B. Sample Noise & Create Residuals
                 n_points = u_true.shape[0]
                 
-                # Check noise kind
-                kind = self.noise_cfg.get("kind", "G")
-                if kind == 'MG2D':
-                    eps_vec = self.noise_model.sample(n_points).float().to(self.device)
-                    eps_u, eps_v = eps_vec[:, 0], eps_vec[:, 1]
-                else:
-                    eps_flat = self.noise_model.sample(n_points * 2).float().to(self.device)
-                    eps_u, eps_v = eps_flat[:n_points], eps_flat[n_points:]
+                eps_flat = self.noise_model.sample(n_points * 2).float().to(self.device)
+                eps_u, eps_v = eps_flat[:n_points], eps_flat[n_points:]
                 
                 # Create noisy observations
                 u_noisy = u_true + eps_u
@@ -991,9 +910,7 @@ class Burgers2D(BaseExperiment):
         # We process in one large batch (or chunk if memory is tight, but 5k points is fine)
         with torch.no_grad():
             pred = model(self.X_data)
-            if self.use_offset and self.offset is not None:
-                pred = pred + self.offset
-            
+
             # Raw residuals [N, 2]
             residual = self.y_data - pred
             

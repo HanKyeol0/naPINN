@@ -1,5 +1,4 @@
 import torch, torch.nn as nn
-import math
 
 def get_act(name):
     name = name.lower()

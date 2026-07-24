@@ -68,7 +68,6 @@ ebm:
   enabled: false             # No EBM
   std_mode: ema
   momentum: 0.05
-  kind: 1D
   init_train_epochs: 0       # No EBM init
 
 data_loss:
@@ -84,10 +83,6 @@ data_loss_balancer:
 
 in_features: 3
 out_features: 2
-
-offset:
-  enabled: false
-  init: 0.0
 
 video:
   enabled: true

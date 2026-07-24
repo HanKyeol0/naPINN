@@ -72,10 +72,6 @@ data_loss_balancer:
   quantile: 0.95             # Top 5% of |residual| are filtered
   steepness: 10.0            # Sigmoid transition sharpness
 
-offset:
-  enabled: false
-  init: 0.0
-
 video:
   enabled: true
   every: 10000

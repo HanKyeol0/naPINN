@@ -1,7 +1,11 @@
+from pathlib import Path
+
 import numpy as np
 import matplotlib.pyplot as plt
 import scipy.stats as stats
 import seaborn as sns
+
+FIGURES_DIR = Path(__file__).resolve().parents[1] / "results" / "figures"
 
 # --- Configuration for Publication-Quality Figure ---
 sns.set_theme(style="white", font_scale=1.2)
@@ -9,7 +13,9 @@ plt.rcParams['font.family'] = 'serif' # Use serif font for paper
 plt.rcParams['axes.spines.top'] = False
 plt.rcParams['axes.spines.right'] = False
 
-def plot_gmm_illustration(output_path="gmm_learned_density.svg"):
+def plot_gmm_illustration(output_path=None):
+    output_path = Path(output_path) if output_path else FIGURES_DIR / "gmm_learned_density.svg"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     # --- 1. Define GMM Parameters representing your scenario ---
     # The residual 'r'
     x = np.linspace(-1, 1, 500)
@@ -64,16 +70,13 @@ def plot_gmm_illustration(output_path="gmm_learned_density.svg"):
     #             arrowprops=dict(facecolor='black', arrowstyle='->', lw=1.5),
     #             fontsize=12, ha='center')
 
-    # Customize Legend
-    leg = ax.legend(loc='upper right', frameon=False, fontsize=11)
-    
     # Final layout adjustments
     plt.tight_layout()
     
     # Save
     plt.savefig(output_path, transparent=True, bbox_inches='tight')
     print(f"Figure saved to {output_path}")
-    plt.show()
+    plt.close(fig)
 
 if __name__ == "__main__":
     plot_gmm_illustration()

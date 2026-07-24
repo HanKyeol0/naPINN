@@ -1,96 +1,81 @@
-# PINN-Lab — A Modular Pipeline for Physics-Informed Neural Networks
+# naPINN
 
-> **TL;DR**: Swap models and PDE experiments with a YAML config, train with tidy logs, and auto-plot predictions + errors. Built for fast iteration across classic PDE benchmarks.
+Implementation of the noise-adaptive physics-informed neural network described
+in `paper/neurips_2026.tex`. The repository contains the three paper benchmarks
+(2D Burgers, 2D Allen–Cahn, and 2D lambda–omega reaction diffusion), MLP and
+Bayesian-PINN models, and the EBM/GMM/KDE residual-density variants.
 
----
+Future Codex sessions should begin with [AGENTS.md](AGENTS.md), then read
+[project context](docs/PROJECT_CONTEXT.md), the
+[code-to-paper map](docs/CODE_PAPER_MAP.md), and
+[current progress](docs/PROGRESS.md).
 
-## ✨ Highlights
+## Layout
 
-- **Pluggable experiments** (1D/2D; steady & time-dependent)  
-- **Model zoo**: vanilla MLP, Fourier-feature MLP, ResNet-style PINN (and room for more)  
-- **One-line training** via `train.py` with YAML configs  
-- **Early stopping & progress bar** out of the box  
-- **W&B logging** + **automatic plots** (true/pred/abs-error)  
-- **Deterministic seeds** for reproducibility
+```text
+analysis/                  post-training evaluation and paper plots
+  evaluate_checkpoint.py   reload a run and produce metrics/videos
+  plots/                   standalone paper-figure scripts
+  results/
+    data/                  small inputs used by plotting scripts
+    figures/               generated figure artifacts
+    runs/                  ignored training outputs
+configs/                   common, model, and experiment YAML files
+paper/                     NeurIPS paper source
+pinnlab/
+  data/                    geometry and corruption models
+  experiments/             PDE definitions and training objectives
+  models/                  MLP and Bayesian PINN
+  simulation/              reference-solution generators
+  utils/                   density estimators, losses, and logging
+  train.py                 training entry point
+scripts/                   experiment and simulation launchers
+```
 
----
+## Setup
 
-## 📁 Repository Structure
-
-pinnlab/ \
-├─ train.py # CLI entrypoint: loads configs, trains, logs, plots \
-├─ registry.py # Central registry (models & experiments) \
-├─ models/ (keep updating) \
-│ ├─ mlp.py # Baseline MLP \
-│ ├─ fourier_mlp.py # Fourier features + MLP \
-│ └─ residual_network.py # Residual (skip-connected) PINN (optional/extend) \
-├─ experiments/ (keep updating) \
-│ ├─ base.py \
-│ ├─ allencahn1d.py \
-│ ├─ allencahn2d.py \
-│ ├─ burgers1d.py \
-│ ├─ convection1d.py \
-│ ├─ helmholtz2d_steady.py \
-│ ├─ helmholtz2d.py \
-│ ├─ navierstokes2d.py \
-│ ├─ poisson2d.py \
-│ ├─ reactiondiffusion1d.py \
-│ └─ reactiondiffusion2d.py \
-├─ data/ \
-│ ├─ geometries.py # Define simple domain shape (Interval, Rectangle) \
-│ └─ samplers.py # Sampling data points \
-└─ utils/ \
-  ├─ early_stopping.py \
-  ├─ gradflow.py \
-  ├─ plotting.py \
-  ├─ seed.py \
-  └─ wandb_utils.py \
-configs/ \
-├─ common_config.yaml # global training/log/eval settings \
-├─ model/.yaml # per-model configs \
-└─ experiment/.yaml # per-experiment configs \
-scripts/ \
-└─ model_name/experiment_name.sh # per-model-per-experiment sh files
-
-
-> Tip: The code is deliberately lightweight—add new models or PDEs by dropping a file and registering it in `registry.py`.
-
----
-
-## 🚀 Quickstart
-
-### 1) Install
+```bash
 pip install -r requirements.txt
+```
 
-### 2) Run experiments
-e.g. scripts/mlp/allencahn1d.sh
+Generate the required reference data when needed:
 
+```bash
+bash scripts/simulation/burgers_3.sh
+bash scripts/simulation/lambdaomega.sh
+```
 
-🧩 Models (with original papers)
-- MLP (baseline PINN) — based on the original PINNs framework
-Raissi et al., J. Comput. Phys., 2019. arXiv/ADS/Elsevier:
-[paper]
+## Training
 
-- Fourier-feature MLP — random Fourier feature mapping before MLP
-Tancik et al., NeurIPS 2020.
-[PDF]
+The launchers under `scripts/mlp/` and `scripts/bpinn/` select the corresponding
+model and experiment configurations. For example:
 
+```bash
+bash scripts/mlp/allencahn2d.sh
+```
 
-Each experiment provides:
-- minibatch samplers for interior/boundary/initial points,
-- residual/BC/IC losses,
-- grid evaluation via relative L2,
-- plotting functions that save true/pred/abs-error images.
+Runs are written to `analysis/results/runs/`. W&B logging is controlled by
+`configs/common_config.yaml`.
 
-📊 Logging & Visuals
-- W&B: enable in common_config.yaml to log losses, metrics, and final figures automatically.
-- Plots: After training, the script saves side-by-side true, pred, and |error| for 1D/2D time slices into the run folder.
-- Metric: Relative L2 error on a fixed grid is computed periodically.
+## Analysis
 
-🧪 Add a New Experiment (sketch)
-1. Create experiments/my_pde.py with a subclass of BaseExperiment.
-2. Implement:
-    - sample_batch(n_f, n_b, n_0) → dict of tensors for residual/BC/IC
-    - pde_residual_loss / boundary_loss / initial_loss → per-point squared residuals
-    - relative_l2_on_grid and plot_final
-    - Register it in registry.py and add a config under configs/exp.
+Reload a checkpoint for evaluation or video generation:
+
+```bash
+bash analysis/scripts/evaluate_checkpoint.sh
+```
+
+Generate a standalone paper figure:
+
+```bash
+python -m analysis.plots.plot_sigmoid
+```
+
+See `analysis/README.md` for the analysis directory conventions.
+
+## Rebuttal workflow
+
+Reviewer intake, evidence tracking, and response drafting live under
+`rebuttal/`. The operating procedure is documented in
+`docs/REBUTTAL_PLAYBOOK.md`, with project-scoped Codex roles configured under
+`.codex/agents/`.

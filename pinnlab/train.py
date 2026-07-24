@@ -1,15 +1,10 @@
 import os, time, yaml, argparse, sys
 import torch
 import wandb
-import csv
 from tqdm import trange
 from pinnlab.registry import get_model, get_experiment
 from pinnlab.utils.seed import seed_everything
-from pinnlab.utils.early_stopping import EarlyStopping
-from pinnlab.utils.plotting import save_plots_1d, save_plots_2d
 from pinnlab.utils.wandb_utils import setup_wandb, wandb_log, wandb_finish
-from pinnlab.utils.loss_balancer import BalancerConfig, make_loss_balancer
-from pinnlab.utils.plotting import plot_weights_over_time
 
 def load_yaml(path):
     with open(path, "r", encoding="utf-8") as f:
@@ -27,35 +22,6 @@ def state_to_cpu(state):
     elif isinstance(state, list):
         return [state_to_cpu(v) for v in state]
     return state
-
-def get_optimizer_stats(optimizer):
-    """
-    Returns average Momentum and Variance stored in Adam's state.
-    """
-    total_mom = 0.0
-    total_var = 0.0
-    n_params = 0
-    
-    # Iterate over all parameter groups and parameters
-    for group in optimizer.param_groups:
-        for p in group['params']:
-            if p.grad is None:
-                continue
-            
-            state = optimizer.state[p]
-            if len(state) == 0: # State not initialized yet
-                continue
-                
-            # Adam stores 'exp_avg' (momentum) and 'exp_avg_sq' (variance)
-            if 'exp_avg' in state:
-                total_mom += state['exp_avg'].abs().mean().item()
-            if 'exp_avg_sq' in state:
-                total_var += state['exp_avg_sq'].mean().item()
-            n_params += 1
-            
-    if n_params == 0: return 0.0, 0.0
-    
-    return total_mom / n_params, total_var / n_params
 
 def main(args):
     base_cfg = load_yaml(args.common_config)
@@ -92,25 +58,10 @@ def main(args):
         "base": base_cfg, "model": model_cfg, "experiment": exp_cfg
     })
     
-    # Loss balancer
-    use_loss_balancer = base_cfg["train"]["loss_balancer"].get("use_loss_balancer", False)
-    if use_loss_balancer:
-        lb_cfg_dict = base_cfg["train"].get("loss_balancer", {})  # {'kind': 'dwa', 'terms': ['res','bc','ic'], ...}
-        lb_cfg = BalancerConfig(**lb_cfg_dict)
-        if not lb_cfg.terms:
-            lb_cfg.terms = list(base_cfg["train"]["loss_weights"].keys()) # ["res", "bc", "ic", "data"]
-
-        balancer = make_loss_balancer(lb_cfg)
-
-    weights_csv = os.path.join(out_dir, "loss_weights.csv")
-    weights_terms = None  # will infer on first log
-
     # Optimizer
     params = list(model.parameters())
     if hasattr(exp, "extra_params"):
         params += list(exp.extra_params())
-    if use_loss_balancer:
-        params += list(balancer.extra_params())
 
     opt_cfg = base_cfg["train"]["optimizer"]
     if opt_cfg["name"].lower() == "adam":
@@ -118,23 +69,11 @@ def main(args):
     else:
         raise ValueError("Only Adam is wired in, add more in train.py.")
 
-    # create file with header late (when we know the terms)
-    def _ensure_weights_header(terms):
-        nonlocal weights_terms
-        if weights_terms is None:
-            weights_terms = list(terms)
-            with open(weights_csv, "w", newline="") as f:
-                writer = csv.writer(f)
-                writer.writerow(["step"] + weights_terms)
-
     # WandB
     if base_cfg["log"]["wandb"]["enabled"]:
-        wandb.login(key=os.getenv('WANDB_API_KEY'))
         if exp_cfg.get("wandb_project"):
             base_cfg["log"]["wandb"]["project"] = exp_cfg["wandb_project"]
-        wandb.init(project = base_cfg["log"]["wandb"]["project"],
-                   name = file_name)
-        run = setup_wandb(base_cfg["log"]["wandb"], args, out_dir, config={
+        setup_wandb(base_cfg["log"]["wandb"], args, out_dir, config={
             "base": base_cfg, "model": model_cfg, "experiment": exp_cfg
         })
 
@@ -146,10 +85,6 @@ def main(args):
         phase2_epochs = exp_cfg["phase"]["phase2_epochs"]
         print(f"Using phased training: phase 1 for {phase1_epochs} epochs, phase 2 for {phase2_epochs} epochs.")
 
-    # Early stopping
-    es_cfg = base_cfg["train"]["early_stopping"]
-    early = EarlyStopping(patience=es_cfg["patience"], min_delta=es_cfg["min_delta"], eval_every=eval_every) if es_cfg["enabled"] else None
-    best_state = None
     best_metric = float("inf")
     best_model_state = None
     best_exp_state = None
@@ -158,8 +93,6 @@ def main(args):
     w_data = base_cfg["train"]["loss_weights"]["data"]
 
     n_f = exp_cfg.get("batch", {}).get("n_f", base_cfg["train"]["batch"]["n_f"])
-    n_b = exp_cfg.get("batch", {}).get("n_b", base_cfg["train"]["batch"]["n_b"])
-    n_0 = exp_cfg.get("batch", {}).get("n_0", base_cfg["train"]["batch"]["n_0"])
     
     # Make video
     enable_video = exp_cfg.get("video", {}).get("enabled", False)
@@ -206,7 +139,7 @@ def main(args):
     for ep in pbar1:
         iter_start = time.time()
         model.train()
-        batch = exp.sample_batch(n_f=n_f, n_b=n_b, n_0=n_0)
+        batch = exp.sample_batch(n_f=n_f)
 
         loss_res = exp.pde_residual_loss(model, batch).mean() if batch.get("X_f") is not None else torch.tensor(0., device=device)
         loss_data = exp.data_loss(model, batch, phase).mean() if batch.get("X_d") is not None else torch.tensor(0., device=device)
@@ -214,30 +147,13 @@ def main(args):
         loss_res_s = loss_res.mean() if torch.is_tensor(loss_res) and loss_res.dim() > 0 else loss_res # scalar
         loss_data_s = loss_data.mean() if torch.is_tensor(loss_data) and loss_data.dim() > 0 else loss_data
 
-        losses = {
-            "res": loss_res,     # PDE residual term
-            "data": loss_data,
-        }
-
-        if not use_loss_balancer:
-            total_loss = w_res*loss_res + w_data*loss_data
-            s = (w_res + w_data) or 1.0
-            w_now = {"res": w_res/s, "data": w_data/s}
-        else:
-            total_loss, w_dict, aux = balancer(losses, step=global_step, model=model)
-            w_now = {k.split("/", 1)[1]: float(v) for k, v in w_dict.items()}
+        total_loss = w_res * loss_res + w_data * loss_data
 
         kl_loss = None
         if hasattr(model, "kl_loss"):
             kl_weight = float(getattr(model, "kl_weight", 1.0))
             kl_loss = model.kl_loss()
             total_loss = total_loss + kl_weight * kl_loss
-
-        # write one row per epoch/step
-        _ensure_weights_header(w_now.keys())
-        with open(weights_csv, "a", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow([global_step] + [w_now[t] for t in weights_terms])
 
         optimizer.zero_grad(set_to_none=True)
         total_loss.backward()
@@ -267,10 +183,6 @@ def main(args):
             log_payload["loss/kl"] = float(kl_loss.detach().cpu())
             log_payload["loss/kl_weight"] = kl_weight
         
-        mom, var = get_optimizer_stats(optimizer)
-        log_payload["optim/mom_buffer"] = mom
-        log_payload["optim/var_buffer"] = var
-        
         if hasattr(exp, "nu") and isinstance(exp.nu, torch.nn.Parameter): # Burgers
             log_payload["pde/nu"] = float(exp.nu.detach().cpu())
         if hasattr(exp, "eps") and isinstance(exp.eps, torch.nn.Parameter): # Allen-Cahn
@@ -289,12 +201,10 @@ def main(args):
             wandb_log({"eval/rMAE": rMAE, "eval/rMSE": rMSE, "epoch": ep})
 
             best_path = os.path.join(out_dir, "best.pt")
-            if rMSE < (best_metric - es_cfg.get("min_delta", 0.0)):
+            if rMSE < best_metric:
                 best_metric = rMSE
                 
                 best_model_state = state_to_cpu(model.state_dict())
-                best_state = {k: v.clone() for k, v in model.state_dict().items()}
-                
                 if hasattr(exp, "state_dict"):
                     best_exp_state = state_to_cpu(exp.state_dict())
 
@@ -307,20 +217,6 @@ def main(args):
                 
                 torch.save(save_dict, best_path)
 
-            if early and early.step(rMSE):
-                print(f"\n[EarlyStopping] Stopping at epoch {ep}. Best rMSE={best_metric:.3e}")
-                break
-            
-        if enable_video and (ep % make_video_every == 0 and ep > 0):
-            print(f"Making video...")
-            vid_grid = exp_cfg.get("video", {}).get("grid", base_cfg["eval"]["grid"])
-            fps      = exp_cfg.get("video", {}).get("fps", 10)
-            out_fmt  = exp_cfg.get("video", {}).get("format", "mp4")  # "mp4" or "gif"
-
-            if early and early.step(rMSE):
-                print(f"\n[EarlyStopping] Stopping at epoch {ep}. Best rMSE={best_metric:.3e}")
-                break
-            
         if enable_video and (ep % make_video_every == 0 and ep > 0):
             print(f"Making video...")
             vid_grid = exp_cfg.get("video", {}).get("grid", base_cfg["eval"]["grid"])
@@ -358,23 +254,12 @@ def main(args):
     if use_phase:
         exp.initialize_EBM(model)
         phase = 2
-        # vid_grid = exp_cfg.get("video", {}).get("grid", base_cfg["eval"]["grid"])
-        # fps      = exp_cfg.get("video", {}).get("fps", 10)
-        # out_fmt  = exp_cfg.get("video", {}).get("format", "mp4")  # "mp4" or "gif"
-        # vid_filename = f"after_init.{out_fmt}"
-        # vid_path = exp.make_video(
-        #     model, vid_grid, out_dir,
-        #     fps=fps, filename=vid_filename,
-        #     phase=phase
-        # )
-        
+
         print("[Optimizer] Resetting Adam state for Phase 2 fine-tuning.")
         phase2_lr = opt_cfg["lr"]
         params = list(model.parameters())
         if hasattr(exp, "extra_params"):
             params += list(exp.extra_params())
-        if use_loss_balancer:
-            params += list(balancer.extra_params())
 
         optimizer = torch.optim.Adam(params, lr=phase2_lr, weight_decay=opt_cfg.get("weight_decay", 0.0))
 
@@ -383,28 +268,15 @@ def main(args):
         for ep in pbar2:
             iter_start = time.time()
             model.train()
-            batch = exp.sample_batch(n_f=n_f, n_b=n_b, n_0=n_0)
+            batch = exp.sample_batch(n_f=n_f)
 
             loss_res = exp.pde_residual_loss(model, batch).mean() if batch.get("X_f") is not None else torch.tensor(0., device=device)
             loss_data = exp.data_loss(model, batch, phase).mean() if batch.get("X_d") is not None else torch.tensor(0., device=device)
-            # loss_data, loss_idx1, loss_idx2, count_idx1, count_idx2 = exp.data_loss(model, batch, phase) if batch.get("X_d") is not None else torch.tensor(0., device=device)
-            # loss_data = loss_data.mean()
 
             loss_res_s = loss_res.mean() if torch.is_tensor(loss_res) and loss_res.dim() > 0 else loss_res # scalar
             loss_data_s = loss_data.mean() if torch.is_tensor(loss_data) and loss_data.dim() > 0 else loss_data
-            
-            losses = {
-                "res": loss_res,     # PDE residual term
-                **({"data": loss_data} if "loss_data" in locals() else {}),
-            }
-            
-            if not use_loss_balancer:
-                total_loss = w_res*loss_res + w_data*loss_data
-                s = (w_res + w_data) or 1.0
-                w_now = {"res": w_res/s, "data": w_data/s}
-            else:
-                total_loss, w_dict, aux = balancer(losses, step=global_step, model=model)
-                w_now = {k.split("/", 1)[1]: float(v) for k, v in w_dict.items()}
+
+            total_loss = w_res * loss_res + w_data * loss_data
 
             kl_loss = None
             if hasattr(model, "kl_loss"):
@@ -412,12 +284,6 @@ def main(args):
                 kl_loss = model.kl_loss()
                 total_loss = total_loss + kl_weight * kl_loss
             
-            # write one row per epoch/step
-            _ensure_weights_header(w_now.keys())
-            with open(weights_csv, "a", newline="") as f:
-                writer = csv.writer(f)
-                writer.writerow([global_step] + [w_now[t] for t in weights_terms])
-                
             optimizer.zero_grad(set_to_none=True)
             total_loss.backward()
             optimizer.step()
@@ -441,10 +307,6 @@ def main(args):
                 "perf/it_per_sec_tqdm": it_per_sec if it_per_sec is not None else 0.0,
                 "perf/elapsed_sec": elapsed_s if elapsed_s is not None else 0.0,
                 **gpu_now,
-                # "loss/data_idx1": loss_idx1,
-                # "loss/data_idx2": loss_idx2,
-                # "count/data_idx1": count_idx1,
-                # "count/data_idx2": count_idx2,
             }
             if kl_loss is not None:
                 log_payload["loss/kl"] = float(kl_loss.detach().cpu())
@@ -464,9 +326,6 @@ def main(args):
             if hasattr(exp, "_last_n_filtered") and hasattr(exp, "_last_n_total"):
                 log_payload["gate/n_filtered"] = exp._last_n_filtered
                 log_payload["gate/pct_filtered"] = 100.0 * exp._last_n_filtered / max(exp._last_n_total, 1)
-            mom, var = get_optimizer_stats(optimizer)
-            log_payload["optim/mom_buffer"] = mom
-            log_payload["optim/var_buffer"] = var
             wandb_log(log_payload, commit=True)
             pbar2.set_postfix({k: f"{v:.3e}" for k,v in log_payload.items() if "loss" in k})
             global_step += 1
@@ -480,7 +339,7 @@ def main(args):
                 wandb_log({"eval/rMAE": rMAE, "eval/rMSE": rMSE, "epoch": ep + phase1_epochs})
                 
                 best_path = os.path.join(out_dir, "best.pt")
-                if rMSE < (best_metric - es_cfg.get("min_delta", 0.0)):
+                if rMSE < best_metric:
                     best_metric = rMSE
                     
                     best_model_state = state_to_cpu(model.state_dict())
@@ -492,10 +351,6 @@ def main(args):
                         save_dict["experiment"] = best_exp_state
                     torch.save(save_dict, best_path)
                 
-                if early and early.step(rMSE):
-                    print(f"\n[EarlyStopping] Stopping at epoch {ep + phase1_epochs}. Best rMSE={best_metric:.3e}")
-                    break
-
             if enable_video and ((ep + phase1_epochs) % make_video_every == 0 and ep > 0):
                 vid_grid = exp_cfg.get("video", {}).get("grid", base_cfg["eval"]["grid"])
                 fps      = exp_cfg.get("video", {}).get("fps", 10)
@@ -506,9 +361,7 @@ def main(args):
                     phase=phase
                 )
                 if hasattr(exp, "evaluate_gate_performance"):
-                    gate_plots = exp.evaluate_gate_performance(model, out_dir, filename_prefix=f"eval_ep{ep + phase1_epochs}")
-                    # if gate_plots and base_cfg["log"]["wandb"]["enabled"]:
-                    #     wandb_log({f"val/{k}": wandb.Image(v) for k, v in gate_plots.items()})
+                    exp.evaluate_gate_performance(model, out_dir, filename_prefix=f"eval_ep{ep + phase1_epochs}")
                 
         final_path = os.path.join(out_dir, "final.pt")
         final_model_state = state_to_cpu(model.state_dict())
@@ -539,9 +392,7 @@ def main(args):
                 wandb_log({"video/noise_ebm": wandb.Video(noise_ebm, format=out_fmt)}) 
                 
         if hasattr(exp, "evaluate_gate_performance"):
-            gate_plots = exp.evaluate_gate_performance(model, out_dir, filename_prefix="final")
-            # if gate_plots and base_cfg["log"]["wandb"]["enabled"]:
-            #     wandb_log({f"val/{k}": wandb.Image(v) for k, v in gate_plots.items()})
+            exp.evaluate_gate_performance(model, out_dir, filename_prefix="final")
     
     model.eval()
     with torch.no_grad():
@@ -577,26 +428,15 @@ def main(args):
 
     wandb_log(final_perf)
 
-    weights_png = os.path.join(out_dir, "loss_weights.png")
-    plot_weights_over_time(weights_csv, weights_png)
-    print(f"[weights] saved: {weights_csv}")
-    print(f"[weights] plot : {weights_png}")
-
     # Restore best
-    if best_state:
+    if best_model_state:
         print("[Restore] Loading best model state...")
-        model.load_state_dict(best_state)
-        # Restore experiment-specific parameters (e.g., θ0) if we stored them
+        model.load_state_dict(best_model_state)
         if best_exp_state and hasattr(exp, "load_state_dict"):
-            print("[Restore] Loading best experiment state (running_std, EBM, etc)...")
+            print("[Restore] Loading best experiment state...")
             exp.load_state_dict(best_exp_state)
 
-    # Final evaluation & plots
     model.eval()
-    # figs = exp.plot_final(model, base_cfg["eval"]["grid"], out_dir)
-    # for name, path in figs.items():
-    #     wandb_log({f"fig/{name}": wandb.Image(path)})
-
     wandb_finish()
     print(f"Artifacts saved to: {out_dir}")
 

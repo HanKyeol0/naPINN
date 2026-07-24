@@ -6,9 +6,7 @@ class KDE(nn.Module):
     """Kernel Density Estimation for residual distribution.
 
     Non-parametric density estimator that maintains a buffer of recent residuals
-    and uses Gaussian kernels to estimate log-density.  Provides the same
-    interface as EBM (forward, train_step, pointwise_weights, data_weight)
-    so it can be used as a drop-in replacement in the experiment classes.
+    and uses Gaussian kernels to estimate log-density.
 
     Because KDE is non-parametric, ``train_step`` simply updates the internal
     sample buffer (no gradient-based optimisation).  A bandwidth parameter is
@@ -124,45 +122,6 @@ class KDE(nn.Module):
             nll = -log_p.squeeze(-1)
             nll_mean = nll.mean()
         return nll, nll_mean
-
-    # ------------------------------------------------------------------
-    # Weighting (same signatures as EBM)
-    # ------------------------------------------------------------------
-    @torch.no_grad()
-    def pointwise_weights(self, res: torch.Tensor) -> torch.Tensor:
-        res = res.detach().to(self.device, dtype=torch.float32)
-        if res.dim() == 1:
-            res = res.unsqueeze(-1)
-        log_q = self.forward(res).squeeze(-1)
-        log_q = log_q - log_q.max()
-        w = torch.exp(log_q)
-        w = w / (w.mean() + 1e-8)
-        return w.view(-1, 1)
-
-    @torch.no_grad()
-    def gated_weights(
-        self, res: torch.Tensor, alpha: float = 2.0, steepness: float = 5.0
-    ) -> torch.Tensor:
-        res = res.detach().to(self.device, dtype=torch.float32)
-        if res.dim() == 1:
-            res = res.unsqueeze(-1)
-        log_q = self.forward(res).squeeze(-1)
-        mu = log_q.mean()
-        sigma = log_q.std() + 1e-6
-        cutoff = mu - alpha * sigma
-        w = torch.sigmoid(steepness * (log_q - cutoff))
-        w = w / (w.mean() + 1e-8)
-        return w.view(-1, 1)
-
-    @torch.no_grad()
-    def data_weight(self, res: torch.Tensor, kind: str = "pw") -> torch.Tensor:
-        if kind == "pw":
-            return self.pointwise_weights(res)
-        elif kind == "gated":
-            return self.gated_weights(res, alpha=2.5, steepness=10.0)
-        else:
-            raise ValueError(f"Unknown data weight kind: {kind}")
-
 
 class _DummyOptimizer:
     """Placeholder so that ``kde.optimizer.state_dict()`` works."""

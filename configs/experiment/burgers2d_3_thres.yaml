@@ -55,7 +55,7 @@ batch:
 noise:
   enabled: true
   batch_size: 1000
-  kind: 4G # G, Goff, sG, u, 3G, 4G, 3G0, mix0, Gmix, rmix, sGtest
+  kind: 4G # G, 4G, Laplace, StudentT
   par_list: [[-9.0, 2],[-0.3,4],[2.7,0.6],[8.5,1]]
   # par_list: [[-8.0, 2],[0.7,4],[3.7,0.6],[9.5,1]]
   pars: [0.0, 4.0]
@@ -82,13 +82,10 @@ ebm:
   density_estimator: kde # "ebm" | "gmm" | "kde"
   std_mode: ema          # "ema" (running EMA std) | "batch" (per-batch std)
   momentum: 0.05         # EMA momentum (only used when std_mode: ema)
-  kind: 1D # 1D / 2D
   hidden_dim: 32
   depth: 4
   num_grid: 1024
-  max_range_factor: 2.5
   lr: 1.0e-3
-  use_nll: false
   init_train_epochs: 0 # 0 / 5000
 
 data_loss:
@@ -99,21 +96,13 @@ data_loss:
 
 data_loss_balancer:
   use_loss_balancer: true # true / false
-  kind: threshold # pw, inverse, mlp, gated, gated_trainable
+  kind: threshold # gated_trainable, quantile, threshold
   init_threshold: 1.0        # Initial tau (in units of scaled residual std)
   init_steepness: 10.0       # Initial sigmoid steepness
   rejection_cost: 0.0        # only for gated_trainable
-  weight_net:
-    hidden_dim: 32
-    depth: 3
-
 # Model I/O
 in_features: 3   # (x,y,t)
 out_features: 2  # (u,v)
-
-offset:
-  enabled: false
-  init: 0.0
 
 # video
 video:

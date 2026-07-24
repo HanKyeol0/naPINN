@@ -1,392 +1,82 @@
-# -*- coding: utf-8 -*-
-import numpy as np
+"""Measurement-noise distributions used by the paper experiments."""
+
 import torch
-import random
-import torch.distributions as distributions
+import torch.distributions as D
 
-from scipy.stats import skewnorm
-from scipy.special import erf
 
-def get_noise(n_opt, f, pars=0, par_list=[]):
-    #load desired noise function
+def get_noise(kind, f, pars=0, par_list=None):
+    if kind == "G":
+        return GaussianNoise(f, _parameters(pars, [0.0, 4.0]))
+    if kind == "Laplace":
+        return LaplaceNoise(f, _parameters(pars, [0.0, 1.0]))
+    if kind == "StudentT":
+        return StudentTNoise(f, _parameters(pars, [3.0, 0.0, 1.0]))
+    if kind == "4G":
+        if not par_list:
+            raise ValueError("4G noise requires four [mean, std] components")
+        return GaussianMixtureNoise(f, par_list)
+    raise ValueError(f"Unsupported noise distribution: {kind}")
 
-    if n_opt == 'G': #Gaussian
-        return n_G(n_opt, f, pars)
-    if n_opt == 'Laplace': #Laplace (double exponential)
-        return n_Laplace(n_opt, f, pars)
-    if n_opt == 'StudentT': #Student's t
-        return n_StudentT(n_opt, f, pars)
-    if n_opt == 'Goff': #Gaussian with non-zero mean
-        return n_G(n_opt, f, [5,2.5])
-    if n_opt == 'sG': #skewed Gaussian
-        return n_sG(n_opt, f, pars)
-    if n_opt == 'u': #uniform
-        return n_uniform(n_opt, f, pars)
-    if n_opt == '3G': #mixture of Gaussians
-        # par_list = [[-3.0, 2],[1.0,4],[5.0,0.5]]
-        # par_list = [[-2.0,4],[2.0,8],[6.0,2]]
-        n_list = ['G']*3
-        pi_list = [1/3]*3
-        return n_mixture(n_opt, f, par_list, n_list, pi_list)
-    if n_opt == '4G':
-        n_list = ['G']*4
-        pi_list = [1/4]*4
-        return n_mixture(n_opt, f, par_list, n_list, pi_list, Nc=4)
-    if n_opt == '3G0': #mixture of Gaussians with zero mean
-        par_list = [[-4.0, 2],[0.,4],[4.0,0.5]]
-        n_list = ['G']*3
-        pi_list = [1/3]*3
-        return n_mixture(n_opt, f, par_list, n_list, pi_list)    
-    if n_opt == 'mix0': #mixture of Gaussian and uniforms
-        n_list = ['G', 'u', 'u']
-        par_list = [[0.0, 2], [1,7], [0, 12]]
-        pi_list = [1/3]*3
-        return n_mixture(n_opt, f, par_list, n_list, pi_list)
-    if n_opt == 'Gmix': #random Gaussian mixture
-        n_list = ['G']*3
-        pi_list = [1/3]*3
-        return n_mixture(n_opt, f, -1, n_list, pi_list)
-    if n_opt == 'rmix': #random mixture
-        return n_mixture(n_opt, f, -1)
-    if n_opt == 'sGtest': #specific skewed Gaussian
-        return n_sG(n_opt, 1, pars=[18.8, -2.3, 4.6])
-        #return n_sG(n_opt, 1, pars=[1, -10.3, 1])
-    if n_opt == 'MG2D': # Multivariate Gaussian 2D
-        return n_MG(n_opt, f, pars)
-    print('error! noise not defined!')
 
-    
-class Noise():
-    def __init__(self, n_opt, f, pars=[]):
-        self.n_opt = n_opt
-        self.f = f
-        self.pars = pars
-        
-    def sample(self, Ns):
-        #allows to sample from noise distribution
-        print('not implemented!')
-        
-    def pdf(self, x):
-        #returns the noise pdf(x)
-        print('not implemented!')
-        
-    def init_pars(self):
-        #initializes the noise distribution either with the argument pars, if given, or with standard values
-        print('not implemented!')
+def _parameters(parameters, default):
+    return default if isinstance(parameters, int) else parameters
 
-class n_MG(Noise):
-    # Multivariate Gaussian (2D) noise
-    
-    def __init__(self, n_opt, f, pars):
-        # pars: [mu_u, mu_v, sig_u, sig_v, rho] (rho is correlation [-1, 1])
-        if type(pars) == int: pars = self.init_pars(pars)
-        Noise.__init__(self, n_opt, f, pars)
-        self.mu_u, self.mu_v, self.sig_u, self.sig_v, self.rho = pars
-        
-        # Scale the parameters by 'f'
-        scaled_mu = torch.tensor([self.mu_u * self.f, self.mu_v * self.f], dtype=torch.float32)
-        
-        # Calculate the covariance matrix (using scaled standard deviations)
-        sig_u_scaled = self.sig_u * self.f
-        sig_v_scaled = self.sig_v * self.f
-        
-        scaled_cov = torch.tensor([
-            [sig_u_scaled**2, self.rho * sig_u_scaled * sig_v_scaled],
-            [self.rho * sig_u_scaled * sig_v_scaled, sig_v_scaled**2]
-        ], dtype=torch.float32)
-        
-        # Create the Torch distribution object (loc=mean vector, covariance_matrix=Sigma)
-        self.dist = distributions.multivariate_normal.MultivariateNormal(
-            loc=scaled_mu, 
-            covariance_matrix=scaled_cov
+
+class GaussianNoise:
+    def __init__(self, scale, parameters):
+        mean, std = parameters
+        self.distribution = D.Normal(mean * scale, std * scale)
+
+    def sample(self, count):
+        return self.distribution.sample((count,))
+
+    def pdf(self, value):
+        return torch.exp(self.distribution.log_prob(value))
+
+
+class LaplaceNoise:
+    def __init__(self, scale, parameters):
+        location, width = parameters
+        self.distribution = D.Laplace(location * scale, width * scale)
+
+    def sample(self, count):
+        return self.distribution.sample((count,))
+
+    def pdf(self, value):
+        return torch.exp(self.distribution.log_prob(value))
+
+
+class StudentTNoise:
+    def __init__(self, scale, parameters):
+        degrees_of_freedom, location, width = parameters
+        self.distribution = D.StudentT(
+            df=degrees_of_freedom,
+            loc=location * scale,
+            scale=width * scale,
         )
-        
-    def sample(self, Ns):
-        # Ns is the number of 2D vectors to sample (i.e., N_u points)
-        # Returns [Ns, 2]
-        return self.dist.sample((Ns,))
-    
-    def pdf(self, x):
-        # x is expected to be [N, 2]
-        # Calculate probability density function values
-        return torch.exp(self.dist.log_prob(x))
-        
-    def init_pars(self, pars):
-        # Default: Zero-mean, unit-variance, positive correlation (0.5)
-        if pars == 0:
-            pars = [0.0, 0.0, 1.0, 1.0, 0.5] # 0.5 correlation is a good starting point
-        else:
-            # Custom initialization logic if pars is not 0
-            # Example: [mu_u, mu_v, sig_u, sig_v, rho]
-            pars = [5*(np.random.rand()-1), 5*(np.random.rand()-1), 
-                    4*np.abs(np.random.rand()), 4*np.abs(np.random.rand()), 
-                    2*np.random.rand()-1] # Random rho in [-1, 1]
-        return pars
 
-class n_G(Noise):
-    #Gaussian noise
-    
-    def __init__(self, n_opt, f, pars):
-        if type(pars) == int: pars = self.init_pars(pars) # pars: [mu, sig]
-        Noise.__init__(self, n_opt, f, pars)
-        self.mu, self.sig = pars
-        
-    def sample(self, Ns):
-        return torch.tensor(np.random.normal(self.mu*self.f, self.sig*self.f, Ns))   # f: scaling factor
-    
-    def pdf(self, x):
-        q = torch.distributions.normal.Normal(self.mu*self.f,self.sig*self.f)
-        pdf = torch.exp(q.log_prob(x))
-        return pdf
-    
-    def init_pars(self, pars):
-        if pars == 0:
-            pars = [0,4]
-        else:
-            pars = []
-            pars.append(5*(torch.rand(1)-1).item()) #mu
-            pars.append(4*torch.abs(torch.rand(1)).item()) #sig
-        return pars
-    
-    def __str__(self):
-        return f'Gaussian Noise (mu={self.mu}, sig={self.sig})'
-    
-class n_sG(Noise):
-    #skewed Gaussian noise
-    
-    def __init__(self, n_opt, f, pars):
-        if type(pars) == int: pars = self.init_pars(pars)
-        Noise.__init__(self, n_opt, f, pars)
-        self.a, self.xi, self.w = pars
-        self.m = get_sG_m(torch.tensor(self.a), torch.tensor(self.xi), torch.tensor(self.w)).item()
-        #self.m = self.m/self.xi
-        
-    def sample(self, Ns):
-        #return (torch.tensor(skewnorm.rvs(self.a,scale=self.w,size=Ns) + self.xi - self.m))*self.f
-        return (torch.tensor(skewnorm.rvs(self.a,scale=self.w,size=Ns) + self.xi))*self.f
-    
-    def pdf(self, x):
-        pdf = get_sG_pdf(x/self.f, self.a, self.xi, self.w)
-        return pdf
-    
-    def init_pars(self, pars):
-        if pars == 0:
-            pars =  [10, -1, 4]       
-        else:
-            pars = []
-            pars.append(torch.abs(10 + 10*torch.rand(1)).item()) #a
-            pars.append(0 + 5*(torch.rand(1)-1).item()) #xi
-            pars.append(torch.abs(4 + 4*torch.rand(1)).item()) #w
-        return pars
-    
-class n_uniform(Noise):
-    #uniform noise
-    
-    def __init__(self, n_opt, f, pars):
-        if type(pars) == int:  pars = self.init_pars(pars)
-        Noise.__init__(self, n_opt, f, pars)
-        self.a, self.b = pars
-        
-    def sample(self, Ns):
-        return (self.b - self.a)*self.f*torch.rand(Ns) + self.a*self.f
-    
-    def pdf(self, x):
-        pdf = 1/(self.f*(self.b - self.a))*torch.ones(x.shape)  
-        iz = torch.cat((torch.where(x < self.a*self.f)[0], torch.where(x > self.b*self.f)[0]))
-        pdf[iz] = 0
-        return pdf
-    
-    def init_pars(self, pars):
-        if pars == 0:
-            pars =  [0, 10]      
-        else:
-            pars = []
-            pars.append((0 + 5*(torch.rand(1))).item()) #a
-            pars.append((7.5 + 5*(torch.rand(1))).item()) #b
-        return pars
-    
-class n_mixture(Noise):
-    #mixture of other noise distributions
-    
-    def __init__(self, n_opt, f_list, par_list, n_list = [], pi_list = [], Nc=3):        
-        if type(par_list) == int:
-            par_list, n_list, pi_list = self.init_pars(par_list, n_list, pi_list, Nc)
-        
-        Noise.__init__(self, n_opt, f_list, par_list)
-        
-        
-        self.Nc = len(n_list)   
-        self.f_list = [f_list]*self.Nc if (type(f_list) in [float, int]) else f_list
-        self.n_list = n_list
-        self.par_list = par_list
-        self.pis = torch.tensor(pi_list)
-        
-        self.dists = []
-        for j in range(self.Nc):
-            self.dists.append(get_noise(self.n_list[j], self.f_list[j], self.par_list[j]))
-        
-    def sample(self, Ns):
-        inds = torch.multinomial(self.pis, Ns, replacement=True)
-        samples = torch.zeros(Ns)
-        Nj0 = 0
-        for j in range(self.Nc):
-            Nj = (inds==j).sum().item()
-            samples[Nj0:Nj0+Nj] = self.dists[j].sample([Nj])
-            Nj0 += Nj
-        
-        ishuffle = torch.randperm(Ns)
-        return samples[ishuffle]
-    
-    def pdf(self, x):
-        pdf = torch.zeros(x.shape[0])
-        for j in range(self.Nc):
-            pdf += self.pis[j]*self.dists[j].pdf(x)
-        return pdf
-    
-    def init_pars(self, par_list, n_list, pi_list, Nc):
-        if par_list == 0:
-            par_list = [[0.0, 2],[4.0,4],[8.0,0.5]]
-            n_list = ['G']*3
-            pi_list = [1/3]*3            
-        else:        
-            if len(n_list) == 0:
-                n_opts = ['G', 'u', 'sG']
-                n_list = random.choices(n_opts,k=Nc)
-            if len(pi_list) == 0:
-                pibuf = torch.abs(torch.randn(Nc))
-                pi_list = pibuf/torch.sum(pibuf)
-            
-            par_list = []
-            dists = []
-            for j in range(Nc):
-                dists.append(get_noise(n_list[j], 1, -1))
-                par_list.append(dists[j].pars)                          
-        
-        return par_list, n_list, pi_list
-        
-    
-    
-    
-class n_Laplace(Noise):
-    """Laplace (double-exponential) noise: p(x) = 1/(2b) exp(-|x-mu|/b).
-    pars = [mu, b]  (location, scale)
-    Variance = 2b^2.  Corresponds to the implicit prior of L1/LAD regression.
-    """
+    def sample(self, count):
+        return self.distribution.sample((count,))
 
-    def __init__(self, n_opt, f, pars):
-        if type(pars) == int:
-            pars = self.init_pars(pars)
-        Noise.__init__(self, n_opt, f, pars)
-        self.mu, self.b = pars
+    def pdf(self, value):
+        return torch.exp(self.distribution.log_prob(value))
 
-    def sample(self, Ns):
-        dist = distributions.Laplace(self.mu * self.f, self.b * self.f)
-        return dist.sample((Ns,))
 
-    def pdf(self, x):
-        dist = distributions.Laplace(
-            torch.tensor(self.mu * self.f, dtype=x.dtype),
-            torch.tensor(self.b * self.f, dtype=x.dtype),
+class GaussianMixtureNoise:
+    def __init__(self, scale, components):
+        parameters = torch.as_tensor(components, dtype=torch.float32)
+        if parameters.shape != (4, 2):
+            raise ValueError("4G noise requires exactly four [mean, std] pairs")
+
+        mixture = D.Categorical(logits=torch.zeros(4))
+        component_distribution = D.Normal(
+            parameters[:, 0] * scale,
+            parameters[:, 1] * scale,
         )
-        return torch.exp(dist.log_prob(x))
+        self.distribution = D.MixtureSameFamily(mixture, component_distribution)
 
-    def init_pars(self, pars):
-        if pars == 0:
-            return [0.0, 1.0]   # zero-mean, scale=1 (σ_eff = √2 ≈ 1.41)
-        else:
-            mu = (5 * (torch.rand(1) - 0.5)).item()
-            b  = (0.5 + 3 * torch.rand(1)).abs().item()
-            return [mu, b]
+    def sample(self, count):
+        return self.distribution.sample((count,))
 
-    def __str__(self):
-        return f'Laplace Noise (mu={self.mu}, b={self.b})'
-
-
-class n_StudentT(Noise):
-    """Student's t noise: heavy-tailed symmetric distribution.
-    pars = [df, mu, sigma]   (degrees-of-freedom, location, scale)
-    df=3  →  heavier tails than Gaussian, finite variance.
-    df=1  →  Cauchy (no finite mean/variance).
-    Matches the implicit prior of B-PINN (which uses Student-t likelihood).
-    """
-
-    def __init__(self, n_opt, f, pars):
-        if type(pars) == int:
-            pars = self.init_pars(pars)
-        Noise.__init__(self, n_opt, f, pars)
-        self.df, self.mu, self.sigma = pars
-
-    def sample(self, Ns):
-        dist = distributions.StudentT(
-            df=self.df,
-            loc=self.mu * self.f,
-            scale=self.sigma * self.f,
-        )
-        return dist.sample((Ns,))
-
-    def pdf(self, x):
-        dist = distributions.StudentT(
-            df=torch.tensor(self.df, dtype=x.dtype),
-            loc=torch.tensor(self.mu * self.f, dtype=x.dtype),
-            scale=torch.tensor(self.sigma * self.f, dtype=x.dtype),
-        )
-        return torch.exp(dist.log_prob(x))
-
-    def init_pars(self, pars):
-        if pars == 0:
-            return [3.0, 0.0, 1.0]   # df=3, zero-mean, unit scale
-        else:
-            df    = max(1.0, (1.0 + 4 * torch.rand(1)).item())
-            mu    = (5 * (torch.rand(1) - 0.5)).item()
-            sigma = (0.5 + 3 * torch.rand(1)).abs().item()
-            return [df, mu, sigma]
-
-    def __str__(self):
-        return f'StudentT Noise (df={self.df}, mu={self.mu}, sigma={self.sigma})'
-
-
-###################################
-###################################
-###################################
-###################################
-
-
-
-
-def sG_pdf(x, a=10, xi=0,w=4): 
-    #skewed Gaussian pdf
-    
-    #pars
-    m = get_sG_m(torch.tensor(a), torch.tensor(xi), torch.tensor(w)).numpy()
-    
-    #calculation
-    x = x
-    pdf = 2/(w*np.sqrt(2*np.pi))*np.exp(-(x-xi)**2/(2*w**2))
-    f =  1/np.sqrt(2*np.pi)*np.sqrt(2)*np.sqrt(np.pi)/2
-    ub = a*(x-xi)/w*1/np.sqrt(2)
-    if x >= 0:
-        buf = (1 + erf(ub))
-    else:        
-        buf = (1 - erf(-ub))
-    return pdf*f*buf
-
-def get_sG_pdf(xvec, a=10, xi=0, w=4):
-    #return function of skewed Gaussian pdf
-    
-    N = xvec.shape[0]
-    pdf2 = np.zeros(N)
-    for j in range(N):
-        pdf2[j] = sG_pdf(xvec[j], a, xi, w)
-    return pdf2
-    
-def get_sG_m(a, xi, w):
-    #returns (approximate) mean of skewed Gaussian
-    
-    v = torch.tensor(2.)
-    delta = a/torch.sqrt(1+a**2)
-    mu = xi + w*delta*torch.sqrt(v/torch.pi)
-    g1 = (4-torch.pi)/2*(delta*torch.sqrt(v/torch.pi))**3/(1-2*delta**2/torch.pi)**(3/2)
-    muz =  torch.sqrt(v/torch.pi)
-    m0 = muz - g1*torch.sqrt(1-muz**2)/2 - torch.sign(a)/2*torch.exp(-2*torch.pi/torch.abs(a))
-    m = xi + w*m0
-    return m
+    def pdf(self, value):
+        return torch.exp(self.distribution.log_prob(value))

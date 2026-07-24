@@ -1,205 +1,17 @@
 import torch
+import torch.distributions as D
 import torch.nn as nn
 import torch.nn.functional as F
-import torch.distributions as D
+
 
 class EBM(nn.Module):
-    def __init__(
-        self,
-        hidden_dim: int = 32, 
-        depth: int = 3,
-        num_grid: int = 256,
-        max_range_factor: float = 2.5,
-        lr: float = 1e-3,
-        input_dim: int = 1,
-        device: torch.device | str = "cpu",
-    ):
-        super().__init__()
-        self.device = torch.device(device)
-        self.num_grid = num_grid
-        self.max_range_factor = max_range_factor
+    """One-dimensional residual density estimator used by naPINN."""
 
-        # Small MLP: 1 → hidden_dim → ... → hidden_dim → 1
-        layers = []
-        in_dim = input_dim # input shape: [r, 1]
-        for _ in range(depth - 1):
-            layers.append(nn.Linear(in_dim, hidden_dim))
-            layers.append(nn.Tanh())
-            in_dim = hidden_dim
-        layers.append(nn.Linear(in_dim, 1))
-        self.net = nn.Sequential(*layers)
-
-        self.to(self.device)
-        self.optimizer = torch.optim.Adam(self.parameters(), lr=lr)
-        
-        print("[EBM] Initialized 1D EBM")
-
-    def forward(self, r: torch.Tensor) -> torch.Tensor:     
-        return self.net(r)
-
-    @torch.no_grad()
-    def make_grid(self, res: torch.Tensor, num_grid=None) -> torch.Tensor:
-        # res = res.view(-1)
-        # if res.numel() == 0:
-        #     R = 1.0
-        # else:
-        #     lb = (res.min() - 5*res.std()).detach()
-        #     ub = (res.max() + 5*res.std()).detach()   
-        #     # R = res.abs().max().item()
-        #     # if R <= 0:
-        #     #     R = 1.0
-        # # R = self.max_range_factor * R
-        # # grid = torch.linspace(-R, R, self.num_grid, device=self.device)
-        lb = -10
-        ub = 10
-        if num_grid is None:
-            num_grid = self.num_grid
-        grid = torch.linspace(lb, ub, num_grid, device=self.device)
-        return grid
-
-    def mean_nll(self, res: torch.Tensor) -> torch.Tensor:
-        res = res.detach().to(device=self.device, dtype=torch.float32).view(-1, 1)
-
-        # partition term log Z
-        grid = self.make_grid(res)
-        grid_input = grid.unsqueeze(-1)  # [G,1]
-        log_q_grid = self.forward(grid_input).squeeze(-1)
-        m = log_q_grid.max()
-        buf_Z = torch.exp(log_q_grid - m).squeeze()
-        # data term: -log q_theta(r)
-        buf_res = self.forward(res).squeeze(-1) # [N]
-        
-        Nres = res.shape[0]
-        Z = torch.trapezoid(buf_Z, grid)
-        nll = (-buf_res + torch.log(Z) + m) / Nres
-        J = -torch.sum(buf_res) + Nres * torch.log(Z) + Nres * m
-        nll_mean = nll.mean()
-        # logZ = torch.log(Z + 1e-12) + m
-
-        # nll = -log_q_res + logZ
-        # nll_mean = nll.mean()
-        return nll, nll_mean
-
-    def train_step(self, res: torch.Tensor) -> torch.Tensor:
-        self.train()
-        nll, nll_mean = self.mean_nll(res)
-        self.optimizer.zero_grad()
-        nll_mean.backward()
-        self.optimizer.step()
-        return nll.detach(), nll_mean.detach()
-    
-    def gated_weights(self, res: torch.Tensor, alpha: float = 2.0, steepness: float = 5.0) -> torch.Tensor:
-        res = res.detach().to(device=self.device, dtype=torch.float32)
-        orig_shape = res.shape # [N, 2]
-        
-        # 1. Compute Unnormalized Log-Likelihoods (Energy)
-        # We don't need Z (partition function) because it's constant for the batch
-        log_q = self.forward(res) # [N, 1]
-        log_q = log_q.squeeze(-1) # Flatten to [N] for stats
-        
-        # 2. Compute Dynamic Threshold based on Batch Stats
-        # We use robust stats (median/quantiles) if possible, but mean/std is faster/stable
-        with torch.no_grad():
-            mu_ll = log_q.mean()
-            sigma_ll = log_q.std()
-            
-            # The Cutoff: Points below this likelihood are considered "suspicious"
-            # e.g., if alpha=2.0, we keep the top ~95% of the probability mass (roughly)
-            cutoff = mu_ll - alpha * sigma_ll
-
-        # 3. Apply Sigmoid Gate
-        # w = 1 / (1 + exp(-steepness * (log_q - cutoff)))
-        # If log_q > cutoff, exp is small neg, w -> 1
-        # If log_q < cutoff, exp is large pos, w -> 0
-        w = torch.sigmoid(steepness * (log_q - cutoff))
-        
-        # 4. Normalize?
-        # In this specific 'gating' philosophy, we arguably usually want weights 
-        # to be exactly 1.0 for good data, not scaled to mean=1. 
-        # However, to keep learning rates consistent with your previous code:
-        w = w / (w.mean() + 1e-8)
-        
-        return w.view(-1, 1)  # [N, 1]
-        
-    @torch.no_grad()
-    def data_weight(self, res: torch.Tensor, kind: str = "pw") -> torch.Tensor:
-        if kind == "pw":
-            return self.pointwise_weights(res)
-        elif kind == "gated":
-            return self.gated_weights(res, alpha=2.5, steepness=10.0)
-        else:
-            raise ValueError(f"Unknown data weight kind: {kind}")
-    
-    def pointwise_weights(self, res: torch.Tensor) -> torch.Tensor:
-        res = res.detach().to(device=self.device, dtype=torch.float32)
-        orig_shape = res.shape
-        res_flat = res.view(-1, 1)
-        log_q = self.forward(res_flat).squeeze(-1)
-        log_q = log_q - log_q.max()  # shift for stability
-        w = torch.exp(log_q)
-        w = w / (w.mean() + 1e-8)
-        return w.view(orig_shape)
-
-class ResidualWeightNet(nn.Module):
-    """
-    Small auxiliary network that maps residuals r -> per-point positive weights w(r).
-
-    - Input:  residual tensor of shape [N, 1] or [N]
-    - Output: weights of shape [N, 1], positive and normalized to mean ≈ 1
-    """
-    def __init__(self, hidden_dim: int = 32, depth: int = 2, device: str | torch.device = "cpu"):
-        super().__init__()
-        self.device = torch.device(device)
-
-        layers = []
-        in_dim = 1
-        for _ in range(max(depth - 1, 0)):
-            layers.append(nn.Linear(in_dim, hidden_dim))
-            layers.append(nn.Tanh())
-            in_dim = hidden_dim
-        layers.append(nn.Linear(in_dim, 1))
-        self.net = nn.Sequential(*layers)
-
-        self.to(self.device)
-
-    def forward(self, res: torch.Tensor) -> torch.Tensor:
-        """
-        res: [N] or [N,1] residuals (can be detached in the caller).
-
-        Returns w: [N,1] positive weights with mean ≈ 1.
-        """
-        if res.dim() == 1:
-            res = res.unsqueeze(-1)  # [N] -> [N,1]
-        r = res.to(self.device, dtype=torch.float32)
-
-        # free-form MLP
-        w_raw = self.net(r)
-
-        # Ensure positivity and avoid zero:
-        w_pos = F.softplus(w_raw) + 1e-6  # [N,1]
-
-        # Normalize to mean ~1, but don't send gradients through the denominator
-        denom = w_pos.mean().detach() + 1e-8
-        w_norm = w_pos / denom
-
-        return w_norm
-
-class EBM2D(nn.Module):
-    """Simple 2D Energy-Based Model for residuals r in R^2.
-
-    This model learns an unnormalized log-density log q_theta(r) via a small MLP.
-    We train it by minimizing an approximate negative log-likelihood (NLL)
-    using 1D numerical integration to estimate the partition function.
-
-    The partition function is only needed during training; for per-point
-    weighting we only need relative log-densities, so we can skip Z there.
-    """
     def __init__(
         self,
         hidden_dim: int = 32,
         depth: int = 3,
         num_grid: int = 256,
-        max_range_factor: float = 2.5,
         lr: float = 1e-3,
         input_dim: int = 1,
         device: torch.device | str = "cpu",
@@ -207,14 +19,11 @@ class EBM2D(nn.Module):
         super().__init__()
         self.device = torch.device(device)
         self.num_grid = num_grid
-        self.max_range_factor = max_range_factor
 
-        # Small MLP: 2 → hidden_dim → ... → hidden_dim → 1
         layers = []
         in_dim = input_dim
         for _ in range(depth - 1):
-            layers.append(nn.Linear(in_dim, hidden_dim))
-            layers.append(nn.Tanh())
+            layers.extend((nn.Linear(in_dim, hidden_dim), nn.Tanh()))
             in_dim = hidden_dim
         layers.append(nn.Linear(in_dim, 1))
         self.net = nn.Sequential(*layers)
@@ -222,400 +31,162 @@ class EBM2D(nn.Module):
         self.to(self.device)
         self.optimizer = torch.optim.Adam(self.parameters(), lr=lr)
 
-    def forward(self, r: torch.Tensor) -> torch.Tensor:
-        """Return unnormalized log-density log q_theta(r).
-
-        r: tensor of shape [..., 1] or [...]
-        returns: same shape as r (broadcasted), containing log q_theta(r)
-        """
-            
-        return self.net(r)
+    def forward(self, residual: torch.Tensor) -> torch.Tensor:
+        return self.net(residual)
 
     @torch.no_grad()
-    def make_grid(self, res: torch.Tensor) -> torch.Tensor:
-        """Make an integration grid based on residual range.
+    def make_grid(self) -> torch.Tensor:
+        return torch.linspace(-10.0, 10.0, self.num_grid, device=self.device)
 
-        We use a symmetric interval [-R, R] where R is proportional to the
-        max absolute residual in the batch, scaled by max_range_factor.
-        """
-        res = res.view(-1)
-        if res.numel() == 0:
-            R = 1.0
-        else:
-            R = res.abs().max().item()
-            if R <= 0:
-                R = 1.0
-        R = self.max_range_factor * R
-        grid = torch.linspace(-R, R, self.num_grid, device=self.device)
-        return grid
+    def mean_nll(self, residual: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        residual = residual.detach().to(
+            device=self.device, dtype=torch.float32
+        ).view(-1, 1)
 
-    def make_grid_2d(self, res: torch.Tensor, grid_size: int = 128) -> tuple[torch.Tensor, float]:
-        """
-        Creates a 2D grid for integration.
-        Uses Robust Statistics (std dev) to ignore outliers when determining the grid range.
-        """
-        # Determine range based on Standard Deviation (Core distribution)
-        # instead of max() (which is sensitive to outliers).
-        with torch.no_grad():
-            # Calculate std per dimension
-            std = res.std(dim=0) # [2]
-            
-            # Use 4 standard deviations (covers >99.9% of a Gaussian)
-            # This ensures the grid focuses on the density mass, not the outliers.
-            R_u = 4.0 * std[0].item()
-            R_v = 4.0 * std[1].item()
-            
-            # Safety clamp: prevent grid from collapsing if std is too small (e.g. at init)
-            # or exploding if std is huge.
-            R_u = max(R_u, 0.5) 
-            R_v = max(R_v, 0.5)
+        grid = self.make_grid()
+        log_q_grid = self.forward(grid.unsqueeze(-1)).squeeze(-1)
+        maximum = log_q_grid.max()
+        partition = torch.trapezoid(torch.exp(log_q_grid - maximum), grid)
+        log_partition = torch.log(partition) + maximum
 
-            # Optional: We can still look at max, but clamp it.
-            # But 4*std is usually the most robust method for Z-estimation.
-
-        # Create 1D linspaces
-        u_grid = torch.linspace(-R_u, R_u, grid_size, device=self.device)
-        v_grid = torch.linspace(-R_v, R_v, grid_size, device=self.device)
-
-        # Create meshgrid ('ij' indexing matches matrix [row, col] order)
-        uu, vv = torch.meshgrid(u_grid, v_grid, indexing='ij') 
-        
-        # Flatten to [N_grid, 2]
-        grid_flat = torch.stack([uu.flatten(), vv.flatten()], dim=1)
-        
-        # Calculate cell area for integration: dx * dy
-        dx = (2 * R_u) / (grid_size - 1)
-        dy = (2 * R_v) / (grid_size - 1)
-        cell_area = dx * dy
-        
-        return grid_flat, cell_area
-
-    def mean_nll(self, res: torch.Tensor) -> tuple[torch.Tensor, float]:
-        """
-        Computes NLL with 2D numerical integration for Z.
-        """
-        res = res.detach().to(self.device, dtype=torch.float32) # [N, 2]
-        
-        # 1. Unnormalized log-probability of data: log q(r)
-        log_q_data = self.forward(res).squeeze(-1) 
-        
-        # 2. Estimate Partition Function Z via 2D Integration
-        # Increased grid_size from 80 -> 128 for better resolution on fine features
-        grid_flat, cell_area = self.make_grid_2d(res, grid_size=128) 
-        
-        log_q_grid = self.forward(grid_flat).squeeze(-1) # [GridSize^2]
-        
-        # Log-Sum-Exp trick
-        m = log_q_grid.max()
-        sum_exp = torch.sum(torch.exp(log_q_grid - m)) 
-        log_Z = m + torch.log(sum_exp) + torch.log(torch.tensor(cell_area, device=self.device))
-        
-        # 3. NLL = -log_q_data + log_Z
-        nll = -log_q_data + log_Z
-        
+        log_q_residual = self.forward(residual).squeeze(-1)
+        nll = -log_q_residual + log_partition
         return nll, nll.mean()
 
-    def train_step(self, res: torch.Tensor) -> torch.Tensor:
-        """Perform one optimization step on a batch of residuals.
-
-        Returns detached scalar NLL value (for logging).
-        """
+    def train_step(self, residual: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         self.train()
-        nll, nll_mean = self.mean_nll(res)
+        nll, mean_nll = self.mean_nll(residual)
         self.optimizer.zero_grad()
-        nll_mean.backward()
+        mean_nll.backward()
         self.optimizer.step()
-        return nll.detach(), nll_mean.detach()
-    
-    def gated_weights(self, res: torch.Tensor, alpha: float = 2.0, steepness: float = 5.0) -> torch.Tensor:
-        """
-        Computes weights using a Soft Sigmoid Gate on Log-Likelihood.
-        
-        Logic:
-           - Standard 'pw' weighting (w ~ p(x)) penalizes tails too aggressively.
-           - This method creates a 'plateau' of trust. If a point's log-likelihood 
-             is within 'alpha' std-devs of the mean, weight is ~1.0. 
-             If it drops below that, weight slides to 0.0.
-             
-        Args:
-            res: Residuals [N, 2]
-            alpha: Threshold factor. Cutoff = Mean_LL - alpha * Std_LL.
-                   Higher alpha = more tolerant (includes more tails).
-            steepness: How sharp the transition is from weight 1 to 0.
-        """
-        res = res.detach().to(device=self.device, dtype=torch.float32)
-        orig_shape = res.shape # [N, 2]
-        
-        # 1. Compute Unnormalized Log-Likelihoods (Energy)
-        # We don't need Z (partition function) because it's constant for the batch
-        log_q = self.forward(res) # [N, 1]
-        log_q = log_q.squeeze(-1) # Flatten to [N] for stats
-        
-        # 2. Compute Dynamic Threshold based on Batch Stats
-        # We use robust stats (median/quantiles) if possible, but mean/std is faster/stable
-        with torch.no_grad():
-            mu_ll = log_q.mean()
-            sigma_ll = log_q.std()
-            
-            # The Cutoff: Points below this likelihood are considered "suspicious"
-            # e.g., if alpha=2.0, we keep the top ~95% of the probability mass (roughly)
-            cutoff = mu_ll - alpha * sigma_ll
+        return nll.detach(), mean_nll.detach()
 
-        # 3. Apply Sigmoid Gate
-        # w = 1 / (1 + exp(-steepness * (log_q - cutoff)))
-        # If log_q > cutoff, exp is small neg, w -> 1
-        # If log_q < cutoff, exp is large pos, w -> 0
-        w = torch.sigmoid(steepness * (log_q - cutoff))
-        
-        # 4. Normalize?
-        # In this specific 'gating' philosophy, we arguably usually want weights 
-        # to be exactly 1.0 for good data, not scaled to mean=1. 
-        # However, to keep learning rates consistent with your previous code:
-        w = w / (w.mean() + 1e-8)
-        
-        return w.view(-1, 1)  # [N, 1]
 
-    @torch.no_grad()
-    def data_weight(self, res: torch.Tensor, kind: str = "pw") -> torch.Tensor:
-        if kind == "pw":
-            return self.pointwise_weights(res)
-        elif kind == "inverse":
-            return self.inverse_pointwise_weights(res)
-        elif kind == "gated":
-            # You can tune alpha via config if you pass it down, 
-            # but standard deviations of 2.0-3.0 are usually good outlier boundaries.
-            return self.gated_weights(res, alpha=2.5, steepness=10.0)
-        else:
-            raise ValueError(f"Unknown data weight kind: {kind}")
-    
-    def pointwise_weights(self, res: torch.Tensor) -> torch.Tensor:
-        """Compute noise-adaptive weights for each residual.
-
-        We use w_i ∝ exp(log q_theta(r_i)) and normalize such that
-        mean(w_i) ≈ 1 (so the global scale of the data loss is preserved).
-
-        These weights can be treated as reliability weights: points
-        that are more likely under the learned noise distribution
-        receive larger weight, and outliers receive smaller weight.
-        """
-        res = res.detach().to(device=self.device, dtype=torch.float32)
-        orig_shape = res.shape
-        log_q = self.forward(res)
-        log_q = log_q - log_q.max()  # shift for stability
-        w = torch.exp(log_q)
-        w = w / (w.mean() + 1e-8)
-        return w
-    
-    def inverse_pointwise_weights(self, res: torch.Tensor):
-        res = res.detach().to(self.device)
-        eps = 1e-8
-        orig_shape = res.shape
-        res_flat = res.view(-1, 1)
-
-        # log q(r)
-        log_q = self.forward(res_flat).squeeze(-1)          # [N]
-        # 수치 안정화
-        log_q = log_q - log_q.max()
-
-        # q(r) ≈ exp(log_q)
-        q = torch.exp(log_q)                                # [N]
-
-        # 1 / q(r)
-        w_raw = 1.0 / (q + eps)
-
-        # 평균을 1로 정규화
-        w = w_raw / (w_raw.mean() + 1e-8)
-        return w.view(orig_shape)
-    
 class TrainableGMM(nn.Module):
-    def __init__(self, n_components=3, input_dim=1, device='cpu', lr=1e-2, **_kwargs):
+    """Trainable scalar Gaussian mixture used in the estimator ablation."""
+
+    def __init__(
+        self,
+        n_components: int = 3,
+        input_dim: int = 1,
+        device: torch.device | str = "cpu",
+        lr: float = 1e-2,
+    ):
         super().__init__()
         self.device = torch.device(device)
-        self.n_components = n_components
-        self.input_dim = input_dim
-
-        # 1. Mixture weights (logits)
         self.mix_logits = nn.Parameter(torch.zeros(n_components, device=self.device))
-
-        # 2. Means (initialized near 0, but slightly spread)
-        self.means = nn.Parameter(torch.randn(n_components, input_dim, device=self.device) * 0.1)
-
-        # 3. Covariances (Diagonal for stability, parameterized by log_std)
-        self.log_stds = nn.Parameter(torch.zeros(n_components, input_dim, device=self.device))
-
+        self.means = nn.Parameter(
+            torch.randn(n_components, input_dim, device=self.device) * 0.1
+        )
+        self.log_stds = nn.Parameter(
+            torch.zeros(n_components, input_dim, device=self.device)
+        )
         self.optimizer = torch.optim.Adam(self.parameters(), lr=lr)
         self.to(self.device)
-        print(f"[GMM] Initialized {input_dim}D GMM (n_components={n_components})")
 
     def get_distribution(self):
-        mix = D.Categorical(logits=self.mix_logits)
-        comp = D.Independent(D.Normal(self.means, torch.exp(self.log_stds)), 1)
-        gmm = D.MixtureSameFamily(mix, comp)
-        return gmm
+        mixture = D.Categorical(logits=self.mix_logits)
+        components = D.Independent(
+            D.Normal(self.means, torch.exp(self.log_stds)), 1
+        )
+        return D.MixtureSameFamily(mixture, components)
 
-    def forward(self, x):
-        """Returns log probability log p(x).  Shape: [N, 1]."""
-        if x.dim() == 1:
-            x = x.unsqueeze(-1)
-        gmm = self.get_distribution()
-        return gmm.log_prob(x).unsqueeze(-1)  # [N, 1]
+    def forward(self, residual: torch.Tensor) -> torch.Tensor:
+        if residual.dim() == 1:
+            residual = residual.unsqueeze(-1)
+        return self.get_distribution().log_prob(residual).unsqueeze(-1)
 
-    def train_step(self, res):
-        """Minimize Negative Log Likelihood."""
+    def train_step(self, residual: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         self.train()
-        res = res.detach().to(self.device)
-        if res.dim() == 1:
-            res = res.unsqueeze(-1)
+        residual = residual.detach().to(self.device)
+        if residual.dim() == 1:
+            residual = residual.unsqueeze(-1)
 
-        log_prob = self.forward(res).squeeze(-1)
-        nll = -log_prob
-        nll_mean = nll.mean()
-
+        nll = -self.forward(residual).squeeze(-1)
+        mean_nll = nll.mean()
         self.optimizer.zero_grad()
-        nll_mean.backward()
+        mean_nll.backward()
         self.optimizer.step()
+        return nll.detach(), mean_nll.detach()
 
-        return nll.detach(), nll_mean.detach()
 
-    @torch.no_grad()
-    def pointwise_weights(self, res):
-        res = res.detach().to(self.device)
-        if res.dim() == 1:
-            res = res.unsqueeze(-1)
-        log_prob = self.forward(res).squeeze(-1)
-        log_prob = log_prob - log_prob.max()
-        w = torch.exp(log_prob)
-        w = w / (w.mean() + 1e-8)
-        return w.view(-1, 1)
-
-    @torch.no_grad()
-    def gated_weights(self, res, alpha=2.0, steepness=5.0):
-        res = res.detach().to(self.device)
-        if res.dim() == 1:
-            res = res.unsqueeze(-1)
-        log_q = self.forward(res).squeeze(-1)
-        mu = log_q.mean()
-        sigma = log_q.std() + 1e-6
-        cutoff = mu - alpha * sigma
-        w = torch.sigmoid(steepness * (log_q - cutoff))
-        w = w / (w.mean() + 1e-8)
-        return w.view(-1, 1)
-
-    @torch.no_grad()
-    def data_weight(self, res, kind="pw"):
-        if kind == "pw":
-            return self.pointwise_weights(res)
-        elif kind == "gated":
-            return self.gated_weights(res, alpha=2.5, steepness=10.0)
-        else:
-            raise ValueError(f"Unknown data weight kind: {kind}")
-    
 class QuantileThresholdGate(nn.Module):
-    """Ablation 1: No density estimation — pure quantile-based filtering on residual magnitudes."""
-    def __init__(self, quantile=0.95, steepness=10.0, device="cpu"):
+    """Residual-quantile gate used by the estimator-free ablation."""
+
+    def __init__(
+        self,
+        quantile: float = 0.95,
+        steepness: float = 10.0,
+        device: torch.device | str = "cpu",
+    ):
         super().__init__()
         self.quantile = quantile
         self.steepness = steepness
-        self.device = device
-        self.to(device)
+        self.device = torch.device(device)
 
     def forward(self, residual: torch.Tensor):
-        """
-        residual: [N, 1] or [N] — scaled residuals.
-        Returns: (weights [N, 1], reg_loss=0)
-        """
-        r_abs = residual.abs().view(-1)  # [N]
-
+        magnitude = residual.abs().view(-1)
         with torch.no_grad():
-            cutoff = torch.quantile(r_abs, self.quantile)
-
-        # w ≈ 1 if |r| < cutoff, w ≈ 0 if |r| > cutoff
-        w = torch.sigmoid(self.steepness * (cutoff - r_abs))
-
-        return w.view(-1, 1), torch.tensor(0.0, device=self.device)
+            cutoff = torch.quantile(magnitude, self.quantile)
+        weights = torch.sigmoid(self.steepness * (cutoff - magnitude))
+        return weights.view(-1, 1), torch.tensor(0.0, device=self.device)
 
 
 class LearnableThresholdGate(nn.Module):
-    """Ablation 2: Single learnable threshold — no EBM, no density estimation."""
-    def __init__(self, init_threshold=1.0, init_steepness=10.0,
-                 rejection_cost=0.5, device="cpu"):
+    """Learnable residual-magnitude gate used by the estimator-free ablation."""
+
+    def __init__(
+        self,
+        init_threshold: float = 1.0,
+        init_steepness: float = 10.0,
+        rejection_cost: float = 0.5,
+        device: torch.device | str = "cpu",
+    ):
         super().__init__()
-        self.device = device
         self.raw_threshold = nn.Parameter(
-            torch.tensor(float(init_threshold), device=device)
+            torch.tensor(init_threshold, dtype=torch.float32, device=device)
         )
         self.raw_steepness = nn.Parameter(
-            torch.tensor(float(init_steepness), device=device)
+            torch.tensor(init_steepness, dtype=torch.float32, device=device)
         )
         self.rejection_cost = rejection_cost
-        self.to(device)
 
     def forward(self, residual: torch.Tensor):
-        """
-        residual: [N, 1] or [N] — scaled residuals.
-        Returns: (weights [N, 1], reg_loss)
-        """
-        r_abs = residual.abs().view(-1)  # [N]
-
-        tau = F.softplus(self.raw_threshold)   # τ > 0
-        beta = F.softplus(self.raw_steepness)  # β > 0
-
-        # w ≈ 1 if |r| < τ, w ≈ 0 if |r| > τ
-        raw_w = torch.sigmoid(beta * (tau - r_abs))
-
-        rejected_mass = (1.0 - raw_w).mean()
-        reg_loss = self.rejection_cost * rejected_mass
-
-        return raw_w.view(-1, 1), reg_loss
+        magnitude = residual.abs().view(-1)
+        threshold = F.softplus(self.raw_threshold)
+        steepness = F.softplus(self.raw_steepness)
+        weights = torch.sigmoid(steepness * (threshold - magnitude))
+        rejection_loss = self.rejection_cost * (1.0 - weights).mean()
+        return weights.view(-1, 1), rejection_loss
 
 
 class TrainableLikelihoodGate(nn.Module):
-    def __init__(self, init_cutoff_sigma=2.0, init_steepness=30.0, device="cpu", 
-                 rejection_cost=0.5):
-        """
-        rejection_cost (float): The penalty weight for discarding data.
-                                Higher = harder to reject (conservative).
-                                Lower = easier to reject (aggressive).
-                                Start with 1.0 or 0.5.
-        """
+    """Trainable likelihood gate and rejection regularizer from the paper."""
+
+    def __init__(
+        self,
+        init_cutoff_sigma: float = 2.0,
+        init_steepness: float = 30.0,
+        device: torch.device | str = "cpu",
+        rejection_cost: float = 0.5,
+    ):
         super().__init__()
-        self.device = device
-        # Initialize cutoff deeper (e.g., 2.0 or 2.5 sigma) to prevent initial collapse
-        self.cutoff_alpha = nn.Parameter(torch.tensor(float(init_cutoff_sigma), device=device))
-        # self.steepness = torch.tensor(float(init_steepness), device=device)
-        self.steepness = nn.Parameter(torch.tensor(float(init_steepness), device=device))
-        
+        self.cutoff_alpha = nn.Parameter(
+            torch.tensor(init_cutoff_sigma, dtype=torch.float32, device=device)
+        )
+        self.steepness = nn.Parameter(
+            torch.tensor(init_steepness, dtype=torch.float32, device=device)
+        )
         self.rejection_cost = rejection_cost
-        self.to(device)
 
-    def forward(self, log_q: torch.Tensor):
-        # 1. Robust Standardization (Same as before)
+    def forward(self, log_density: torch.Tensor):
         with torch.no_grad():
-            mu = log_q.mean()
-            sigma = log_q.std() + 1e-6
-            mu = mu.detach()
-            sigma = sigma.detach()
+            mean = log_density.mean()
+            std = log_density.std() + 1e-6
+        z_score = (log_density - mean) / std
 
-        z_scores = (log_q - mu) / sigma
-        
-        # Softplus guarantees positive parameters
-        alpha = torch.nn.functional.softplus(self.cutoff_alpha)
-        beta = torch.nn.functional.softplus(self.steepness)
-        
-        # 2. Raw Probabilities (The "Gate")
-        # w_raw is the probability that point i is VALID
-        raw_w = torch.sigmoid(beta * (z_scores + alpha))
-        
-        # --- NEW REGULARIZATION: Rejection Cost ---
-        # Instead of forcing a mean, we penalize the "mass" of rejection.
-        # Loss = sum(1 - w)  => "Minimizing the number of discarded points"
-        # If the model sets w=0 for everyone, this loss explodes.
-        rejected_mass = (1.0 - raw_w).mean()
-        reg_loss = self.rejection_cost * rejected_mass
-        
-        # 3. Normalization (Optional but recommended for gradient stability)
-        # We normalize the output weights for the Physics Loss, 
-        # BUT the regularization above acts on the RAW weights.
-        w_normalized = raw_w # / (raw_w.mean() + 1e-8)
-        
-        return w_normalized, reg_loss
+        cutoff = F.softplus(self.cutoff_alpha)
+        steepness = F.softplus(self.steepness)
+        weights = torch.sigmoid(steepness * (z_score + cutoff))
+        rejection_loss = self.rejection_cost * (1.0 - weights).mean()
+        return weights, rejection_loss

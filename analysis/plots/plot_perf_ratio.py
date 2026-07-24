@@ -1,5 +1,9 @@
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 import numpy as np
+
+FIGURES_DIR = Path(__file__).resolve().parents[1] / "results" / "figures"
 
 # -----------------------------
 # Configuration
@@ -7,7 +11,7 @@ import numpy as np
 outlier_ratios = ["5%", "10%", "15%"]   # three outlier ratios
 x = np.arange(len(outlier_ratios))
 methods = ["LAD-PINN", "OrPINN(q=1.9)", "OrPINN(q=2.9)", "naPINN"]
-benchmarks = ["2D Burgers", "2D Allen–Cahn", "2D $\lambda-\omega$ RD"]
+benchmarks = ["2D Burgers", "2D Allen–Cahn", r"2D $\lambda-\omega$ RD"]
 
 # Marker / style settings
 markers = {
@@ -51,7 +55,7 @@ rmse_mean = {
         "OrPINN(q=2.9)":    [0.151, 0.195, 0.234],
         "naPINN":   [0.101, 0.108, 0.127],
     },
-    "2D $\lambda-\omega$ RD": {
+    r"2D $\lambda-\omega$ RD": {
         # "PINN":     [0.178, 0.292, 0.457],
         "LAD-PINN": [0.164, 0.181, 0.199],
         "OrPINN(q=1.9)": [0.109, 0.150, 0.201],
@@ -75,7 +79,7 @@ rmse_std = {
         "OrPINN(q=2.9)": [0.036, 0.036, 0.042],
         "naPINN":    [0.039, 0.023, 0.049],
     },
-    "2D $\lambda-\omega$ RD": {
+    r"2D $\lambda-\omega$ RD": {
         # "PINN":     [0.010, 0.011, 0.014],
         "LAD-PINN":  [0.013, 0.012, 0.010],
         "OrPINN(q=1.9)": [0.007, 0.009, 0.012],
@@ -133,5 +137,8 @@ fig.legend(
 )
 
 plt.tight_layout(rect=[0, 0, 1, 0.93])
-plt.savefig("performance_ratio_plot.pdf", bbox_inches="tight", dpi=300)
-plt.show()
+FIGURES_DIR.mkdir(parents=True, exist_ok=True)
+output_path = FIGURES_DIR / "performance_ratio_plot.pdf"
+plt.savefig(output_path, bbox_inches="tight", dpi=300)
+plt.close(fig)
+print(f"Figure saved to {output_path}")

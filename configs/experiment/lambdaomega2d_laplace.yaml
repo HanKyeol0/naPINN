@@ -72,13 +72,10 @@ ebm:
   density_estimator: ebm # "ebm" | "gmm" | "kde"
   std_mode: ema
   momentum: 0.05
-  kind: 1D
   hidden_dim: 32
   depth: 4
   num_grid: 512
-  max_range_factor: 3.0
   lr: 1.0e-3
-  use_nll: false
   init_train_epochs: 5000
 
 data_loss:
@@ -93,9 +90,6 @@ data_loss_balancer:
 
 in_features: 3
 out_features: 2
-
-offset:
-  enabled: false
 
 video:
   enabled: true

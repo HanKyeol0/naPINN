@@ -1,5 +1,9 @@
+from pathlib import Path
+
 import numpy as np
 import matplotlib.pyplot as plt
+
+FIGURES_DIR = Path(__file__).resolve().parents[1] / "results" / "figures"
 
 # -----------------------------
 # Style preset (as requested)
@@ -55,7 +59,8 @@ axes[1].set_xticks(rej_cost)
 # Tight layout
 fig.tight_layout(rect=[0, 0, 1, 0.965])
 
-# Save (optional)
-plt.savefig("rej_cost_sensitivity_allencahn15.pdf", bbox_inches="tight")
-
-plt.show()
+FIGURES_DIR.mkdir(parents=True, exist_ok=True)
+output_path = FIGURES_DIR / "rej_cost_sensitivity_allencahn15.pdf"
+plt.savefig(output_path, bbox_inches="tight")
+plt.close(fig)
+print(f"Figure saved to {output_path}")

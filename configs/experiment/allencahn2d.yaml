@@ -34,12 +34,11 @@ batch:
 noise:
   enabled: true
   batch_size: 1000
-  kind: 4G # G, Goff, sG, u, 3G, 3G0, mix0, Gmix, rmix, sGtest
+  kind: 4G # G, 4G, Laplace, StudentT
   scale: 0.1 # default: 0.1
   pars: [0.0, 4.0]
   par_list: [[-9.0, 2],[-0.3,4],[2.7,0.6],[8.5,1]]
   # par_list: [[-8.0, 2],[0.7,4],[3.7,0.6],[9.5,1]] # 4G
-  # par_list: [[-2.0,4],[2.0,8],[6.0,2]] # 3G
 
   sensor_mode: fixed_grid # random / fixed_random / fixed_grid
   n_train: 5000 # only for random
@@ -68,9 +67,7 @@ ebm:
   hidden_dim: 32
   depth: 4
   num_grid: 1024
-  max_range_factor: 2.5
   lr: 1.0e-3
-  use_nll: false
   init_train_epochs: 5000
 
 data_loss:
@@ -81,18 +78,10 @@ data_loss:
 
 data_loss_balancer:
   use_loss_balancer: true # true / false
-  kind: threshold # pw, inverse, mlp, gated, gated_trainable
+  kind: threshold # gated_trainable, quantile, threshold
   init_threshold: 1.0        # Initial tau (in units of scaled residual std)
   init_steepness: 10.0       # Initial sigmoid steepness
   rejection_cost: 0.5 # only for gated_trainable
-  weight_net:
-    hidden_dim: 32
-    depth: 3
-
-offset:
-  enabled: false
-  init: 0.0
-
 # video
 video:
   enabled: true

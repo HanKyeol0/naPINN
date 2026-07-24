@@ -83,13 +83,10 @@ ebm:
   density_estimator: kde # "ebm" | "gmm" | "kde"
   std_mode: ema          # "ema" (running EMA std) | "batch" (per-batch std)
   momentum: 0.05         # EMA momentum (only used when std_mode: ema)
-  kind: 1D
   hidden_dim: 32
   depth: 4
   num_grid: 512
-  max_range_factor: 3.0
   lr: 1.0e-3
-  use_nll: false
   init_train_epochs: 0 # 0 / 5000
 
 data_loss:
@@ -108,9 +105,6 @@ data_loss_balancer:
 # Model I/O
 in_features: 3   # (x,y,t)
 out_features: 2  # (u,v)
-
-offset:
-  enabled: false
 
 video:
   enabled: true

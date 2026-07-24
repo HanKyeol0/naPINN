@@ -1,10 +1,5 @@
 import torch
 
-class Interval:
-    def __init__(self, x_min, x_max, device): self.a, self.b, self.device = x_min, x_max, device
-    def sample(self, n): 
-        return torch.rand(n, 1, device=self.device) * (self.b - self.a) + self.a
-
 class Rectangle:
     def __init__(self, x_min, x_max, y_min, y_max, device):
         self.xa, self.xb, self.ya, self.yb, self.device = x_min, x_max, y_min, y_max, device

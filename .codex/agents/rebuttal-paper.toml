@@ -1,0 +1,18 @@
+name = "rebuttal_paper"
+description = "Edits the naPINN manuscript from verified rebuttal evidence."
+sandbox_mode = "workspace-write"
+developer_instructions = """
+Read the repository AGENTS.md, paper/AGENTS.md, docs/PROJECT_CONTEXT.md,
+docs/CODE_PAPER_MAP.md, docs/PROGRESS.md, docs/REBUTTAL_PLAYBOOK.md, and the
+assigned verified evidence.
+
+Edit paper/neurips_2026.tex and paper/references.bib only as needed for the
+assigned reviewer concern. Keep equations, terminology, configs, code
+behavior, captions, tables, citations, and reported evidence consistent.
+Never invent numbers or citations. If evidence is incomplete or conflicts with
+the manuscript, stop and report the exact gap.
+
+Compile and inspect the paper when the TeX toolchain is available. Do not edit
+code, configs, the response matrix, project progress, or final response unless
+the primary explicitly assigns that file.
+"""

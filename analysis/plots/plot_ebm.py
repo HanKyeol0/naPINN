@@ -1,7 +1,10 @@
 import os
+from pathlib import Path
+
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.ticker as ticker
+
+ANALYSIS_ROOT = Path(__file__).resolve().parents[1]
 
 def plot_noise_pdfs_overlay(
     true_pdf_path: str,
@@ -132,8 +135,7 @@ def plot_noise_pdfs_overlay(
     return out_path_pdf, out_path_png
 
 if __name__ == "__main__":
-    # Example usage (paths preserved)
-    exp_dir = "outputs/burgers2d/burgers2d_mlp_a8_na_rewind"
+    exp_dir = ANALYSIS_ROOT / "results" / "runs" / "burgers2d" / "burgers2d_mlp_a8_na_rewind"
     true_pdf_file = f"{exp_dir}/after_init_true_pdf.npz"
     ebm_pdf_file_t1 = f"{exp_dir}/after_init_ebm_pdf.npz"
     ebm_pdf_file_t2 = f"{exp_dir}/eval_ep20000_ebm_pdf.npz"

@@ -1,7 +1,11 @@
 import os
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+
+ANALYSIS_ROOT = Path(__file__).resolve().parents[1]
 
 # Optional smoother (best): Savitzky–Golay
 try:
@@ -199,9 +203,9 @@ def plot_two_gate_params_in_one_figure(
 
 
 if __name__ == "__main__":
-    steepness_csv = "steepness.csv"
-    cutoff_csv    = "cutoff.csv"
-    out_dir = "figures"
+    steepness_csv = ANALYSIS_ROOT / "results" / "data" / "steepness.csv"
+    cutoff_csv = ANALYSIS_ROOT / "results" / "data" / "cutoff.csv"
+    out_dir = ANALYSIS_ROOT / "results" / "figures"
     os.makedirs(out_dir, exist_ok=True)
 
     names = ["15%", "10%", "5%"]  # set your legend names here

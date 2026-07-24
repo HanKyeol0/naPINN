@@ -1,4 +1,4 @@
-import torch, numpy as np, math
+import torch
 from abc import ABC, abstractmethod
 
 def make_leaf(X: torch.Tensor) -> torch.Tensor:
@@ -17,11 +17,9 @@ class BaseExperiment(ABC):
         self.cfg = cfg; self.device = device
 
     @abstractmethod
-    def sample_batch(self, n_f:int, n_b:int, n_0:int): ...
+    def sample_batch(self, n_f: int): ...
 
     def pde_residual_loss(self, model, batch): return torch.tensor(0., device=self.device)
-    def boundary_loss(self, model, batch):     return torch.tensor(0., device=self.device)
-    def initial_loss(self, model, batch):      return torch.tensor(0., device=self.device)
     def data_loss(self, model, batch):         return torch.tensor(0., device=self.device)
 
     @abstractmethod

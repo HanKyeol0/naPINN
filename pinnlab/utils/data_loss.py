@@ -49,15 +49,3 @@ def data_loss_q_gaussian(
     z = 1.0 + (q - 1.0) * beta * (residual ** 2)
     z = torch.clamp(z, min=eps)
     return torch.log(z) / (q - 1.0)
-
-
-def aggregate_data_loss(point_losses: torch.Tensor, reduction: str = "mean") -> torch.Tensor:
-    """
-    Helper to aggregate per-point losses into a scalar.
-    """
-    if reduction == "mean":
-        return point_losses.mean()
-    elif reduction == "sum":
-        return point_losses.sum()
-    else:
-        raise ValueError(f"Unknown reduction: {reduction}")

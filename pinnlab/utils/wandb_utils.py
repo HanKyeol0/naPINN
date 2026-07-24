@@ -1,4 +1,3 @@
-import os
 def setup_wandb(cfg, args, out_dir, config):
     mode = cfg.get("mode","auto")
     enabled = cfg.get("enabled", True)
