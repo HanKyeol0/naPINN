@@ -1,0 +1,718 @@
+\documentclass{article}
+
+% Recommended, but optional, packages for figures and better typesetting:
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{subcaption}
+\usepackage{booktabs} % for professional tables
+\usepackage{array}    % Standard package for table tools
+\captionsetup[subfigure]{labelformat=empty}
+\usepackage{multirow}
+
+% hyperref makes hyperlinks in the resulting PDF.
+% If your build breaks (sometimes temporarily if a hyperlink spans a page)
+% please comment out the following usepackage line and replace
+% \usepackage{icml2026} with \usepackage[nohyperref]{icml2026} above.
+\usepackage{hyperref}
+
+\setlength{\textfloatsep}{8pt plus 2pt minus 2pt}  % top/bottom floats
+\setlength{\intextsep}{8pt plus 1pt minus 1pt}
+
+\setlength{\abovecaptionskip}{4pt}
+\setlength{\belowcaptionskip}{0pt}
+
+\setlength{\floatsep}{6pt plus 2pt minus 2pt}
+\setlength{\dbltextfloatsep}{8pt plus 2pt minus 2pt}
+
+% Attempt to make hyperref and algorithmic work together better:
+\newcommand{\theHalgorithm}{\arabic{algorithm}}
+\usepackage{algorithm}
+
+% Use the following line for the initial blind version submitted for review:
+% \usepackage{icml2026}
+
+% For preprint, use
+\usepackage[preprint]{icml2026}
+
+% If accepted, instead use the following line for the camera-ready submission:
+% \usepackage[accepted]{icml2026}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{mathtools}
+\usepackage{amsthm}
+
+% if you use cleveref..
+\usepackage[capitalize,noabbrev]{cleveref}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% THEOREMS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\theoremstyle{plain}
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{assumption}[theorem]{Assumption}
+\theoremstyle{remark}
+\newtheorem{remark}[theorem]{Remark}
+\newcommand{\pmstd}[2]{#1\,\text{\scriptsize(#2)}}
+
+\usepackage[textsize=tiny]{todonotes}
+
+\icmltitlerunning{naPINN: Noise-Adaptive Physics-Informed Neural Networks}
+
+\begin{document}
+
+\twocolumn[
+  \icmltitle{naPINN: Noise-Adaptive Physics-Informed Neural Networks for Recovering Physics from Corrupted Measurement}
+  \icmlsetsymbol{equal}{*}
+
+  \begin{icmlauthorlist}
+    \icmlauthor{Hankyeol Kim}{yyy}
+    \icmlauthor{Pilsung Kang}{yyy}
+  \end{icmlauthorlist}
+
+  \icmlaffiliation{yyy}{Department of Industrial Engineering, Seoul National University, Seoul, Republic of Korea}
+
+  \icmlcorrespondingauthor{Pilsung Kang}{pilsung\_kang@snu.ac.kr}
+
+  % You may provide any keywords that you find helpful for describing your
+  % paper; these are used to populate the "keywords" metadata in the PDF but
+  % will not be shown in the document
+  \icmlkeywords{Machine Learning, ICML}
+  
+  \vskip 0.3in
+]
+
+\printAffiliationsAndNotice{}
+
+% Abstract
+\begin{abstract}
+Physics-Informed Neural Networks (PINNs) are effective methods for solving inverse problems and discovering governing equations from observational data. However, their performance degrades significantly under complex measurement noise and gross outliers. To address this issue, we propose the Noise-Adaptive Physics-Informed Neural Network (\textbf{naPINN}), which robustly recovers physical solutions from corrupted measurements without prior knowledge of the noise distribution. naPINN embeds an energy-based model into the training loop to learn the latent distribution of prediction residuals. Leveraging the learned energy landscape, a trainable reliability gate adaptively filters data points exhibiting high energy, while a rejection cost regularization prevents trivial solutions where valid data are discarded. We demonstrate the efficacy of naPINN on various benchmark partial differential equations corrupted by non-Gaussian noise and varying rates of outliers. The results show that naPINN significantly outperforms existing robust PINN baselines, successfully isolating outliers and accurately reconstructing the dynamics under severe data corruption.
+\end{abstract}
+
+% Introduction
+\section{Introduction}
+\label{sec:introduction}
+
+Modeling physical systems governed by partial differential equations (PDEs) has traditionally relied on classical numerical solvers such as finite element, finite difference, and finite volume methods \cite{FEM-book, FDM-book}. While highly effective for forward simulations under fully specified conditions, these mesh-based approaches face fundamental challenges in inverse problems, where latent states or system parameters must be inferred from sparse, indirect, and noisy measurements. Such problems are often ill-posed and highly sensitive to data corruption, limiting the robustness of conventional solvers \cite{CptlMethods-Book, StatCom-Book}.
+
+Physics-Informed Neural Networks (PINNs) have emerged as a powerful alternative within scientific machine learning by embedding PDE constraints directly into neural network training via automatic differentiation \cite{Raissi2019, Baydin2018}. Owing to their mesh-free formulation and ability to incorporate scattered observations, PINNs have shown promise for inverse problems, parameter identification, and data assimilation across a wide range of scientific domains \cite{Karniadakis2021}.
+
+Despite their promise, standard PINN formulations are notoriously sensitive to corrupted measurement data. Most existing PINN studies implicitly assume that observational noise is small and well-behaved, typically modeled as zero-mean Gaussian noise. In real-world sensing environments, however, measurements are frequently contaminated by complex, non-Gaussian noise and gross outliers caused by sensor faults, transmission errors, calibration drift, or environmental interference \cite{Chander2022}. This mismatch is particularly problematic because PINNs commonly rely on mean squared error (MSE) for data fitting. Since the MSE loss disproportionately penalizes large residuals, even a small fraction of outliers can dominate gradients and severely bias training, leading to incorrect physics recovery.
+
+Several robust PINN variants have been proposed to mitigate this issue, including the use of robust loss functions (e.g., $\ell_1$, Huber), heavy-tailed likelihoods such as Student-$t$ or $q$-Gaussian distributions \cite{Peng2022, Duarte2025}, and Bayesian PINN formulations that incorporate uncertainty modeling \cite{Yang2021}. While effective under specific assumptions, these approaches require \emph{a priori} choices of noise models or robustness parameters, and therefore struggle when the noise distribution is unknown, asymmetric, or multimodal, which is common in measurement-driven inverse problems.
+
+In this work, we address this limitation by proposing \textbf{naPINN} (Noise-Adaptive Physics-Informed Neural Networks), a framework designed to robustly recover physical solutions from corrupted measurements \emph{without prior knowledge of the noise distribution}. The key idea is to explicitly model the empirical distribution of measurement residuals during training and use this information to adaptively regulate the influence of individual data points. Concretely, naPINN integrates a one-dimensional Energy-Based Model (EBM) \cite{LeCun2006} into the PINN training loop to learn the residual distribution in a nonparametric manner. The learned energy landscape is then converted into a trainable reliability gate that selectively downweights measurements exhibiting anomalously high energy, effectively performing adaptive outlier filtering akin to anomaly detection. To prevent degenerate solutions in which the model trivially rejects most data, we introduce a rejection-cost regularization that encourages balanced and meaningful data utilization. Notably, naPINN is model-agnostic and can be combined with existing PINN architectures without modifying their physics constraints. By learning residual energies, the reliability gate also provides an explicit notion of measurement abnormality, enabling adaptive outlier detection alongside robust physics recovery.
+
+We validate the proposed framework on three challenging 2D PDE benchmarks, the Burgers' equation, the Allen–Cahn equation, and the $\lambda$–$\omega$ reaction–diffusion system, under multimodal non-Gaussian noise and varying outlier ratios. The results demonstrate that naPINN consistently outperforms existing robust PINN baselines, accurately reconstructing underlying dynamics while explicitly identifying and suppressing corrupted measurements.
+
+The main contributions of this work are summarized as follows:
+\begin{itemize}
+    \item We propose \textbf{naPINN}, a noise-adaptive PINN framework that robustly solves measurement-driven inverse PDE problems under unknown, non-Gaussian noise and gross outliers.
+    \item We introduce an \textbf{energy-guided reliability gating mechanism} based on a learned residual distribution via an Energy-Based Model, enabling per-measurement adaptive weighting without assuming a predefined noise model.
+    \item We demonstrate through experiments on multiple 2D PDE benchmarks that naPINN achieves state-of-the-art robustness and accuracy under severe data corruption, while providing interpretable insights into noise structure and outlier behavior.
+\end{itemize}
+
+% Related Work
+\section{Related Work}
+\label{sec:relatedwork}
+
+\paragraph{Stabilizing PINN optimization.}
+A large line of work addresses optimization pathologies in PINNs (e.g., stiffness, spectral bias, and gradient imbalance) via adaptive loss reweighting, gradient-based balancing, or curriculum-like scheduling \cite{Rahaman2019, Wang2021, SWang2022, CWang2022, Chen2018, Xiang2022, Hwang2024, Bischof2025}.  
+Related techniques also include adaptive sampling \cite{Nabian2021} and region-based optimization \cite{Wu2024, duan2025} to stabilize PINN training. While some works address point-wise weighting mechanism \cite{McClenny2023}, weighting methods based on reliability of individual measurement data point are underexplored.
+
+\paragraph{Robust learning from corrupted measurements in PINNs.}
+Robustness to outliers is commonly pursued by replacing squared error with robust penalties or heavy-tailed likelihoods, which reduces the influence of extreme residuals but typically fixes the robustness shape a priori \cite{Huber1973, Yang2021, Peng2022, Duarte2025}.  
+Complementary probabilistic formulations estimate uncertainty under noisy data, often with tractable likelihood assumptions \cite{Yang2019, Yang2021}.  
+In contrast to fixed robust losses, our work emphasizes \emph{learning} a flexible residual/noise model and using it to adapt per-point weighting.
+
+\paragraph{Energy-based scoring and density learning.}
+Energy-based models provide an unnormalized density view where low energy corresponds to frequent configurations, enabling flexible modeling without committing to a parametric likelihood \cite{LeCun2006, Nijkamp2020, Du2019}.  
+Energy scores have been used as generic reliability signals for rare-event detection, calibration, and out-of-distribution scoring \cite{Liu2020EnergyOOD, Hendrycks2016, Ovadia2019}.  
+This perspective aligns with our design in which residual energy induces a data-dependent weighting rather than a fixed penalty shape.
+
+\begin{figure*}[t]
+  \centering
+    \includegraphics[width=\textwidth]{figures/main_figure_v3.pdf}
+    \caption{Overview of the naPINN framework. Measurement residuals are modeled by an energy-based model (EBM) to estimate their log-likelihood under the learned noise distribution. A trainable reliability gate converts this information into adaptive weights, selectively filtering unreliable measurements when computing the data loss.}
+    \label{fig:naPINN}
+\end{figure*}
+
+\paragraph{Anomaly detection and selective learning beyond SciML.} Learning with corrupted supervision commonly relies on sample selection or reweighting strategies that exploit confidence or memorization dynamics to mitigate noisy labels \cite{Jiang2018, Han2018, Li2020, Natarajan2013}. Anomaly detection formalizes rarity via one-class objectives or reconstruction- and score-based criteria \cite{Chandola2013, Ruff2018, Pang2021}. In time-series modeling, robustness to nonstationarity and heavy-tailed noise has been studied through probabilistic sequence models, autoencoder-based methods, attention-based discrepancy scoring, and more recently selective learning schemes that evaluate data reliability to improve prediction accuracy \cite{Su2019, Audibert2020, Xu2021, Tuli2022, Fu2025, Wu2025}. Related robustness principles have also been explored in computer vision through corruption benchmarks and calibration-aware evaluation \cite{Hendrycks2019, Mao2022, Ovadia2019}. Despite this broad progress, anomaly detection and reliability-aware learning remain largely underexplored in the context of PINNs.
+
+% Preliminaries
+\section{Preliminaries}
+\label{sec:preliminaries}
+
+In this section, we briefly review the fundamental formulations of Physics-Informed Neural Networks (PINNs) and Energy-Based Model (EBMs), which we combine in our proposed framework.
+
+\subsection{Physics-Informed Neural Networks}
+
+We consider a general nonlinear partial differential equation (PDE) parameterized by $\boldsymbol{\lambda}$, defined over a spatiotemporal domain $\Omega \subset \mathbb{R}^d$ and a time interval $t \in [0, T]$:
+\begin{equation}
+    \mathcal{N}[u](\mathbf{x},t;\boldsymbol{\lambda}) = f(\mathbf{x},t), \quad (\mathbf{x},t) \in \Omega \times [0, T] ,
+\end{equation}
+where $u(\mathbf{x},t)$ denotes the latent solution, $\mathcal{N}[\cdot]$ is a general differential operator, and $f(\mathbf{x},t)$ is a forcing term. The system is subject to boundary conditions (BC) on $\partial \Omega$ and initial conditions (IC) at $t=0$.
+Standard PINN frameworks aim to approximate the solution $u(\mathbf{x},t)$ using a deep neural network $\hat{u}_{\theta}(\mathbf{x},t)$ with trainable parameters $\theta$. The network is trained by minimizing a composite loss function that enforces both the physics and the available observations:
+\begin{equation}
+\begin{aligned}
+\mathcal{L}_\mathrm{PINN}(\theta, \boldsymbol{\lambda})
+&= w_f \mathcal{L}_\mathrm{PDE} + w_b \mathcal{L}_\mathrm{BC} \\
+&\quad + w_i \mathcal{L}_\mathrm{IC} + w_d \mathcal{L}_\mathrm{data}.
+\end{aligned}
+\end{equation}
+where $w_f$, $w_b$, $w_i$, and $w_d$ are weights for the corresponding terms. Here, $\mathcal{L}_\mathrm{PDE}$ penalizes residuals of the governing equation on a set of collocation points $\{ ( \mathbf{x}_f^{(i)}, t_f^{(i)} ) \}_{i=1}^{N_f}$, computed via automatic differentiation:
+{\footnotesize
+\begin{equation}
+    \mathcal{L}_\mathrm{PDE} = \frac{1}{N_f} \sum _{i=1} ^{N_f} \left\| \mathcal{N}[\hat{u}_\theta] (\mathbf{x}_f^{(i)}, t_f^{(i)}; \boldsymbol{\lambda}) - f(\mathbf{x}_f^{(i)}, t_f^{(i)}) \right\|^2 .
+\end{equation}
+}
+In this study, we consider a realistic inverse problem scenario where only $N_d$ measurement data $\{ (\mathbf{x}_d^{(i)}, t_d^{(i)}, y_d^{(i)} \} _{i=1} ^{N_d}$ of $N_d$ are given without boundary/initial conditions, therefore, we ignore the corresponding two loss terms. $y_d^{(i)} = y_t^{(i)} + \epsilon$ contains unknown noise $\epsilon$ upon the true solution $y_t^{(i)}$. Typically, Mean Squared Error (MSE) is employed for data loss, corresponding to the Maximum Likelihood Estimation (MLE) under the assumption of Gaussian noise, which renders the model sensitive to outliers.
+\begin{equation}
+\mathcal{L}_\mathrm{data}
+= \frac{1}{N_d} \sum_{i=1}^{N_d}
+\left\| \hat{u}_\theta(\mathbf{x}_d^{(i)}, t_d^{(i)}) - y_d^{(i)} \right\|^2 .
+\end{equation}
+
+\begin{algorithm}[t]
+\caption{Noise-Adaptive PINN (naPINN)}
+\label{alg:napinn}
+\begin{algorithmic}[1]
+\STATE \textbf{Input:} total iterations $K_{\text{tot}}$, warm-up iterations $i_{w}$, EBM initialization iterations $K_{\text{EBM}}$,
+domain $\Omega$, collocation points $\mathcal{D}_c$, data points $\mathcal{D}_d$,
+differential operator $\mathcal{N}(\boldsymbol{\lambda})$, rejection cost weight $\lambda_{\text{rej}}$
+\STATE \textbf{Output:} optimized $\theta_{\text{PINN}}$, $\phi_\text{EBM}$, $\boldsymbol{\lambda}$, gate parameters $(a,\tau)$
+\STATE \textbf{Initialize:} $\theta_{\text{PINN}}$, $\phi_\text{EBM}$, $\boldsymbol{\lambda}$, gate parameters $(a,\tau)$, running std $\sigma_{\text{run}}$
+
+\FOR{$i = 1,2,\dots,K_{\text{tot}}$}
+    \IF{$i < i_{w}$}
+        \STATE sample minibatch from $\mathcal{D}_c$ and $\mathcal{D}_d$
+        \STATE update $(\theta_{\text{PINN}},\boldsymbol{\lambda})$ by minimizing $\mathcal{L}_{\text{PINN}}$ 
+    \ELSIF{$i = i_{w}$}
+        \STATE compute residual $\{r_i(\theta^{(0)})\}$ with $(\theta_{\text{PINN}},\boldsymbol{\lambda})$
+        \FOR{$k = 1,2,\dots,K_{\text{EBM}}$}
+            \STATE sample minibatch of residuals
+            \STATE update $\sigma_{\text{run}}$ via EMA
+            \STATE normalize residuals $\tilde r_i \leftarrow r_i / \sigma_{\text{run}}$
+            \STATE update $\phi_\text{EBM}$ by minimizing $\mathcal{L}_{\text{EBM}}(\phi)$
+        \ENDFOR 
+    \ELSE
+        \STATE sample minibatch from $\mathcal{D}_c$ and $\mathcal{D}_d$
+        \STATE compute residuals $r_i(\theta_{\text{PINN}})$
+        \STATE update $\sigma_{\text{run}}$ via EMA and compute $\tilde r_i$
+        \STATE compute energies $E_\phi(\tilde r_i)$ 
+        \STATE compute reliability weight $g_i$
+        \STATE update $(\theta_{\text{PINN}},\boldsymbol{\lambda},a,\tau)$
+        \STATE update $\phi_\text{EBM}$
+    \ENDIF
+\ENDFOR
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Energy-Based Models}
+Energy-Based Models define an unnormalized probability density over a variable $r$ (here, a measurement residual) via learning an energy function $E_\phi(r): \mathcal{Y} \rightarrow \mathbb{R}$ that maps input data $y$ to a scalar energy value, and parameterized by $\phi$:
+\begin{equation}
+p_\phi(r) = \frac{\exp(-E_\phi(r))}{Z_\phi}, \ \
+Z_\phi = \int \exp(-E_\phi(r))\,dr,
+\label{eq:ebm_density}
+\end{equation}
+where $Z_\phi$ is the intractable partition function. In this work, a one-dimensional EBM is employed, i.e., $r\in\mathbb{R}$, to flexibly model the marginal distribution of measurement residuals without committing to a fixed parametric likelihood (e.g., Gaussian or Student-$t$). We numerically approximate the partition function via trapezoidal integration over a fixed one-dimensional grid of size $1024$, spanning a symmetric interval around zero. The core principle of EBM training is to assign low energy values to frequently observed (in-distribution) data points and high energy values to unobserved or infrequent points. For a scalar measurement $y_d^{(i)}$ at $(x_d^{(i)},t_d^{(i)})$, we define the residual as
+\begin{equation}
+r^{(i)}(\theta) := y_d^{(i)} - \hat{u}_\theta(\mathbf{x}_d^{(i)},t_d^{(i)}),
+\label{eq:residual_def}
+\end{equation}
+and use an EBM to flexibly model the (potentially non-Gaussian) residual distribution without committing to a fixed parametric likelihood family. Training an EBM by maximum likelihood corresponds to minimizing the negative log-likelihood
+\begin{equation}
+\mathcal{L}_{\text{EBM}}(\phi)
+= \mathbb{E}_{r \sim q(r)}\!\left[E_\phi(r)\right] + \log Z_\phi,
+\label{eq:ebm_nll}
+\end{equation}
+where $q(r)$ denotes the (unknown) data distribution of residuals. The gradient of $\log Z_\phi$ involves an expectation under the model distribution $p_\phi$, which is commonly approximated using sampling procedures such as Markov chain Monte Carlo (MCMC) or Langevin dynamics. In the proposed framework, the EBM serves as a learnable mechanism to characterize residual reliability from data.
+
+% Method
+\section{Method}
+\label{sec:method}
+
+We propose \textbf{naPINN} (Noise-Adaptive Physics-Informed Neural Networks), a training framework for inverse problems with corrupted measurement data. As elaborated in Algorithm~\ref{alg:napinn}, naPINN augments standard PINN training with (i) an Energy-Based Model (EBM) that learns the empirical distribution of measurement residuals, and (ii) a trainable gating function that uses the learned energy to downweight unreliable measurements. The overall structure of the framework is illustrated in Figure~\ref{fig:naPINN}.
+
+\subsection{PINN Warm-Up and EBM Initialization}
+\label{subsec:stage1}
+Directly coupling PINN, EBM, and a reliability gate from scratch is ill-conditioned, because in the early optimization stage the residuals are dominated by the \emph{epistemic} error of an untrained network rather than the \emph{aleatoric} sensor noise. Training the EBM on such nonstationary residuals can therefore mischaracterize the noise distribution and yield misleading energy scores, which in turn can drive the gate to suppress informative measurements. We mitigate this failure mode via staged training: we first obtain relatively reliable residuals through PINN warm-up, and then initialize the EBM using residuals from a fixed predictor (an ablation study of this warm-up stage is detailed in Appendix~\ref{appendix:ablation}).
+
+\paragraph{PINN warm-up.}
+Starting from the standard PINN objective (Sec.~\ref{sec:preliminaries}), we first train the PINN parameters (and PDE parameters $\boldsymbol{\lambda}$ if applicable) using the conventional physics and data losses:
+\begin{equation}
+(\theta,\boldsymbol{\lambda}) \leftarrow 
+\arg\min_{\theta,\boldsymbol{\lambda}} \ \mathcal{L}_{\text{PINN}}(\theta,\boldsymbol{\lambda}),
+\label{eq:warmup}
+\end{equation}
+which yields a predictor $u_{\theta^{(0)}}$ whose residuals better reflect the corruption structure in the measurements.
+
+\paragraph{EBM initialization.}
+Next, we freeze the warmed-up PINN and compute residual samples from the fixed predictor (using the residual definition in Sec.~\ref{sec:preliminaries}):
+\begin{equation}
+r_i = y_i - u_{\theta^{(0)}}(\mathbf{x}_i,t_i), \qquad i=1,\dots,N_r,
+\end{equation}
+where $N_r$ denotes the number of residual samples. We then train a one-dimensional EBM $p_\phi(r)\propto \exp(-E_\phi(r))$ by approximate maximum likelihood (Sec.~\ref{sec:preliminaries}):
+\begin{equation}
+\phi \leftarrow \arg\min_{\phi} \ \mathcal{L}_{\text{EBM}}(\phi).
+\label{eq:ebm_pretrain}
+\end{equation}
+This initialization prevents the EBM from modeling transient warm-up errors and improves stability when we later couple the EBM with PINN updates.
+
+\begin{figure*}[t]
+  \centering
+    \includegraphics[width=\textwidth]{figures/result_viz_v1.pdf}
+    \caption{Qualitative comparison of solution reconstruction under corrupted measurements. For each PDE benchmark, we visualize the ground-truth solution, predictions from naPINN and a standard PINN, and their corresponding absolute errors at two representative time steps. Different colormaps are used across benchmarks to enhance visibility.}
+    \label{fig:visualization}
+\end{figure*}
+
+%공간을 고려해 2개 time step에 대해서만 보여주되, appendix에서 더 많은 visualization 포함 예정 + supplementary material에 동영상 포함
+
+\subsection{Running-Standard Normalization via EMA}
+\label{subsec:runningstd}
+Residual magnitudes can vary substantially across minibatches under heavy-tailed noise and outliers. While normalization is helpful for stable EBM learning, per-batch statistics can be dominated by a small number of extreme residuals, especially in early training. To stabilize both EBM training and gating, we maintain a running standard deviation $\sigma_{\text{run}}$ updated by EMA. For a residual minibatch $\mathcal{B}$ with empirical standard deviation $s_{\mathcal{B}}$, we update
+\begin{equation}
+\sigma_{\text{run}} \leftarrow (1-\beta)\,\sigma_{\text{run}} + \beta\, s_{\mathcal{B}},
+\label{eq:ema_std}
+\end{equation}
+and normalize residuals as $\tilde r = r / \sigma_\text{run}$, where $\beta\in(0,1)$ is a constant. This running-statistics normalization reduces sensitivity to outlier-dominated minibatches and improves convergence during early-stage joint training.
+
+\subsection{Joint Training with Energy-Guided Trainable Gating}
+\label{subsec:stage2}
+After warm-up training for PINN, we jointly train the PINN, the EBM, and the reliability gate that adaptively downweights unreliable measurements.
+
+\paragraph{Energy-guided reliability gate.}
+For each measurement residual $\tilde r_i$, EBM outputs its energy $E_\phi(\tilde r_i)$ (which is monotonic with the negative log-likelihood up to an additive constant) and convert it into a reliability weight using a sigmoid gate with trainable cutoff and steepness parameters:
+\begin{equation}
+g_i
+:= \sigma\!\Big( a \big(\tau - E_\phi(\tilde r_i)\big)\Big), \ \ \sigma(z)=\frac{1}{1+e^{-z}},
+\label{eq:gate}
+\end{equation}
+where $a>0$ controls steepness and $\tau$ is the cutoff. Residuals assigned higher energy (less plausible under the learned residual distribution) receive smaller weights. Now we replace the standard measurement loss with an energy-weighted version:
+\begin{equation}
+\mathcal{L}_{d}^{\text{gate}}(\theta)
+= \frac{1}{N_d}\sum_{i=1}^{N_d} g_i \, \|y_i - u_\theta(\mathbf{x}_i,t_i)\|_2^2.
+\label{eq:gated_data}
+\end{equation}
+Through this weighting mechanism, our naPINN framework is able to adaptively determine which measurement data contain abnormal noise and are unhelpful for reconstructing solutions to filter them out. The physics loss remain as defined in the standard PINN objective (Sec.~\ref{sec:preliminaries}).
+
+\paragraph{Rejection-cost regularization.}
+If unconstrained, the gate may converge to a trivial solution that rejects most measurements to reduce $\mathcal{L}_{d}^{\text{gate}}$. To discourage excessive rejection, we introduce a rejection-cost regularizer
+\begin{equation}
+\mathcal{L}_{\text{rej}}
+= \frac{1}{N_d}\sum_{i=1}^{N_d} (1-g_i),
+\label{eq:rej_cost}
+\end{equation}
+and weight it by $\lambda_{\text{rej}}>0$.
+
+\begin{sc}
+\begin{table*}[t]
+\centering
+\caption{Performance comparison under corrupted measurements across three outlier ratios. Results are averaged over 10 independent trials with different random seeds, with standard deviations shown in parentheses. The best results are highlighted in bold and the second best results are underlined. \textit{Improvement} refers to the relative improvement of naPINN over the second-best performing baseline. \textit{Clean measurement} row reports rMAE and rMSE errors when training the PINN on clean measurement data without noise or outliers.}
+\label{table:main_result}
+\setlength{\tabcolsep}{4pt} % Slightly increased spacing for readability
+% \renewcommand{\arraystretch}{1.1} % Slightly increased for vertical separation
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{llccccccccc}
+\toprule
+ & & \multicolumn{3}{c}{Allen--Cahn} & \multicolumn{3}{c}{Burgers} & \multicolumn{3}{c}{$\lambda$--$\omega$ RD} \\
+\cmidrule(lr){3-5}\cmidrule(lr){6-8}\cmidrule(lr){9-11}
+Method & Metric & 5\% & 10\% & 15\% & 5\% & 10\% & 15\% & 5\% & 10\% & 15\% \\
+\midrule
+
+\multirow{2}{*}{PINN}
+ & rMAE & \pmstd{0.305}{0.028} & \pmstd{0.584}{0.041} & \pmstd{0.823}{0.058} & \pmstd{0.221}{0.021} & \pmstd{0.387}{0.023} & \pmstd{0.568}{0.027} & \pmstd{0.161}{0.011} & \pmstd{0.273}{0.011} & \pmstd{0.437}{0.013} \\
+ & rMSE & \pmstd{0.267}{0.022} & \pmstd{0.488}{0.033} & \pmstd{0.682}{0.048} & \pmstd{0.222}{0.018} & \pmstd{0.377}{0.021} & \pmstd{0.547}{0.025} & \pmstd{0.178}{0.010} & \pmstd{0.292}{0.011} & \pmstd{0.457}{0.014} \\
+\cmidrule(lr){2-11}
+
+\multirow{2}{*}{B-PINN}
+ & rMAE & \pmstd{0.367}{0.159} & \pmstd{0.608}{0.117} & \pmstd{0.885}{0.229} & \pmstd{0.278}{0.025} & \pmstd{0.429}{0.016} & \pmstd{0.592}{0.016} & \pmstd{0.190}{0.025} & \pmstd{0.314}{0.035} & \pmstd{0.490}{0.038} \\
+ & rMSE & \pmstd{0.338}{0.131} & \pmstd{0.538}{0.099} & \pmstd{0.762}{0.189} & \pmstd{0.285}{0.020} & \pmstd{0.419}{0.016} & \pmstd{0.571}{0.015} & \pmstd{0.222}{0.021} & \pmstd{0.339}{0.032} & \pmstd{0.517}{0.036} \\
+\cmidrule(lr){2-11}
+
+\multirow{2}{*}{LAD-PINN}
+ & rMAE & \pmstd{0.272}{0.068} & \pmstd{0.318}{0.075} & \pmstd{0.352}{0.057} & \pmstd{0.203}{0.014} & \pmstd{0.225}{0.014} & \pmstd{0.242}{0.019} & \pmstd{0.155}{0.013} & \pmstd{0.172}{0.013} & \pmstd{0.190}{0.011} \\
+ & rMSE & \pmstd{0.233}{0.049} & \pmstd{0.272}{0.055} & \pmstd{0.296}{0.040} & \pmstd{0.194}{0.013} & \pmstd{0.216}{0.012} & \pmstd{0.241}{0.009} & \pmstd{0.164}{0.013} & \pmstd{0.181}{0.012} & \pmstd{0.199}{0.010} \\
+\cmidrule(lr){2-11}
+
+\multirow{2}{*}{OrPINN ($q=1.9$)}
+ & rMAE & \pmstd{0.249}{0.027} & \pmstd{0.450}{0.036} & \pmstd{0.654}{0.065} & \pmstd{0.153}{0.017} & \pmstd{0.258}{0.017} & \pmstd{0.376}{0.021} & \pmstd{\underline{0.093}}{0.013} & \pmstd{\underline{0.130}}{0.010} & \pmstd{0.178}{0.012} \\
+ & rMSE & \pmstd{0.219}{0.022} & \pmstd{0.379}{0.028} & \pmstd{0.545}{0.052} & \pmstd{0.158}{0.015} & \pmstd{0.267}{0.044} & \pmstd{0.373}{0.020} & \pmstd{\underline{0.109}}{0.007} & \pmstd{\underline{0.150}}{0.009} & \pmstd{0.201}{0.012} \\
+\cmidrule(lr){2-11}
+
+\multirow{2}{*}{OrPINN ($q=2.9$)}
+ & rMAE & \pmstd{\underline{0.165}}{0.047} & \pmstd{\underline{0.219}}{0.050} & \pmstd{\underline{0.269}}{0.055} & \pmstd{\underline{0.130}}{0.010} & \pmstd{\underline{0.155}}{0.014} & \pmstd{\underline{0.175}}{0.019} & \pmstd{0.123}{0.016} & \pmstd{0.138}{0.009} & \pmstd{\underline{0.150}}{0.008} \\
+ & rMSE & \pmstd{\underline{0.151}}{0.036} & \pmstd{\underline{0.195}}{0.036} & \pmstd{\underline{0.234}}{0.042} & \pmstd{\underline{0.132}}{0.010} & \pmstd{\underline{0.155}}{0.014} & \pmstd{\underline{0.180}}{0.012} & \pmstd{0.140}{0.009} & \pmstd{0.151}{0.009} & \pmstd{\underline{0.163}}{0.009} \\
+\midrule
+
+\multirow{2}{*}{\textbf{naPINN (ours)}}
+ & rMAE & \pmstd{\textbf{0.104}}{0.050} & \pmstd{\textbf{0.110}}{{0.027}} & \pmstd{\textbf{0.134}}{{0.060}} & \pmstd{\textbf{0.075}}{{0.010}} & \pmstd{\textbf{0.074}}{{0.009}} & \pmstd{\textbf{0.072}}{{0.014}} & \pmstd{\textbf{0.073}}{0.006} & \pmstd{\textbf{0.074}}{0.006} & \pmstd{\textbf{0.076}}{0.006} \\
+ & rMSE & \pmstd{\textbf{0.101}}{0.039} & \pmstd{\textbf{0.108}}{0.023} & \pmstd{\textbf{0.127}}{0.049} & \pmstd{\textbf{0.089}}{0.008} & \pmstd{\textbf{0.092}}{0.011} & \pmstd{\textbf{0.091}}{0.006} & \pmstd{\textbf{0.092}}{0.007} & \pmstd{\textbf{0.092}}{0.007} & \pmstd{\textbf{0.095}}{0.006} \\
+\cmidrule(lr){2-11}
+
+\multirow{2}{*}{\textit{Improvement}}
+ & rMAE & 37.97\% & 49.77\% & 50.19\% & 42.31\% & 50.32\% & 58.86\% & 21.51\% & 43.08\% & 49.33\% \\
+ & rMSE & 33.11\% & 44.62\% & 45.73\% & 32.58\% & 40.65\% & 49.44\% & 15.60\% & 38.67\% & 41.72\% \\
+\midrule
+
+\multirow{2}{*}{\textit{Clean measurement}}
+ & rMAE & \multicolumn{3}{c}{\pmstd{0.066}{0.042}} & \multicolumn{3}{c}{\pmstd{0.028}{0.003}} & \multicolumn{3}{c}{\pmstd{0.032}{0.006}} \\
+ & rMSE & \multicolumn{3}{c}{\pmstd{0.069}{0.036}} & \multicolumn{3}{c}{\pmstd{0.041}{0.003}} & \multicolumn{3}{c}{\pmstd{0.047}{0.004}} \\
+\bottomrule
+\end{tabular}%
+}
+\end{table*}
+\end{sc}
+
+\paragraph{Joint objective.}
+In the joint training phase, we optimize the PINN and gate parameters by minimizing
+\begin{equation}
+\mathcal{L}_{\text{total}}
+= \mathcal{L}_{\text{PDE}}
++ \mathcal{L}_{d}^{\text{gate}}
++ \lambda_{\text{rej}}\mathcal{L}_{\text{rej}}.
+\label{eq:joint_pinn_gate}
+\end{equation}
+In parallel, we update the EBM parameters using the normalized residuals induced by the current PINN by minimizing $\mathcal{L}_{\text{EBM}}(\phi)$.
+In practice, we alternate gradient updates for $(\theta,\boldsymbol{\lambda},a,\tau)$ and $\phi$ each iteration; implementation details (e.g., update ratios and sampling procedures) are provided in Sec.~\ref{sec:experiments}.
+
+% Experiments
+\section{Experiments}
+\label{sec:experiments}
+
+We evaluate the effectiveness of \textbf{naPINN} on three canonical time-dependent two-dimensional PDE benchmarks: the 2D Burgers' equation, the 2D Allen--Cahn equation, and the 2D $\lambda$--$\omega$ reaction--diffusion (RD) system. These problems are deliberately chosen to emulate realistic sensor deployment scenarios in which sparse and noisy measurements are collected over a spatiotemporal domain $\Omega \times [0, T] \subset \mathbb{R}^3$. Compared to standard 1D benchmarks, this setting poses a substantially greater challenge, as the model must disentangle evolving spatial structures from arbitrary spatiotemporal corruptions. Detailed formulations, boundary and initial conditions, and numerical solvers used to generate reference solutions are provided in Appendix~\ref{appendix:DatasetDetails}.
+
+\subsection{Experimental Setup}
+
+\paragraph{Data Generation.} To rigorously assess robustness under realistic measurement corruption, we construct synthetic datasets contaminated by non-Gaussian noise and gross outliers. For the 2D Allen--Cahn equation, an analytical solution is available and used as ground truth. For the 2D Burgers' and $\lambda$--$\omega$ RD systems, high-fidelity numerical simulations are employed. As detailed in Appendix~\ref{appendix:DatasetDetails}, the Burgers' and $\lambda$--$\omega$ systems require predicting two state variables $(u, v)$, whereas the Allen--Cahn equation involves a single scalar field.
+
+To reflect practical sensing constraints, we assume sensors are deployed on a fixed $15 \times 15$ spatial grid (225 sensors total), each recording measurements at all time steps. In contrast, PDE collocation points are sampled from a denser $100 \times 100$ grid. This design enforces a realistic data-scarce regime, as acquiring high-resolution measurement data is often costly or infeasible in practice. The spatiotemporal domain and simulation horizon are chosen separately for each benchmark to adequately capture the characteristic dynamics of the system.
+
+\begin{figure*}[h]
+  \centering
+  \includegraphics[width=\textwidth]{figures/performance_ratio_plot_v2.pdf}
+  \caption{Robustness comparison under increasing outlier ratios on three PDE benchmarks. The relative RMSE (rMSE) is plotted as a function of the outlier ratio, with error bars denoting one standard deviation over independent runs.}
+  \label{fig:perf_over_ratios}
+\end{figure*}
+
+\paragraph{Noise Injection.} The same noise distribution is applied across all benchmarks for consistency. The GMM components are specified by $(\mu, \sigma) \in \{(-9.0, 2.0), (-0.3, 4.0), (2.7, 0.6), (8.5, 1.0)\}$, and the overall noise scale is normalized to $10\%$ of the mean absolute magnitude of the corresponding solution field. Gross outliers are introduced by randomly selecting a subset of spatiotemporal measurement points and replacing their values with samples drawn uniformly from a disjoint high-magnitude interval $[k_1 \sigma, k_2 \sigma]$, where $k_1=3$ and $k_2=10$. Compared to prior work~\cite{Duarte2025}, this setting is intentionally more challenging, as the injected outliers deviate less drastically from the base noise distribution. We evaluate robustness under three outlier ratios: $5\%$, $10\%$, and $15\%$ of the total measurement data.
+
+\paragraph{Baselines and Metrics.} We compare naPINN against a standard Vanilla PINN and existing robust frameworks. We additionally include B-PINN, implemented with Bayesian linear layers and a mean-field Gaussian weight prior ($\mu=0, \sigma=1$). In particular, for OrPINN \cite{Duarte2025}, which employs a q-Gaussian likelihood, we report results for $q \in \{1.9, 2.9\}$. Reconstruction performance is quantified using relative mean absolute error (rMAE) and relative mean squared error (rMSE) computed against the clean reference solution on a held-out test sets. To assess generalization as a mesh-free PDE solver, all evaluation metrics are computed on a dense $120 \times 120$ spatial grid, which is finer than the collocation grid used during training. Formal definitions of all evaluation metrics are provided in Appendix~\ref{appendix:ImplementationDetails}. For reference, we additionally report results of a standard PINN trained on clean (noise-free) measurements. To isolate the contribution of naPINN, we do not employ auxiliary loss-balancing schemes that dynamically reweight data and PDE residual losses.
+%시간이 허락된다면 B-PINN도 baseline에 추가..
+
+\subsection{Main Results}
+
+Table~\ref{table:main_result} summarizes reconstruction accuracy across all benchmarks and outlier ratios. All models are trained for a total of 30{,}000 epochs to ensure convergence and performance saturation. Training proceeds in three stages: (i) a warm-up phase of 5{,}000 epochs where the PINN is trained without noise adaptivity, (ii) an EBM initialization phase of 5{,}000 epochs to stabilize noise distribution learning, and (iii) a joint training phase of 25{,}000 epochs where the PINN, EBM, and reliability gate are optimized together. For each experimental setting, we run 10 independent trials with different random seeds, and all reported results are averaged across these runs.
+
+Under corrupted measurements, standard PINNs exhibit large rMAE and rMSE values, as squared losses are dominated by gross outliers. Performance degrades rapidly as the outlier ratio increases, often leading to unstable or catastrophic failures. Robust losses such as $L_1$ and $q$-Gaussian significantly improve stability, with the $q$-Gaussian loss at $q=2.9$ yielding the strongest baseline performance in most cases. In contrast, the Bayesian PINN baseline performs poorly across benchmarks, likely because its practical formulation assumes a Gaussian likelihood for tractable inference, which becomes severely misspecified under heavy-tailed, non-Gaussian corruption and gross outliers.
+
+Across all benchmarks and noise levels, naPINN consistently achieves the best performance, with error rates remaining close to those obtained under clean measurements. Notably, naPINN exhibits only marginal degradation as the outlier ratio increases from $5\%$ to $15\%$, highlighting the effectiveness of its adaptive reliability gating even in spatiotemporal problems.
+Figure~\ref{fig:visualization} presents qualitative comparisons at two representative time snapshots for all three PDE systems. Standard PINNs exhibit noticeable discrepancies from the ground-truth solutions, particularly under higher outlier ratios, whereas naPINN produces predictions that closely match the true solutions across the spatial domain. The corresponding error maps indicate that naPINN achieves consistently lower reconstruction error compared to the baseline PINN, with reduced sensitivity to localized measurement corruption. These visual results qualitatively corroborate the quantitative improvements reported in Table~\ref{table:main_result}.
+\begin{figure}
+  \centering
+  \includegraphics[width=\linewidth]{figures/noise_pdf_comparison_v3.pdf}
+  \caption{Comparison of residual distributions learned by the EBM after EBM initialization and after joint naPINN training. Joint optimization enables the EBM to accurately approximate the underlying noise distribution.}
+  \label{fig:noisecomparison} 
+\end{figure}
+\subsection{Analysis of Noise Modeling and Gating}
+
+\paragraph{Noise Distribution Learning via EBM.} To enable the trainable reliability gate to adaptively assess the validity of individual measurement points, the EBM must first learn an accurate representation of the underlying noise distribution. Through joint optimization of the PINN, EBM, and reliability gate, each component is iteratively refined in a complementary manner: the PINN improves the physical prediction, the EBM models the residual distribution induced by measurement noise, and the gate leverages this learned distribution to determine whether each data point is reliable enough to influence training.
+
+Figure~\ref{fig:noisecomparison} compares the residual distributions learned by the EBM at initialization and after the full naPINN training procedure against the ground-truth noise density. The results are shown for the Burgers’ equation with a 5\% outlier ratio. After joint training, the EBM accurately captures the complex multimodal structure of the four-component Gaussian mixture, whereas it fails to do so at initialization. This behavior indicates that the PINN residuals have converged to the intrinsic aleatoric noise profile, while the reliability gate has successfully downweighted gross outliers that are inconsistent with the learned noise distribution.
+
+\begin{figure}
+  \centering
+  \includegraphics[width=\linewidth]{figures/allencahn_b4_na_remade_gate_sigmoid_analysis_v4.pdf}
+  \caption{Visualization of the trained reliability gate. Normal and outlier measurement points are projected onto the learned gating function, illustrating adaptive filtering of unlikely residuals.}
+  \label{fig:sigmoid_analysis}
+\end{figure}
+
+\begin{table}
+\centering
+\caption{Confusion matrix for rejection (positive) vs acceptance (negative). Percentages are computed with respect to the total number of samples.}
+\small
+\setlength{\tabcolsep}{10pt}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{lcc}
+\toprule
+\textbf{True label} & \textbf{Rejected} & \textbf{Accepted} \\
+\midrule
+\textbf{Outlier}  & 2209 (9.8\%$_{\mathrm{TP}}$) & 41(0.2\%$_{\mathrm{FN}}$) \\
+\textbf{Normal}  & 152 (0.7\%$_{\mathrm{FP}}$) & 20098 (89.3\%$_{\mathrm{TN}}$) \\
+\bottomrule
+\end{tabular}
+\label{tab:confusion_matrix}
+\end{table}
+
+\paragraph{Gating Mechanism and Classification} To verify that the model explicitly identifies outliers, we visualize the learned gating function (sigmoid) in Figure \ref{fig:sigmoid_analysis} (the 2D Allen-Cahn equation with 10\% of outlier ratio). The plot overlays the probability scores assigned to normal points and outliers. The gating function exhibits a sharp transition, assigning zero weights to most of outliers that exhibit high residual energy, while retaining valid data that show low residual energy. Table \ref{tab:confusion_matrix} is a confusion matrix for quantifying the classification performance, which reveals that naPINN achieves near-perfect precision and recall in distinguishing outliers from normal noisy measurements, validating the "soft-rejection" strategy. Very few normal and outlier points are misclassified, and this is because the interval where outliers are sampled is slightly overlapped with the skewed part of the noise distributions. These results strongly support that naPINN can not only be used as a robust inverse problem solver, but also be applied as an anomaly detection framework for reporting sensor failures or abnormal behavior of system dynamics.
+
+\begin{figure}
+  \centering
+  \includegraphics[width=\linewidth]{figures/gate_params_two_panel_v2.pdf}
+  \caption{Evolution of the reliability gate parameters during training: cutoff parameter $\tau$ (top) and steepness parameter $a$ (bottom).}
+  \label{fig:gate_params}
+\end{figure}
+
+Figure~\ref{fig:gate_params} illustrates the evolution of the reliability gate parameters—the cutoff parameter $\tau$ and the steepness parameter $a$—during training for different outlier ratios in the $\lambda$–$\omega$ reaction–diffusion experiment. As the outlier ratio increases, the learned cutoff $\tau$ shifts toward lower residual energy values, indicating that the gate becomes more conservative by rejecting (filtering out) residuals with relatively smaller energies. This behavior demonstrates that the reliability gate adaptively learns which measurement data points should be regarded as outliers and selectively filters them to improve overall model performance. Also, in all experiments, the cutoff parameter $\tau$ exhibits a quick adjustment during the early steps of training, and then remains constant throughout the rest of the steps. This stability implies that the reliability gate effectively calibrates the decision boundary between reliable data points and outliers early in training.
+
+The steepness parameter $a$ consistently increases over the course of training. This trend suggests that the gate progressively enforces a sharper separation between normal data points and outliers, largely independent of the exact residual energy values. Such a sharp transition implies that, once identified as reliable, normal data points are weighted nearly uniformly during training, which is desirable for stable optimization and robust learning.
+
+\section{Conclusion}
+
+We proposed \textbf{naPINN}, a noise-adaptive Physics-Informed Neural Network that robustly recovers physical solutions from corrupted measurements with unknown noise distributions. By integrating an energy-based model to learn the residual distribution and a trainable reliability gate to selectively downweight unreliable data, naPINN effectively mitigates the impact of non-Gaussian noise and gross outliers. Experiments on multiple 2D PDE benchmarks demonstrate that naPINN consistently outperforms existing robust PINN variants under severe data corruption, while providing interpretable insight into noise structure and outlier behavior.
+
+\section*{Impact Statement}
+
+This work advances physics-informed machine learning by improving robustness to noisy and corrupted measurement data. The proposed method is intended for scientific and engineering applications, and we do not foresee specific ethical concerns or adverse societal impacts beyond those common to general machine learning research.
+
+\nocite{langley00}
+
+\bibliography{references}
+\bibliographystyle{icml2026}
+
+% APPENDIX
+\newpage
+\appendix
+\onecolumn
+
+\section{Dataset Details}
+\label{appendix:DatasetDetails}
+
+\subsection{2D Allen-Cahn equation}
+
+We consider the two-dimensional time-dependent Allen--Cahn equation, which typically arises in phase separation and interface dynamics. The formulation of the equation we implemented is as follows:
+\begin{equation}
+u_t - \varepsilon^2 (\Delta u) + (u^3 - u) = f(x,y,t),
+\qquad (x,y) \in \Omega, t \in [t_0, t_1],
+\end{equation}
+where $\Delta u = u_{xx} + u_{yy}$, $\varepsilon > 0$ controls the interface width, and $f(x,y,t)$ is an external forcing term. We set $\varepsilon = 0.3$ for data generation, but is treated as an unknown parameter during training. It is optimized jointly with the neural network via gradient-based learning, starting from an initial value of $1.0$.
+
+For this equation, we adopt an analytical solution defined as
+\begin{equation}
+u^* = \sin(\pi x) \sin(\pi y) \cos(\omega t),
+\end{equation}
+where $\omega$ denotes the temporal frequency. Substituting $u^*$ into the Allen-Cahn operator yields the corresponding forcing term:
+\begin{align}
+f(x,y,t) &= u^*_t - \varepsilon^2 \Delta u^*, + ((u^*)^3-u^*)\\
+u^*_t &= -\omega \sin(\pi x) \sin(\pi y) \sin(\omega t), \\
+\Delta u^* &= -2 \pi^2 \sin(\pi x) \sin(\pi y) \cos(\omega t).
+\end{align}
+This construction guarantees that $u^*(x,y,t)$ satisfies the governing PDE exactly.
+
+The spatiotemporal domain is defined as
+\begin{equation}
+    \Omega = [x_a, x_b] \times [y_a, y_b], \qquad t \in [t_0, t_1],
+\end{equation}
+where we set $x_a = y_a = t_0 = 0$ and $x_b = y_b = t_1 = 1$ in all experiments.
+
+The initial condition and Dirichlet boundary conditions are imposed using the analytical solution:
+\begin{align}
+    u(x,y,t_0) &= u^*(x,y,t_0) \\
+    u(x,y,t) &= u^*(x,y,t), \qquad (x,y) \in \partial \Omega.
+\end{align}
+
+\subsection{2D Burgers' equation}
+
+We consider the two-dimensional incompressible Burgers’ equation, a canonical nonlinear convection–diffusion system that serves as a standard benchmark for nonlinear dynamics and turbulence-like behavior. The governing equations are given by
+\begin{align}
+u_t + u u_x + v u_y &= \nu (u_{xx} + u_{yy}), \\
+v_t + u v_x + v v_y &= \nu (v_{xx} + v_{yy}),
+\end{align}
+where $(u(x,y,t), v(x,y,t))$ denotes the velocity field and $\nu > 0$ is the kinematic viscosity. We fix $\nu=0.01$ during data generation, but treat it an unknown parameter during training. It is optimized jointly with the neural network via gradient-based learning, starting from an initial value of $0.0$.
+
+The spatial domain is defined as
+\begin{equation}
+\Omega = [x_a, x_b] \times [y_a, y_b],
+\end{equation}
+with $(x_a, y_a) = (0, 0)$ and $(x_b, y_b) = (4, 4)$.
+The temporal interval is $t \in [0, T]$, where a burn-in period of $0.1$ is discarded and the solution is recorded over a duration of $T = 3.0$.
+
+Since no closed-form analytical solution is available, ground-truth data are generated numerically using an explicit finite-difference solver. Spatial derivatives are approximated using second-order central differences, while time integration is performed via an explicit Euler scheme.
+
+The velocity components are initialized using Gaussian random fields with a prescribed power spectrum,
+\begin{equation}
+    u(x,y,0),\; v(x,y,0) \sim \mathcal{GRF}(\alpha),
+\end{equation}
+where the spectral decay parameter $\alpha = 5.0$ promotes smooth but spatially diverse initial conditions. This setup produces turbulence-like dynamics often referred to as burgulence.
+
+To ensure numerical stability, the viscous CFL condition is monitored throughout the simulation. After the burn-in phase, solution snapshots are recorded at fixed temporal intervals and used as clean reference data.
+
+\subsection{2D $\lambda-\omega$ Reaction-Diffusion equation.}
+
+We consider the two-dimensional $\lambda$–$\omega$ reaction–diffusion system, a prototypical nonlinear oscillatory model that exhibits spiral-wave patterns and complex spatiotemporal dynamics. The governing equations are given by
+\begin{align}
+u_t &= d_u (u_{xx} + u_{yy}) + \lambda(r)\,u - \omega(r)\,v, \\
+v_t &= d_v (v_{xx} + v_{yy}) + \omega(r)\,u + \lambda(r)\,v,
+\end{align}
+where $(u(x,y,t), v(x,y,t))$ denotes the state variables, $d_u, d_v > 0$ are diffusion coefficients, and
+\begin{equation}
+r^2 = u^2 + v^2.
+\end{equation}
+The reaction terms are defined as
+\begin{equation}
+\lambda(r) = 1 - r^2, 
+\qquad 
+\omega(r) = -\beta r^2,
+\end{equation}
+with $\beta > 0$ controlling the nonlinear rotation frequency.
+
+The spatial domain is defined as
+\begin{equation}
+\Omega = [x_a, x_b] \times [y_a, y_b],
+\end{equation}
+with $(x_a, y_a) = (-10, -10)$ and $(x_b, y_b) = (10, 10)$.
+The temporal interval is $t \in [0, T]$ with $T = 10.0$.
+
+For data generation, we fix $d_u = d_v = 1.0$, and $\beta = 1.0$. During training, $\beta$ is treated as an unknown parameter and is optimized jointly with the neural network, starting from an initial value of $0.0$.
+
+Since no closed-form analytical solution is available, ground-truth data are generated numerically using an explicit finite-difference solver. Spatial derivatives are approximated using second-order central differences, while time integration is performed via an explicit Euler scheme.
+
+The system is initialized with a spiral-wave configuration constructed in polar coordinates,
+\begin{align}
+    u(x,y,0) &= \rho(x,y) \cos(\theta(x,y) - \rho(x,y)), \\
+    v(x,y,0) &= \rho(x,y) \sin(\theta(x,y) - \rho(x,y),
+\end{align}
+where $\rho(x,y) = \tanh!\left(\sqrt{x^2 + y^2}\right)$ and $\theta(x,y) = \arg(x + i y)$. This initialization induces rotating spiral patterns that persist throughout the simulation.
+
+Periodic boundary conditions are employed to promote rich spiral dynamics across the domain. Solution snapshots are recorded at fixed temporal intervals and used as clean reference data.
+
+\section{Implementation Details}
+\label{appendix:ImplementationDetails}
+
+\subsection{Model Implementation}
+All methods used in this paper share the same MLP backbone that maps spatiotemporal coordinates to the target physical state:
+\begin{equation}
+    \mathcal{N}_\theta: \mathbb{R}^{d_\mathrm{in}} \rightarrow \mathbb{R}^{d_\mathrm{out}},
+\end{equation}
+where the input dimension $d_\mathrm{in}$ corresponds to the spatiotemporal coordinates $(x,y,t)$, and the output dimension $d_\mathrm{out}$ corresponds to the target physical variables (e.g., $u$, $(u, v)$).
+
+The MLP consists of $H=5$ hidden layers, hidden width $W=80$ for all layers, hyperbolic tangent ($\tanh$) activation functions, and a final linear output layer. All linear layers are initialized using Xavier uniform initialization, with biases initialized to zero. This architecture is fixed across all experiments to ensure a fair comparison between baselines and naPINN.
+
+\subsection{Energy-Based Model}
+The EBM is implemented as a lightweight MLP that maps a residual value $r$ to an unnormalized log-density $\log q_\phi (r)$:
+\begin{equation}
+    \mathcal{N}_\phi: \mathbb{R} \rightarrow \mathbb{R},
+\end{equation}
+The MLP consists of $3$ hidden layers, hidden width $32$ for all layers, hyperbolic tangent ($\tanh$) activation functions.
+
+\subsection{B-PINN}
+B-PINN (Bayesian Physics-Informed Neural Network) is implemented as a baseline in this work. B-PINN replaces each deterministic linear layer in the shared MLP with a Bayesian linear layer whose weights and biases follow a factorized Gaussian variational posterior. During training, weights are sampled via the reparameterization trick, and the objective augments the data and PDE residual losses with a KL divergence to a zero-mean Gaussian prior. In our implementation, the prior is $N(0,1)$ and the KL term is weighted by $\lambda_{KL} = 10^{-6}$. At evaluation time, we use the posterior mean (i.e., the learned $\mu$ parameters) to produce deterministic predictions for reporting rMAE and rMSE.
+
+\subsection{Loss Functions}
+\paragraph{Mean Squared Error.} The standard PINN and the proposed naPINN employ the mean squared error (MSE) loss, with respect to a residual $r_i$ on a measurement point.
+\begin{equation}
+    \ell_\mathrm{MSE}(r_i) = r_i^2.
+\end{equation}
+This loss corresponds to the negative log-likelihood of a Gaussian noise model and strongly penalizes large residuals.
+
+\paragraph{Mean Absolute Error.} LAD-PINN replaces the quadratic data loss with an $\ell_1$ loss to improve robustness against large residuals:
+\begin{equation}
+    \ell_\mathrm{L1}(r_i) = |r_i|.
+\end{equation}
+Compared to MSE, the linear growth of the $\ell_i$ loss reduces sensitivity to large residuals but implicitly assumes a Laplace noise model with a fixed scale parameter.
+
+\paragraph{$q$-Gaussian Log-Likelihood.} OrPINN adopts a Tsallis $q$-Gaussian likelihood as a flexible heavy-tailed noise model. The probability density function is defined as
+\begin{equation}
+    p_q(r) \propto [1+(q-1) \beta r^2]^{-\frac{1}{q-1}},
+\end{equation}
+which yields the per-point negative log-likelihood:
+\begin{equation}
+    \ell_q(r_i) = \frac{1}{q-1} \log (1+(q-1) \beta r_i^2).
+\end{equation}
+Following OrPINN, the scale parameter is fixed as
+\begin{equation}
+    \beta = \frac{1}{2(3-q)},
+\end{equation}
+which normalizes the variance of the distribution. In the limit $q \rightarrow 1$, the $q$-Gaussian loss smoothly recovers a quadratic loss. In our experiments, we evaluate OrPINN with $q=1.9$ and $q=2.9$.
+
+\subsection{Evaluation Metrics}
+Model performance is evaluated using the relative mean absolute error (rMAE) and relative root mean squared error (rMSE), defined as
+\begin{align}
+\mathrm{rMAE} &= \frac{\|\hat{\mathbf{u}} - \mathbf{u}\|_1}{\|\mathbf{u}\|_1}, \\
+\mathrm{rMSE} &= \frac{\|\hat{\mathbf{u}} - \mathbf{u}\|_2}{\|\mathbf{u}\|_2},
+\end{align}
+where $\hat{\mathbf{u}}$ and $\mathbf{u}$ denote the predicted and ground-truth solution fields evaluated on a dense reference grid. These normalized metrics enable fair comparison across different PDE systems and noise levels.
+
+\section{Ablation Study on Staged Training}
+\label{appendix:ablation}
+
+We conduct an ablation study to examine the role of staged training in naPINN.
+Specifically, we compare the full naPINN framework with staged training against a variant trained without warm-up or explicit stage separation, where the PINN, energy-based model (EBM), and reliability gate are optimized jointly from initialization.
+
+\begin{sc}
+\begin{table}
+\centering
+\caption{Ablation on staged training for naPINN under 15\% outlier corruption. Results are averaged over 5 independent trials with different random seeds, with standard deviations shown in parentheses.}
+\label{tab:ablation_staged_training}
+\setlength{\tabcolsep}{4pt}
+\resizebox{0.6\linewidth}{!}{%
+\begin{tabular}{llccc}
+\toprule
+ & & \multicolumn{1}{c}{Allen--Cahn} & \multicolumn{1}{c}{Burgers} & \multicolumn{1}{c}{Navier--Stokes} \\
+Method & Metric & 15\% & 15\% & 15\% \\
+\midrule
+
+\multirow{2}{*}{\textbf{naPINN (w/ staged training)}}
+ & rMAE & \pmstd{0.134}{0.060} & \pmstd{0.072}{0.014} & \pmstd{0.076}{0.006} \\
+ & rMSE & \pmstd{0.127}{0.049} & \pmstd{0.091}{0.006} & \pmstd{0.095}{0.006} \\
+\cmidrule(lr){2-5}
+
+\multirow{2}{*}{\textbf{naPINN (w/o staged training)}}
+ & rMAE & \pmstd{0.638}{0.304} & \pmstd{0.074}{0.005} & \pmstd{0.075}{0.002} \\
+ & rMSE & \pmstd{0.532}{0.242} & \pmstd{0.098}{0.010} & \pmstd{0.098}{0.005} \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+\end{sc}
+
+Experiments are performed on three PDE benchmarks (Allen--Cahn 2D, Burgers 2D, and $\lambda$--$\omega$ reaction--diffusion) under a fixed outlier ratio of 15\%.
+For each benchmark, relative mean absolute error (rMAE) and relative mean squared error (rMSE) are reported, averaged over five independent runs with different random seeds.
+The quantitative results are summarized in Table~\ref{tab:ablation_staged_training}.
+
+Overall, naPINN remains trainable and achieves competitive performance even without staged training.
+However, the impact of removing staged training varies across benchmarks.
+For the Allen--Cahn equation, training without warm-up leads to a significant degradation in performance, indicating that premature coupling between the PINN residuals and an insufficiently trained EBM can hinder stable optimization.
+In contrast, for the Burgers and $\lambda$--$\omega$ reaction--diffusion equations, the performance gap between staged and non-staged training is relatively small, with non-staged training yielding slightly worse but comparable results.
+
+These observations suggest that while staged training is not strictly necessary for convergence in all cases, it plays a crucial role in stabilizing optimization for more challenging or sensitive PDE systems.
+In particular, staged training allows the PINN to first establish a reasonable solution estimate before the EBM and reliability gate actively influence the learning dynamics, thereby preventing early mischaracterization of residuals as noise or outliers.
+
+\section{Robustness to Rejection Cost}
+
+\begin{figure}
+  \centering
+    \includegraphics[width=0.5\textwidth]{figures/rej_cost_sensitivity_v1.pdf}
+    \caption{Sensitivity to rejection cost on Allen--Cahn with 15\% outliers. We sweep $\lambda_{\mathrm{rej}}$ and report rMAE and rMSE of naPINN. Performance is stable for $\lambda_{\mathrm{rej}}\in[0.1,0.8]$ but degrades sharply for overly large values ($\ge 0.9$).}
+    \label{fig:rej_cost_sensitivity}
+\end{figure}
+
+We further investigate the sensitivity of naPINN to the rejection cost $\lambda_{\mathrm{rej}}$, which regularizes the trainable reliability gate and prevents the trivial solution where all measurement points are rejected to artificially reduce the training loss.
+We train naPINN on the Allen--Cahn equation with a fixed outlier ratio of 15\%, sweeping $\lambda_{\mathrm{rej}} \in \{0.1, 0.2, \ldots, 1.0\}$ while keeping all other settings unchanged.
+
+Figure~\ref{fig:rej_cost_sensitivity} summarizes the results.
+Importantly, selecting an appropriate scale for $\lambda_{\mathrm{rej}}$ is not difficult in practice, as the typical magnitude of the per-point data loss is known.
+Since the rejection cost directly competes with the data loss, it suffices to set $\lambda_{\mathrm{rej}}$ smaller than the characteristic data loss magnitude to effectively regularize the gate and prevent degenerate solutions.
+Within this regime, reducing $\lambda_{\mathrm{rej}}$ does not harm training stability or reconstruction accuracy.
+
+Consistent with this interpretation, naPINN exhibits stable performance across a broad range of sufficiently small rejection costs.
+While the best performance in this experiment is achieved at $\lambda_{\mathrm{rej}}=0.2$, we observe only minor degradation for other low values, including $\lambda_{\mathrm{rej}}=0.5$, which is used throughout all experiments in this paper.
+Despite not being the optimal choice for this specific benchmark, $\lambda_{\mathrm{rej}}=0.5$ still enables naPINN to significantly outperform all baseline methods.
+
+In contrast, excessively large rejection costs ($\lambda_{\mathrm{rej}} \ge 0.9$) substantially degrade performance.
+In this regime, rejecting measurement points becomes overly penalized, effectively disabling the selective learning mechanism and forcing the model to fit corrupted observations.
+These results confirm that naPINN is robust to the choice of $\lambda_{\mathrm{rej}}$ as long as it is set to a sufficiently low value relative to the data loss scale, and does not require fine-grained tuning.
+
+\section{Additional Results}
+
+Additional qualitative results, including videos of the predicted solution evolution, are provided in the supplementary material.
+
+% \section{Additional Results}
+% \label{appendix:AdditionalResults}
+
+\end{document}
