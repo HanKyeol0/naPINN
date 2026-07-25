@@ -1,6 +1,6 @@
 # Project progress
 
-Last updated: 2026-07-24
+Last updated: 2026-07-25
 
 ## Completed
 
@@ -383,6 +383,53 @@ Last updated: 2026-07-24
   status files, no tmux experiment sessions remain, and
   `paper/neurips_2026.tex` has no diff.
 - `git diff --check` passes.
+- Added `rebuttal/CROSS_SERVER_EXPERIMENT_HANDOFF.md` as the English
+  operational handoff for continuation on another GPU server. It keeps the
+  manuscript frozen, consolidates verified positive/mixed/adverse rebuttal
+  conclusions, records the exact implemented four-Gaussian and additive
+  point-outlier semantics, and defines the next experiment as controlled
+  legacy-matched 4G corruption of real Cylinder-PIV training measurements at
+  10% and 15% gross-outlier ratios. The exact legacy setting is the mandatory
+  center; a separately labeled `b x o` scale grid is planned around it with
+  seed-39 development and seeds 40--42 reporting. No experiment was launched
+  and no planned scale-search result is represented as evidence.
+- Verified the handoff's derived scale diagnostics against the current
+  canonical synthetic configs, noise-injection code, and prepared Cylinder
+  artifact. The legacy raw mixture has mean 0.475 and standard deviation
+  approximately 6.72844; on nondimensional Cylinder training velocities,
+  `0.1 * mean(abs(y))` implies expected background standard deviation
+  approximately 0.697 times the pooled pre-injection PIV standard deviation
+  and gross additive offsets approximately 2.09--6.97 times that reference
+  standard deviation. The destination-server instructions require empirical
+  per-artifact diagnostics and checksums rather than treating these expected
+  values as completed evidence.
+- Handoff validation passes: Python compilation for `pinnlab`, `analysis`,
+  and `scripts/rebuttal`; training, evaluation, and real-PIV runner CLI
+  imports; all YAML parsing; shell syntax; Markdown language/fence/whitespace
+  invariants; `git diff --check`; and the frozen-paper diff check. No
+  experiment was run.
+- Clarified the cross-server scope: current full runs remain Cylinder-only,
+  while Controlled Cylinder, FSI, Foil, and Combustion are explicitly
+  retained as future validation candidates after their dataset-specific
+  physics or observation-model requirements are implemented. This is not a
+  rebuttal-period experiment promise.
+- Refined the closest-prior response strategy. The handoff no longer directs
+  every response to volunteer a global narrowing of naPINN's contribution.
+  Pilar--Wahlström is addressed where the Area Chair or reviewer explicitly
+  raises it; those answers acknowledge the shared EBM/staged components and
+  then clearly distinguish direct EBM-NLL optimization from naPINN's
+  detached density objective, explicit per-measurement gate, gated base
+  reconstruction loss, and rejection regularization. Requested direct
+  comparison evidence, including adverse outcomes, remains preserved
+  internally; reviewer-facing numerical use is governed by the hold below.
+- Placed all direct naPINN-versus-PINN-EBM numerical results, rankings, and
+  derived response claims on `RESPONSE HOLD` by author decision. Existing
+  artifacts and adverse outcomes remain preserved as internal verified
+  evidence, but they must not be copied into reviewer responses until the
+  planned real-PIV legacy-corruption, scale, robust-loss, and closest-prior
+  checks are completed as far as feasible and the author explicitly chooses
+  the response direction. The handoff, authoritative response matrix,
+  working response draft, and Korean report now carry the same hold status.
 
 ## Open blockers and risks
 

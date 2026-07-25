@@ -9,3 +9,9 @@ The operating procedure and role boundaries are in
 `docs/REBUTTAL_PLAYBOOK.md`. Do not place generated experiment artifacts in
 this directory; keep them under `analysis/results/runs/` and link them from the
 matrix.
+
+For continuation on another GPU server, use
+`CROSS_SERVER_EXPERIMENT_HANDOFF.md`. It freezes the current rebuttal
+position, distinguishes verified evidence from planned work, and specifies
+the legacy-matched four-Gaussian plus point-outlier experiment on real
+Cylinder PIV.

@@ -1,5 +1,14 @@
 # NeurIPS 2026 author response — working draft, do not submit yet
 
+> **AUTHOR DECISION — DIRECT COMPARISON RESPONSE HOLD**
+>
+> All direct naPINN-versus-PINN-EBM numbers, rankings, and response
+> conclusions below are retained as internal evidence only. Do not submit
+> them yet. First complete the planned real-PIV legacy-corruption, scale,
+> robust-loss, and closest-prior experiments; then obtain an explicit author
+> decision on whether and how to use the direct comparison. Existing adverse
+> results must remain preserved during that decision.
+
 This draft intentionally excludes natural/unmodified-PIV results. All frozen
 additional-experiment matrices have completed and the verified three-seed
 results are populated below. The authoritative Korean analysis is
@@ -8,14 +17,14 @@ must be shortened into review-specific responses before submission.
 
 ## Shared opening
 
-Thank you for identifying the two central issues: real-data evidence and the
-relationship to Pilar and Wahlström. We agree that the latter work is the
-closest prior. It already introduced residual-distribution learning with an
-EBM, MSE warm-up, estimator initialization, and direct EBM-NLL training. We
-therefore narrow our claimed increment to an explicit per-measurement
-reliability gate, rejection-cost regularization, and the separation of the
-estimator's detached density objective from the PINN's gated reconstruction
-objective.
+No shared closest-prior opening is currently approved. Address
+Pilar--Wahlström only in responses where the Area Chair or reviewer
+explicitly raises it. The eventual wording should acknowledge the shared EBM
+and staged components, then distinguish direct EBM-NLL optimization from
+naPINN's detached density-estimation objective, explicit per-measurement
+gate, gated base reconstruction loss, and rejection regularization. Do not
+voluntarily recast the overall contribution as "only a gate." Direct
+comparison numbers and the final positioning remain on response hold.
 
 ## Real-data paragraph
 

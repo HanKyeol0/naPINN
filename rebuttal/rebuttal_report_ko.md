@@ -25,6 +25,19 @@ Natural/unmodified PIV result는 사용자 요청에 따라 evidence table에서
 제외한다. 이후 PIV 표는 모두 real PIV의 training measurements에
 controlled corruption을 주입한 setting만 포함한다.
 
+### Author decision: direct comparison response hold
+
+현재까지 완료된 direct naPINN-versus-PINN-EBM 수치, ranking, 그리고
+그로부터 도출되는 contribution/novelty 결론은 모두 내부 evidence로
+보존하되 reviewer response에는 아직 사용하지 않는다. Real-PIV
+legacy-corruption, scale, robust-loss, closest-prior 관련 실험을 가능한
+범위까지 수행한 뒤 저자가 response 방향을 명시적으로 결정한다. 아래
+표의 direct-comparison 수치는 experiment planning을 위한 내부 기록이며,
+그 전까지 reviewer-facing report로 복사하면 안 된다.
+이 문서 뒤쪽에 남아 있는 “direct result를 response에 report한다”는 기존
+표현이 있다면 이 author decision이 우선하며, 추가 실험과 저자 release
+전에는 실행 지침으로 사용하지 않는다.
+
 ## 2. 먼저 내릴 결론
 
 ### 2.1 Real-data 전략: 선택지 (a)가 아니라 제한된 선택지 (b)
@@ -65,8 +78,13 @@ injected noise를 사용했다는 사실은 contextual defense로는 쓸 수 있
 
 ### 2.2 Pilar--Wahlström에 관한 결론
 
-Reviewer의 가장 중요한 originality 지적은 맞다. Pilar--Wahlström은
-이미 다음 요소를 제시했다.
+PINN-EBM 관계를 모든 response에서 자발적으로 foreground하거나
+naPINN의 전체 contribution을 “gate 하나의 incremental extension”으로
+축소하지 않는다. AC와 aoJS처럼 closest prior를 직접 지적한 경우, 그리고
+6SDM처럼 learned-noise/EBM baseline을 요청한 경우에만 필요한 범위에서
+대응한다.
+
+이때 Pilar--Wahlström이 이미 사용한 다음 요소는 정확히 인정한다.
 
 - unknown residual noise distribution을 EBM으로 학습
 - MSE warm-up
@@ -77,41 +95,45 @@ Reviewer의 가장 중요한 originality 지적은 맞다. Pilar--Wahlström은
 따라서 “EBM module을 PINN과 함께 학습하는 것”이나 staged initialization
 자체를 naPINN의 novelty로 주장하면 안 된다.
 
-naPINN의 방어 가능한 incremental distinction은 더 좁다.
+그러나 naPINN을 단순히 “gate를 추가한 방법”이라고 설명하지도 않는다.
+Objective와 gradient path의 차이를 구체적으로 제시한다.
 
-- EBM likelihood를 data loss로 직접 쓰지 않고, residual density를
-  `per-measurement reliability gate`의 입력으로 사용한다.
-- estimator는 detached residual에 대한 density objective를 담당한다.
-- PINN은 gate-weighted reconstruction loss를 받는다.
-- `rejection-cost regularization`이 모두 버리는 trivial solution을
-  억제한다.
+- PINN-EBM은 EBM negative log-likelihood 자체를 PINN measurement
+  objective로 사용하며 residual을 통한 gradient가 PINN, PDE parameter,
+  EBM을 함께 update한다.
+- naPINN의 estimator는 detached residual에 대한 density objective를
+  담당하고, density score는 explicit trainable per-measurement gate의
+  입력이 된다.
+- PINN은 gate-weighted base reconstruction loss를 받으며,
+  `rejection-cost regularization`이 indiscriminate rejection을 억제한다.
+- Density estimation, inclusion, reconstruction의 역할이 분리되므로
+  MSE, L1, q-Gaussian base loss와 결합할 수 있다.
 
 사용자가 과거에 direct PINN-EBM이 동작하지 않았다고 관찰했더라도,
-rebuttal에서는 그렇게 주장하면 안 된다. 새 3-seed 결과에서 direct
-PINN-EBM은 세 synthetic PDE 모두 naPINN보다 낮은 field error를 보였다.
-이 결과를 숨기지 않고 originality와 significance claim을 좁혀야 한다.
+rebuttal에서 그렇게 주장하면 안 된다. 기존 direct comparison 결과는
+삭제하거나 선택적으로 무시하지 않고 내부 evidence로 보존한다. 다만
+현재는 `RESPONSE HOLD`이므로 수치, 승패, 그리고 그에 따른 novelty
+positioning을 reviewer에게 보고하지 않는다. 추가 실험 완료 후 저자가
+release한 경우에만 관련된 complete outcome을 사용한다.
 
 ### 2.3 현재 acceptance 전략의 현실적 평가
 
 가장 score-moving한 evidence는 severe injected real-PIV result다. 30%
 persistent failure에서 naPINN은 MSE/LAD/OrPINN보다 field error가 낮고
-nominal-physics residual도 훨씬 작다. Closest prior인 direct PINN-EBM과는
-rMAE에서 4.1% 뒤지지만 rMSE에서 3.3% 앞서는 mixed outcome이다. 반면 10%
-persistent failure의 earlier cost-0.01 sensitivity에서는 LAD-PINN이 field
-agreement 기준으로 naPINN보다 좋다.
+nominal-physics residual도 훨씬 작다. 반면 10% persistent failure의
+earlier cost-0.01 sensitivity에서는 LAD-PINN이 field agreement 기준으로
+naPINN보다 좋다. Direct PINN-EBM 대비 결과는 현재 response 방향의
+근거로 사용하지 않고 내부 hold 상태로 둔다.
 
-따라서 최종 response는 `naPINN wins universally`가 아니라 다음처럼
-작성해야 한다.
+현재 승인 가능한 real-data 요약은 다음 범위다.
 
 > Under 30% persistent sensor failure, naPINN improves both field metrics
-> over MSE, LAD, and OrPINN, while the closest no-gate PINN-EBM has slightly
-> lower rMAE and naPINN has lower rMSE and much lower nominal-physics
-> residuals. At 10% failure, LAD remains the strongest field baseline.
+> over MSE, LAD, and OrPINN. At 10% failure, LAD remains the strongest field
+> baseline.
 
 이 honest framing은 AC의 significant real benefit 요구에는 실질적인
-evidence를 제공한다. 다만 direct PINN-EBM이 synthetic benchmark에서
-실제로 우세하고 30% persistent-failure PIV에서도 rMAE/raw-score AUROC가
-더 좋으므로 originality score를 뒤집기는 여전히 어려울 수 있다.
+evidence를 제공한다. Closest-prior numerical paragraph와 최종
+originality positioning은 추가 실험 후 별도로 결정한다.
 
 ### 2.4 Reviewer별 score-moving 가능성
 
@@ -125,9 +147,9 @@ evidence를 제공한다. 다만 direct PINN-EBM이 synthetic benchmark에서
   빠진 experiment를 채웠다는 사실보다 adverse result까지 포함한
   evaluation completeness를 강조한다.
 - aoJS: 기술적 solidness를 인정한 borderline reject이며 질문이 가장
-  구체적이다. Direct PINN-EBM, all-parameter recovery, exact cost를
-  point-by-point로 답하면 evaluation completeness는 개선할 수 있다.
-  그러나 direct prior가 우세해 originality concern은 오히려 강해진다.
+  구체적이다. Direct-comparison slot은 남겨 두되 현재 수치와 ranking은
+  hold한다. All-parameter recovery와 exact cost는 독립적으로 답할 수
+  있으며, closest-prior response는 추가 실험 후 결정한다.
 - 6XZg: HMC B-PINN을 실행하지 않으므로 fairness concern을 완전히
   해소하지 못한다. 대신 B-PINN-VI limitation, Bayesian methods에 대한
   과장 철회, MAD preprocessing으로 방어 가능한 범위만 답한다.
@@ -1116,13 +1138,14 @@ naPINN의 gate contribution을 universal accuracy gain으로 분리해 주장하
 
 1. AC의 real-example 요청에 감사하고 injected-real-PIV protocol과 가장
    severe verified result를 먼저 제시한다.
-2. naPINN이 MSE/LAD/OrPINN보다 좋은 severe result를 수치로 제시하되,
-   direct PINN-EBM이 rMAE/raw-score AUROC에서는 더 좋다는 mixed outcome도
-   같은 문단에서 공개한다.
+2. naPINN이 MSE/LAD/OrPINN보다 좋은 severe result를 수치로 제시한다.
 3. naPINN의 rMSE와 physics residual, failure AUROC, clean rejection을
    정확한 수치로 제시하고, 10% sensitivity에서는 LAD가 best임을 밝힌다.
-4. Pilar--Wahlström의 contribution을 명시적으로 인정한다.
-5. Direct PINN-EBM synthetic comparison을 제시하고 novelty를 좁힌다.
+4. AC/aoJS가 직접 제기한 Pilar--Wahlström paragraph 자리는 남겨 두되,
+   shared component와 objective/gradient-path 차이를 설명하는 방향만
+   준비한다.
+5. Direct PINN-EBM 수치, ranking, novelty 결론은 추가 실험과 저자
+   release 전까지 삽입하지 않는다.
 6. Burgers/lambda--omega parameter recovery table을 보인다.
 7. EMA, rejection cost, correlated noise, MAD/fixed preprocessing 결과를
    짧게 요약한다.

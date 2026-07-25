@@ -12,6 +12,10 @@ Status vocabulary:
   has not started.
 - `LIMITATION`: the response will acknowledge the point without claiming an
   experiment that was not completed.
+- `RESPONSE HOLD`: evidence is verified internally, but numerical results,
+  rankings, and the resulting response position are not approved for reviewer
+  communication pending additional experiments and an explicit author
+  decision.
 
 ## Strategy decisions
 
@@ -24,15 +28,21 @@ Status vocabulary:
    measurements. The unmodified held-out PIV measurements are used as an
    independent reference, not called noise-free ground truth.
 3. Use PIV seed 39 for calibration and seeds 40--42 for final reporting.
-   Retain and report every completed held-out cell; do not choose by test
-   performance.
-4. Fully credit Pilar--Wahlström for residual EBM learning, MSE warm-up,
-   estimator initialization, and direct EBM-NLL training. The claimed
-   increment is the explicit per-measurement gate, rejection-cost
-   regularization, and separated estimator/PINN objectives.
-5. Do not say that direct PINN-EBM failed. In the completed three-seed
-   synthetic comparison it was stronger than naPINN on field reconstruction
-   for all three PDEs.
+   Retain every completed held-out cell and do not choose by test
+   performance. Reviewer-facing use of direct naPINN-versus-PINN-EBM cells is
+   subject to `RESPONSE HOLD`.
+4. Discuss Pilar--Wahlström only where the Area Chair or reviewer explicitly
+   raises it. In that context, accurately acknowledge the shared EBM and
+   staged components, then clearly distinguish direct EBM-NLL optimization
+   from naPINN's detached density objective, explicit per-measurement gate,
+   gated base reconstruction loss, and rejection regularization. Do not
+   volunteer a global reduction of the contribution claim elsewhere.
+5. All direct naPINN-versus-PINN-EBM numbers, rankings, and resulting
+   response claims are on `RESPONSE HOLD`. Preserve the verified evidence
+   internally and complete the planned PIV legacy-corruption, scale,
+   robust-loss, and closest-prior checks before asking the author to choose
+   the response direction. If later released, do not say PINN-EBM failed or
+   omit adverse cells.
 6. Describe the submitted Bayesian baseline as B-PINN-VI, not HMC. A rushed
    full-network HMC reimplementation is outside defensible rebuttal evidence.
 
@@ -42,12 +52,12 @@ Status vocabulary:
 | --- | --- | --- | --- |
 | AC.1 / 6SDM.1 | No real or semi-realistic experiment | RealPDEBench Cylinder PIV with injected persistent sensor drift, AR(1) temporal corruption, and spatial burst corruption; seeds 40--42 | Persistent-severity and correlated baseline matrices `VERIFIED` |
 | AC.2 / 6SDM.2 | Observation error plus physics-model discrepancy | Apply nominal incompressible Navier--Stokes residual to real PIV; explicitly state that observation and model discrepancy are not separately identifiable | `VERIFIED` as a stress test; no discrepancy-identification claim |
-| AC.3 / aoJS.1 | Pilar--Wahlström is the closest prior | Direct no-gate PINN-EBM objective on all synthetic benchmarks and injected PIV | Synthetic and injected-PIV matrices `VERIFIED` |
+| AC.3 / aoJS.1 | Pilar--Wahlström is the closest prior | Complete further direct no-gate comparisons, preserve existing verified evidence, and decide final response wording only after author review | Existing matrices `VERIFIED`; numerical response use `RESPONSE HOLD` |
 | 6SDM.3 | MAD-PINN, learned-noise EBM, tuned robust losses | MSE, LAD, OrPINN q=1.9/2.9, PINN-EBM, and naPINN core; faithful two-stage MAD-PINN as a 60k-update non-compute-matched reference | Severe synthetic and all injected-PIV MAD variants `VERIFIED` |
 | 6SDM.4 | EMA coefficient and beta/rho confusion | State exact convention: implementation uses update weight `m`, so decay is `1-m`; run `m={0.01,0.05,0.10}` | `VERIFIED` |
 | 6SDM.4b / 6XZg.4 | Allen rejection-cost paper/config mismatch | Run submitted-appendix value 1.0 for every ratio/seed, retain initial 0.5 cells as sensitivity, and disclose that appendix sensitivity text also calls 0.9/1.0 degrading | Five-value severe sweep and 5/10/15% paper-aligned extension `VERIFIED` |
 | 6SDM.5 / aoJS.4 / 6XZg.6 | End-to-end cost | Record 5k warm-up + 5k estimator-only + 25k joint, phase times, total time, and peak GPU memory; call shared-A100 wall time observational | Phase accounting and 35k conservative update-count matrix `VERIFIED` |
-| aoJS.2 | No-gate and fixed-screening ablations | Direct PINN-EBM, estimator-free fixed-quantile and learnable-threshold gates, and published fixed-screen MAD-PINN | All listed ablations `VERIFIED` |
+| aoJS.2 | No-gate and fixed-screening ablations | Direct PINN-EBM, estimator-free fixed-quantile and learnable-threshold gates, and published fixed-screen MAD-PINN | Ablations `VERIFIED`; direct-comparison response use `RESPONSE HOLD` |
 | aoJS.3 | PDE parameters for all benchmarks | Record Allen--Cahn epsilon, Burgers viscosity, and lambda--omega beta in every synthetic full run | 5/10/15% core `VERIFIED` |
 | AC.1 / aoJS.3b | Real example is otherwise reconstruction-only | Separate 30% injected-PIV inverse-Re extension, initialized at 8000 with metadata reference 10031; disclose effective-coefficient/model-mismatch caveat | `VERIFIED` (adverse result) |
 | aoJS.5 / 6XZg.7 | Baydin reference year | Acknowledge the verified 1989/2018 typo in the response; do not edit frozen paper source | `LIMITATION` |
@@ -58,6 +68,13 @@ Status vocabulary:
 | 6XZg.5 | Same noise distribution | New Gaussian, Laplace, Student-t, four-Gaussian, sensor drift, AR(1), and spatial burst matrix | `VERIFIED` |
 
 ## Verified evidence so far
+
+**Author decision:** all direct naPINN-versus-PINN-EBM numerical comparisons
+in this section are retained as internal verified evidence under
+`RESPONSE HOLD`. Do not copy their values, rankings, or derived
+contribution/novelty conclusions into a reviewer response until the planned
+additional comparison campaign is complete and the author explicitly
+releases them.
 
 For 10% persistent bias plus linear drift injected into real PIV training
 sensors, seeds 40--42 are complete for MSE, LAD, no-gate PINN-EBM, and the

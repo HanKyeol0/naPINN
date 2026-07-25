@@ -1,6 +1,15 @@
 version: 1
 frozen_at_utc: "2026-07-24"
 amendments:
+  - date_utc: "2026-07-25"
+    reason: "Author decision to defer all reviewer-facing direct naPINN-versus-PINN-EBM numerical reporting until the extended comparison campaign is complete."
+    scope: >-
+      Preserve all existing verified and adverse direct-comparison artifacts
+      as internal evidence. Do not place their values, rankings, or derived
+      contribution/novelty conclusions in a reviewer response until the
+      planned real-PIV legacy-corruption, scale, robust-loss, and
+      closest-prior checks are completed as far as feasible and the author
+      explicitly releases the comparison for response use.
   - date_utc: "2026-07-24"
     reason: "Avoid a post-hoc closest-prior weight choice after equal-weight held-out results had already been inspected."
     scope: >-
@@ -31,6 +40,10 @@ amendments:
 paper_tex_policy: "Do not modify paper/neurips_2026.tex."
 reporting_policy:
   natural_piv: "Do not report as the requested corruption experiment."
+  direct_comparison_response_status: >-
+    RESPONSE HOLD: verified naPINN-versus-PINN-EBM evidence is retained
+    internally but is not approved for reviewer-facing numerical reporting
+    or final positioning without an explicit later author decision.
   selection:
     - "Do not select a corruption setting by held-out test performance."
     - "Use seed 39 only for PIV calibration and seeds 40, 41, 42 for reporting."
