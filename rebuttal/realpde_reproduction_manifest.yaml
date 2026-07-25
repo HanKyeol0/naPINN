@@ -1,0 +1,149 @@
+schema_version: 1
+status: core_natural_and_structured_three_seed_runs_complete
+created_utc: "2026-07-24"
+
+dataset:
+  name: "RealPDEBench Cylinder real PIV"
+  release: "2.0.0"
+  license: "CC BY-NC 4.0"
+  trajectory: "10031.h5"
+  source_hf_path: "cylinder/hf_dataset/real/data-00000-of-00073.arrow"
+  source_sha256: "9a4302c602c6338e723ec3e2e97ceae5b90c16ff5061322ffcce29062c2105dc"
+  source_shape_t_h_w: [3990, 64, 128]
+  prepared_path: "analysis/results/runs/rebuttal_realpde/data/realpdebench_cylinder_10031_frames1000-1200_stride1.npz"
+  prepared_sha256: "0aea0fe1e85ed15ee381443106e2478cf61554c91c5969c2ab62e78d2b47c0c7"
+  frame_start_inclusive: 1000
+  frame_stop_exclusive: 1200
+  frame_stride: 1
+  reynolds_number: 10031
+  cylinder_diameter_m: 0.03
+  kinematic_viscosity_m2ps: 1.0e-6
+
+split:
+  sensor_seed: 20260724
+  fixed_irregular_spatial_sensors: 192
+  frames: 200
+  training_velocity_vectors: 38400
+  heldout_spatial_locations: 7747
+  heldout_velocity_vectors: 1549400
+  spatial_overlap: 0
+  policy: >-
+    The same irregular spatial sensor subset is observed at every selected
+    frame. Every other fluid-grid location is held out; training sensor
+    locations are excluded from evaluation exactly.
+
+structured_sensor_failure:
+  status: primary_mse_and_napinn_three_seed_runs_complete_supporting_runs_in_progress
+  path: "analysis/results/runs/rebuttal_realpde/data/realpdebench_cylinder_10031_frames1000-1200_stride1_sensor_drift10pct.npz"
+  sha256: "31f3aed62cefd3c69f1bb7e380384f62d0fafec3c291e333e8f287e223ae20e8"
+  parent_sha256: "0aea0fe1e85ed15ee381443106e2478cf61554c91c5969c2ab62e78d2b47c0c7"
+  corruption_seed: 20260726
+  failed_sensor_identities: 19
+  total_sensor_identities: 192
+  realized_failure_fraction: 0.09895833333333333
+  failed_scalar_measurements: 7600
+  clean_scalar_measurements: 69200
+  bias_scale_clean_component_std: 3.0
+  final_drift_scale_clean_component_std: 2.0
+  invariants:
+    heldout_piv_bitwise_unchanged: true
+    clean_training_sensors_bitwise_unchanged: true
+  interpretation: >-
+    Injected persistent sensor failure over real PIV. This is not naturally
+    occurring failure evidence.
+  primary_napinn_rejection_cost: 0.005
+  primary_napinn_seeds: [40, 41, 42]
+  paired_sensitivity:
+    rejection_cost: 0.01
+    seeds: [40, 41, 42]
+    interpretation: >-
+      Three paired sensitivity runs are complete. They do not replace the
+      manifest-recorded three-seed 0.005 primary condition; both outcomes are
+      disclosed.
+
+model:
+  experiment: "pressure-latent 2D incompressible Navier--Stokes PINN"
+  inputs: ["x/D", "y/D", "t*U/D"]
+  outputs: ["u/U", "v/U", "p/(rho*U^2)"]
+  reynolds_number_fixed: true
+  hidden_layers: 5
+  hidden_width: 80
+  activation: "tanh"
+  collocation_batch: 8192
+  data_batch: 2048
+  evaluation_pde_points: 4096
+  evaluation_pde_seed: 20260725
+
+schedule:
+  common_pinn_updates: 30000
+  naPINN:
+    warmup_pinn_updates: 5000
+    estimator_only_updates: 5000
+    joint_pinn_updates: 25000
+  PINN_EBM:
+    warmup_pinn_updates: 5000
+    estimator_only_updates: 5000
+    joint_pinn_updates: 25000
+    pde_weight_before_estimator_initialization: 1.0
+    pde_weight_during_joint_training: 50.0
+  baselines:
+    updates: 30000
+  MAD_PINN:
+    stage1_lad_updates: 30000
+    sigma_divisor: 1.6777
+    threshold_multiplier: 3.0
+    stage2_mse_updates: 30000
+    total_pipeline_updates: 60000
+    compute_matched_to_other_methods: false
+  optimizer: "Adam"
+  learning_rate: 1.0e-3
+
+configs:
+  common: "configs/experiment/realpdebench_cylinder_common.yaml"
+  model: "configs/model/mlp.yaml"
+  mse: "configs/experiment/realpdebench_cylinder_mse.yaml"
+  lad: "configs/experiment/realpdebench_cylinder_lad.yaml"
+  mad_pinn: "configs/experiment/realpdebench_cylinder_mad_pinn.yaml"
+  pinn_ebm_closest_prior: "configs/experiment/realpdebench_cylinder_pinn_ebm.yaml"
+  napinn_rejection_0005: "configs/experiment/realpdebench_cylinder_napinn_scaled_rejection.yaml"
+  napinn_rejection_001: "configs/experiment/realpdebench_cylinder_napinn_rejection_001.yaml"
+  structured_variant: "configs/experiment/realpdebench_cylinder_sensor_drift10.yaml"
+
+runs:
+  seeds: [40, 41, 42]
+  hardware: "NVIDIA A100-SXM4-80GB"
+  wandb: false
+  video: false
+  shared_gpu_note: >-
+    Runs execute on shared GPUs with unrelated concurrent workloads. Update
+    budgets are controlled, but recorded wall times are not a controlled
+    hardware-isolated benchmark.
+  root: "analysis/results/runs/rebuttal_realpde/cylinder_real_piv"
+  aggregation: "analysis/results/runs/rebuttal_realpde/aggregation.json"
+  aggregation_sha256: "9680c5994094a0b709f8c6a45f6c73aab6fda472d8414e61e5b3c7f2616105b7"
+  aggregation_csv_sha256: "7ef7c6e811d5db9c3ddf5d98745b579acc513b585bf8c54a33aeadc20d7db0c1"
+  selected_natural_piv_napinn_config: "configs/experiment/realpdebench_cylinder_napinn_rejection_001.yaml"
+  selection_reason: >-
+    Rejection cost 0.01 has comparable mean held-out-PIV discrepancy to 0.005
+    but materially lower between-seed variance in field, physics, and gate
+    retention metrics. The 0.5 all-accept and 0.005 results remain disclosed.
+  completed_natural_piv_methods:
+    - mse
+    - lad
+    - mad_pinn
+    - pinn_ebm_closest_prior
+    - napinn_rejection_0005
+    - napinn_rejection_001
+  completed_structured_primary_methods:
+    - mse
+    - lad
+    - napinn_rejection_0005
+    - pinn_ebm_closest_prior
+  completed_structured_sensitivity_methods:
+    - napinn_rejection_001
+
+evidence_rules:
+  smoke_results_are_evidence: false
+  include_only_metrics_json_with_full_run_complete: true
+  disclose_negative_sensitivity_results: true
+  do_not_claim_original_synthetic_tables_regenerated: true

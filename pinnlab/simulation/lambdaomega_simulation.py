@@ -208,10 +208,16 @@ def main(args):
 
     u_h, v_h, t_h, x_g, y_g = solve_lambda_omega()
     X_u_data = process_and_save_data(u_h, v_h, t_h, x_g, y_g)
-    save_visualizations(u_h, v_h, t_h, x_g, y_g, X_u_data)
+    if not args.skip_video:
+        save_visualizations(u_h, v_h, t_h, x_g, y_g, X_u_data)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', required=True)
+    parser.add_argument(
+        "--skip-video",
+        action="store_true",
+        help="Generate the numerical dataset without rendering MP4/GIF files.",
+    )
     args = parser.parse_args()
     main(args)

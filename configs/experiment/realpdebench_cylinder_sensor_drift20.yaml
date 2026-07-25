@@ -1,0 +1,3 @@
+variant_tag_suffix: "_sensor_drift20"
+data:
+  path: "analysis/results/runs/rebuttal_realpde/data/realpdebench_cylinder_10031_frames1000-1200_stride1_sensor_drift20pct.npz"

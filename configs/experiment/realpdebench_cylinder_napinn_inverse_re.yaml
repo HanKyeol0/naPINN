@@ -1,0 +1,11 @@
+tag: "napinn_inverse_re"
+method:
+  kind: napinn
+  description: "naPINN with positive log-parameterized effective Reynolds number"
+pde:
+  learn_reynolds: true
+  initial_reynolds: 8000.0
+estimator:
+  enabled: true
+gate:
+  enabled: true

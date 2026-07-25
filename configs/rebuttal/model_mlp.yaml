@@ -1,0 +1,5 @@
+in_features: 3
+out_features: 1
+hidden_layers: 5
+hidden_width: 80
+activation: tanh

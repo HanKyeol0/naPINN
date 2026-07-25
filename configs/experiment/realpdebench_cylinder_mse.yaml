@@ -1,0 +1,8 @@
+tag: "mse"
+method:
+  kind: mse
+  description: "Vanilla pressure-latent PINN with velocity MSE"
+estimator:
+  enabled: false
+gate:
+  enabled: false

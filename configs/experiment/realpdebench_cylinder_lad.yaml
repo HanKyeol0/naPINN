@@ -1,0 +1,8 @@
+tag: "lad"
+method:
+  kind: lad
+  description: "Pressure-latent LAD-PINN with velocity L1 loss"
+estimator:
+  enabled: false
+gate:
+  enabled: false

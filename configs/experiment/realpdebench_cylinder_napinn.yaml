@@ -1,0 +1,8 @@
+tag: "napinn"
+method:
+  kind: napinn
+  description: "naPINN: staged EBM with trainable likelihood gate and rejection cost"
+estimator:
+  enabled: true
+gate:
+  enabled: true

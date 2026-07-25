@@ -1,0 +1,14 @@
+tag: "mad_pinn"
+method:
+  kind: mad_pinn
+  description: "Peng et al. two-stage LAD screening followed by retained-scalar OLS/MSE"
+estimator:
+  enabled: false
+gate:
+  enabled: false
+mad:
+  # Supply the seed-matched completed LAD final.pt with --stage1-checkpoint.
+  stage1_checkpoint: null
+  sigma_divisor: 1.6777
+  threshold_multiplier: 3.0
+  stage2_steps: 30000

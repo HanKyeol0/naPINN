@@ -38,10 +38,22 @@ class EBM(nn.Module):
     def make_grid(self) -> torch.Tensor:
         return torch.linspace(-10.0, 10.0, self.num_grid, device=self.device)
 
-    def mean_nll(self, residual: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        residual = residual.detach().to(
-            device=self.device, dtype=torch.float32
-        ).view(-1, 1)
+    def mean_nll(
+        self,
+        residual: torch.Tensor,
+        *,
+        detach_residual: bool = True,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return per-sample and mean NLL.
+
+        ``detach_residual=True`` preserves the estimator-only behavior used by
+        naPINN initialization. PINN-EBM joint training sets it to ``False`` so
+        the learned likelihood backpropagates through both the PINN residual
+        and the EBM, as required by Pilar and Wahlström's objective.
+        """
+        if detach_residual:
+            residual = residual.detach()
+        residual = residual.to(device=self.device, dtype=torch.float32).view(-1, 1)
 
         grid = self.make_grid()
         log_q_grid = self.forward(grid.unsqueeze(-1)).squeeze(-1)

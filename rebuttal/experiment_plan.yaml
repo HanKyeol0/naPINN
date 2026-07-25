@@ -1,0 +1,129 @@
+version: 1
+frozen_at_utc: "2026-07-24"
+amendments:
+  - date_utc: "2026-07-24"
+    reason: "Avoid a post-hoc closest-prior weight choice after equal-weight held-out results had already been inspected."
+    scope: >-
+      Run and report the complete PINN-EBM PDE-weight grid {1,10,50}: seed 39
+      is retained as calibration context, and weights 10/50 are evaluated on
+      every held-out seed in addition to the existing weight-1 results. Do
+      not report only the most favorable weight.
+  - date_utc: "2026-07-24"
+    reason: "Correct the chronological record: the 10% cost-0.01 held-out runs had completed before the 30% seed-39 calibration grid was refined."
+    scope: >-
+      The 0.05/0.10 additions were motivated only by the seed-39 calibration
+      gap, and the frozen selection formula uses only seed 39. Nevertheless,
+      the calibration is not described as fully held-out-blind. The selected
+      cost will be rerun on every held-out condition, while the earlier 0.01
+      runs remain disclosed sensitivity evidence.
+  - date_utc: "2026-07-24"
+    reason: "Add the reviewer-requested conservative 35k update-count match before launching that extension."
+    scope: "compute_matched_extension only; no held-out result was inspected to define it."
+  - date_utc: "2026-07-24"
+    reason: "Add inverse-Re recovery on the severe injected real-PIV setting so the real example also probes an inverse coefficient."
+    scope: "Initial Re=8000 and metadata target Re=10031 are fixed before held-out runs; all outcomes will be reported."
+  - date_utc: "2026-07-24"
+    reason: "Audit found that the submitted appendix specifies rejection cost 1.0 for Allen--Cahn while the initial rebuttal config used 0.5."
+    scope: "Run the paper-aligned 1.0 setting for all three ratios/seeds; retain 0.5 as a disclosed sensitivity rather than overwrite it."
+  - date_utc: "2026-07-24"
+    reason: "Seed-39 PIV cost 0.01 failed the pre-registered clean-rejection criterion, revealing that the initial 0.01-to-0.5 calibration interval was too coarse."
+    scope: "Add costs 0.05 and 0.10 on calibration seed 39 only; retain the same seed-39 selection rule and disclose the chronology above."
+paper_tex_policy: "Do not modify paper/neurips_2026.tex."
+reporting_policy:
+  natural_piv: "Do not report as the requested corruption experiment."
+  selection:
+    - "Do not select a corruption setting by held-out test performance."
+    - "Use seed 39 only for PIV calibration and seeds 40, 41, 42 for reporting."
+    - "Report every completed setting in the frozen matrix, including adverse results."
+  uncertainty: "Report mean and sample standard deviation over completed held-out seeds."
+gpu_policy:
+  allowed_cuda_devices: [0, 1, 2, 3, 4, 5, 6, 7]
+  avoid_if_free_memory_below_mib: 4096
+  note: "The host is shared; record per-run device and wall time, but do not call it hardware-isolated."
+synthetic_core:
+  benchmarks: [allencahn2d, burgers2d, lambdaomega2d]
+  noise: 4G
+  outlier_ratios: [0.05, 0.10, 0.15]
+  methods: [mse, lad, orpinn_q19, orpinn_q29, pinn_ebm, napinn]
+  seeds: [40, 41, 42]
+  schedule:
+    ordinary_baselines: {pinn_updates: 30000}
+    pinn_ebm: {warmup: 5000, estimator_only: 5000, joint: 25000}
+    napinn: {warmup: 5000, estimator_only: 5000, joint: 25000}
+  closest_prior_weight_calibration:
+    seed: 39
+    representative_outlier_ratio: 0.15
+    pde_loss_weights: [1.0, 10.0, 50.0]
+    reporting: >-
+      Because equal-weight held-out results were already inspected before
+      calibration completion, report the full held-out weight grid rather
+      than selecting only the best seed-39 weight.
+  outputs:
+    - field_rMAE
+    - field_rMSE
+    - learned_PDE_parameter
+    - absolute_PDE_parameter_error
+    - phase_wall_times
+    - peak_GPU_memory
+compute_matched_extension:
+  benchmark_scope: [allencahn2d, burgers2d, lambdaomega2d]
+  noise: 4G
+  outlier_ratio: 0.15
+  seeds: [40, 41, 42]
+  methods: [mse, lad, orpinn_q29]
+  baseline_pinn_updates: 35000
+  interpretation: >-
+    Conservative update-count match to the 30,000 PINN plus 5,000
+    estimator-only operations used by PINN-EBM/naPINN. This is not a
+    hardware-isolated wall-clock match.
+synthetic_additional:
+  benchmark: lambdaomega2d
+  representative_outlier_ratio: 0.15
+  noise_families: [G, Laplace, StudentT, 4G]
+  methods: [mse, lad, orpinn_q29, pinn_ebm, napinn, napinn_lad, napinn_q29]
+  seeds: [40, 41, 42]
+sensitivity:
+  benchmark: allencahn2d
+  noise: 4G
+  outlier_ratio: 0.15
+  seeds: [40, 41, 42]
+  ema_momentum: [0.01, 0.05, 0.10]
+  rejection_cost: [0.10, 0.30, 0.50, 0.70, 1.00]
+  paper_alignment_note: >-
+    The submitted appendix says 1.0 for Allen--Cahn and 0.5 for the other
+    PDEs. The initial core used 0.5 everywhere; the paper-aligned Allen--Cahn
+    cells are therefore run separately and both are reported.
+ablation_and_preprocessing:
+  benchmark_scope: [allencahn2d, burgers2d, lambdaomega2d]
+  noise: 4G
+  outlier_ratio: 0.15
+  seeds: [40, 41, 42]
+  methods: [quantile, threshold, mad_pinn]
+piv_injected:
+  source: RealPDEBench_Cylinder_real_PIV
+  natural_result_policy: "Not part of the rebuttal evidence table."
+  calibration_seed: 39
+  calibration_rejection_costs: [0.005, 0.01, 0.05, 0.10, 0.5]
+  calibration_selection_rule: >-
+    Before inspecting held-out seeds 40--42, retain settings with at least
+    90% failed-scalar rejection and at most 40% clean-scalar rejection on
+    seed 39, then choose the lowest seed-39 held-out rMAE. If no setting is
+    eligible, minimize (1 - failed rejection rate + clean rejection rate)
+    before using rMAE as a tie-breaker. Do not retune on seeds 40--42.
+  held_out_seeds: [40, 41, 42]
+  corruption_families:
+    - persistent_sensor_bias_and_linear_drift
+    - temporally_correlated_AR1_drift
+    - spatially_correlated_burst_failure
+  persistent_failure_fraction_sweep: [0.10, 0.20, 0.30]
+  methods: [mse, lad, orpinn_q29, mad_pinn, pinn_ebm, napinn]
+  claim_rule: "Do not claim universal superiority; distinguish field agreement, parameter recovery, and corruption detection."
+  inverse_re_extension:
+    corruption: persistent_sensor_bias_and_linear_drift_30pct
+    initial_reynolds: 8000.0
+    metadata_target_reynolds: 10031.0
+    methods: [mse, lad, pinn_ebm, calibration_selected_napinn]
+    seeds: [40, 41, 42]
+    limitation: >-
+      Metadata Reynolds is a reference label, while nominal 2D PDE mismatch
+      can make the effective coefficient non-identical to that label.

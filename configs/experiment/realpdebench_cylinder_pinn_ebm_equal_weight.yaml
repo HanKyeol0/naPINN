@@ -1,0 +1,10 @@
+tag: "pinn_ebm"
+method:
+  kind: pinn_ebm
+  description: "PINN-EBM direct-NLL no-gate ablation with equal PDE/data weights"
+training:
+  joint_pde_weight: 1.0
+estimator:
+  enabled: true
+gate:
+  enabled: false

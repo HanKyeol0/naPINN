@@ -1,0 +1,9 @@
+tag: "napinn_rejection_001"
+method:
+  kind: napinn
+  description: "naPINN rejection-cost sensitivity at the warm-up MSE scale"
+estimator:
+  enabled: true
+gate:
+  enabled: true
+  rejection_cost: 0.01

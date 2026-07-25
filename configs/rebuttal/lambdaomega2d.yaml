@@ -1,0 +1,60 @@
+tag: rebuttal_canonical
+device: "cuda:0"
+domain:
+  x: [-10.0, 10.0]
+  y: [-10.0, 10.0]
+  burn_in_time: 0.0
+  record_time: 10.0
+pde:
+  learn_params: true
+  init_beta: 0.0
+  d_u: 1.0
+  d_v: 1.0
+  beta: 1.0
+simulation_tag: "LambdaOmega_Spiral_2"
+dir_path: "pinnlab/simulation/simulation_result/"
+batch:
+  n_f: 10000
+noise:
+  enabled: true
+  batch_size: 2000
+  kind: 4G
+  scale: 0.1
+  pars: [0.0, 4.0]
+  par_list: [[-9.0, 2.0], [-0.3, 4.0], [2.7, 0.6], [8.5, 1.0]]
+  extra_noise:
+    enabled: true
+    kind: std
+    n_points: 8450
+    scale_min: 3.0
+    scale_max: 10.0
+phase:
+  enabled: true
+  phase1_epochs: 5000
+  phase2_epochs: 25000
+ebm:
+  enabled: true
+  density_estimator: ebm
+  std_mode: ema
+  momentum: 0.05
+  hidden_dim: 32
+  depth: 4
+  num_grid: 1024
+  lr: 1.0e-3
+  init_train_epochs: 5000
+data_loss:
+  kind: mse
+  q: 2.9
+  beta: null
+data_loss_balancer:
+  use_loss_balancer: true
+  kind: gated_trainable
+  quantile: 0.95
+  steepness: 10.0
+  init_threshold: 1.0
+  init_steepness: 10.0
+  rejection_cost: 0.5
+in_features: 3
+out_features: 2
+video:
+  enabled: false

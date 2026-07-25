@@ -1,0 +1,12 @@
+tag: "pinn_ebm_pilar"
+method:
+  kind: pinn_ebm
+  description: "PINN-EBM objective with Pilar-Wahlstrom's Navier-Stokes PDE weight"
+training:
+  # Pilar and Wahlstrom use omega=1 before EBM initialization and omega=50
+  # for their Navier-Stokes PINN-EBM joint phase.
+  joint_pde_weight: 50.0
+estimator:
+  enabled: true
+gate:
+  enabled: false

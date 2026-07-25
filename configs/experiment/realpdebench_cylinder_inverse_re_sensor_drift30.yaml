@@ -1,0 +1,6 @@
+variant_tag_suffix: "_inverse_re_sensor_drift30"
+data:
+  path: "analysis/results/runs/rebuttal_realpde/data/realpdebench_cylinder_10031_frames1000-1200_stride1_sensor_drift30pct.npz"
+pde:
+  learn_reynolds: true
+  initial_reynolds: 8000.0

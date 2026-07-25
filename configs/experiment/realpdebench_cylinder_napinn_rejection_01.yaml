@@ -1,0 +1,9 @@
+tag: "napinn_rejection_01"
+method:
+  kind: napinn
+  description: "naPINN PIV calibration at rejection cost 0.10"
+estimator:
+  enabled: true
+gate:
+  enabled: true
+  rejection_cost: 0.10

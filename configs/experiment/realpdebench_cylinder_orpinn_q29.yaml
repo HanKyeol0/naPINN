@@ -1,0 +1,8 @@
+tag: "orpinn_q29"
+method:
+  kind: orpinn_q29
+  description: "Pressure-latent OrPINN with the submitted q=2.9 q-Gaussian loss"
+estimator:
+  enabled: false
+gate:
+  enabled: false

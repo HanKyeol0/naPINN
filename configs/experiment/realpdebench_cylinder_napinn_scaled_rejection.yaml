@@ -1,0 +1,11 @@
+tag: "napinn_scaled_rejection"
+method:
+  kind: napinn
+  description: "naPINN with rejection cost calibrated below the real-data MSE scale"
+estimator:
+  enabled: true
+gate:
+  enabled: true
+  # The warm-up MSE is O(1e-2). The method's stated scale rule requires the
+  # per-rejection cost to remain below that characteristic data-loss scale.
+  rejection_cost: 0.005

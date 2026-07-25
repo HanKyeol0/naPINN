@@ -6,6 +6,7 @@ from pinnlab.models.bpinn import BPINN
 from pinnlab.experiments.burgers2d import Burgers2D
 from pinnlab.experiments.allencahn2d import AllenCahn2D
 from pinnlab.experiments.lambdaomega2d import LambdaOmega2D
+from pinnlab.experiments.realpdebench_cylinder import RealPDEBenchCylinder
 
 _MODEL_REG = {
     "mlp": MLP,
@@ -16,6 +17,7 @@ _EXP_REG = {
     "burgers2d": Burgers2D,
     "allencahn2d": AllenCahn2D,
     "lambdaomega2d": LambdaOmega2D,
+    "realpdebench_cylinder": RealPDEBenchCylinder,
 }
 
 def get_model(name):     return _MODEL_REG[name]
