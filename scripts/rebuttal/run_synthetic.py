@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import platform
 import subprocess
 import sys
@@ -51,9 +52,9 @@ METHODS = {
 NAPINN_METHODS = {"napinn", "napinn_lad", "napinn_q29"}
 STAGED_METHODS = {"pinn_ebm", *NAPINN_METHODS, "quantile", "threshold"}
 OUTLIER_POINTS = {
-    "allencahn2d": {0.05: 1120, 0.10: 2250, 0.15: 3375},
-    "burgers2d": {0.05: 1690, 0.10: 3360, 0.15: 5030},
-    "lambdaomega2d": {0.05: 2800, 0.10: 5700, 0.15: 8450},
+    "allencahn2d": {0.00: 0, 0.05: 1120, 0.10: 2250, 0.15: 3375},
+    "burgers2d": {0.00: 0, 0.05: 1690, 0.10: 3360, 0.15: 5030},
+    "lambdaomega2d": {0.00: 0, 0.05: 2800, 0.10: 5700, 0.15: 8450},
 }
 TRUE_PARAMETER = {
     "allencahn2d": ("eps", 0.3),
@@ -111,6 +112,9 @@ def configure_experiment(
     ema_momentum: float,
     rejection_cost: float,
     estimator_init_steps: int,
+    gate_init_cutoff_sigma: float | None = None,
+    gate_init_steepness: float | None = None,
+    outlier_mode: str | None = None,
 ) -> dict[str, Any]:
     config["device"] = device
     ratio_key = min(
@@ -123,6 +127,8 @@ def configure_experiment(
         experiment_name
     ][ratio_key]
     config["noise"]["kind"] = noise_kind
+    if outlier_mode is not None:
+        config["noise"]["extra_noise"]["outlier_mode"] = outlier_mode
     if noise_kind == "G":
         config["noise"]["pars"] = [0.0, 4.0]
     elif noise_kind == "Laplace":
@@ -135,6 +141,16 @@ def configure_experiment(
     config["ebm"]["momentum"] = ema_momentum
     config["ebm"]["init_train_epochs"] = estimator_init_steps
     config["data_loss_balancer"]["rejection_cost"] = rejection_cost
+    # Only written when explicitly requested, so an unswept run keeps the
+    # historical gate initialization exactly.
+    if gate_init_cutoff_sigma is not None:
+        config["data_loss_balancer"]["gate_init_cutoff_sigma"] = (
+            gate_init_cutoff_sigma
+        )
+    if gate_init_steepness is not None:
+        config["data_loss_balancer"]["gate_init_steepness"] = (
+            gate_init_steepness
+        )
     config["phase"]["enabled"] = method in STAGED_METHODS
 
     if method in NAPINN_METHODS:
@@ -234,8 +250,27 @@ def train_range(
     pde_weight: float,
     data_weight: float,
     start_step: int,
-) -> None:
+    time_budget_seconds: float | None = None,
+    budget_start: float | None = None,
+) -> int:
+    """Run ``steps`` updates and return the number actually performed.
+
+    When ``time_budget_seconds`` is set, the loop also stops as soon as the
+    elapsed time since ``budget_start`` reaches the budget. This supports the
+    hardware-isolated equal-wall-clock comparison, in which ordinary baselines
+    are given the same elapsed seconds as naPINN rather than the same update
+    count. Leaving the budget unset preserves the fixed-step behaviour exactly.
+    """
+    performed = 0
     for local_step in range(steps):
+        # Deliberately unsynchronized: a per-step cuda synchronize would itself
+        # distort the wall-clock measurement this comparison exists to make.
+        # The reported elapsed time is synchronized after the loop.
+        if (
+            time_budget_seconds is not None
+            and time.perf_counter() - budget_start >= time_budget_seconds
+        ):
+            break
         step = start_step + local_step + 1
         model.train()
         batch = experiment.sample_batch(n_f=n_f)
@@ -271,6 +306,7 @@ def train_range(
         optimizer.zero_grad(set_to_none=True)
         total.backward()
         optimizer.step()
+        performed += 1
 
         if step == 1 or step % 1000 == 0 or local_step + 1 == steps:
             payload = {
@@ -287,6 +323,7 @@ def train_range(
                     parameter.detach().cpu()
                 )
             print(json.dumps(payload, sort_keys=True), flush=True)
+    return performed
 
 
 def experiment_name_for(experiment) -> str:
@@ -419,12 +456,22 @@ def screening_metrics(model, experiment) -> dict[str, Any]:
 
 
 def hardware_metadata(device: torch.device) -> dict[str, Any]:
+    # The equal-wall-clock comparison needs its timing conditions to be
+    # auditable, not merely asserted. Recording the load at the end of each run
+    # lets a reader check that the reference runs and the time-budgeted runs
+    # were measured under comparable machine load.
+    try:
+        load_1, load_5, load_15 = os.getloadavg()
+    except (OSError, AttributeError):
+        load_1 = load_5 = load_15 = float("nan")
     result: dict[str, Any] = {
         "platform": platform.platform(),
         "python": sys.version,
         "torch": torch.__version__,
         "device": str(device),
         "cuda_version": torch.version.cuda,
+        "cpu_count": os.cpu_count(),
+        "load_average_1_5_15": [load_1, load_5, load_15],
     }
     if device.type == "cuda":
         props = torch.cuda.get_device_properties(device)
@@ -457,6 +504,9 @@ def main(args: argparse.Namespace) -> None:
         ema_momentum=args.ema_momentum,
         rejection_cost=args.rejection_cost,
         estimator_init_steps=args.estimator_init_steps,
+        gate_init_cutoff_sigma=args.gate_init_cutoff_sigma,
+        gate_init_steepness=args.gate_init_steepness,
+        outlier_mode=args.outlier_mode,
     )
     common["seed"] = args.seed
     common["device"] = args.device
@@ -480,6 +530,18 @@ def main(args: argparse.Namespace) -> None:
         f"ema_{args.ema_momentum:g}_reject_{args.rejection_cost:g}"
         f"_pde_{pde_weight:g}_data_{data_weight:g}"
     )
+    # Suffixes are appended only when the corresponding sweep is active, so
+    # every previously written run directory keeps its exact path.
+    if args.gate_init_cutoff_sigma is not None:
+        sensitivity_label += f"_gcut_{args.gate_init_cutoff_sigma:g}"
+    if args.gate_init_steepness is not None:
+        sensitivity_label += f"_gsteep_{args.gate_init_steepness:g}"
+    if args.warmup_steps != 5000:
+        sensitivity_label += f"_warmup_{args.warmup_steps}"
+    if args.outlier_mode is not None:
+        sensitivity_label += f"_outlier_{args.outlier_mode}"
+    if args.freeze_gate:
+        sensitivity_label += "_frozengate"
     output_dir = (
         args.output_root
         / args.experiment_name
@@ -507,6 +569,20 @@ def main(args: argparse.Namespace) -> None:
         experiment_config,
         device,
     )
+    if args.freeze_gate:
+        # Reviewer aoJS asked for warm-up plus residual-density estimation
+        # *without* a trainable gate. Freezing the gate parameters at their
+        # initialization and zeroing the rejection cost removes exactly that
+        # one component: the EBM still learns the residual density and still
+        # produces the per-measurement weight, but the cutoff and steepness are
+        # fixed, so the weighting is a fixed likelihood rule rather than a
+        # learned decision.
+        gate = getattr(experiment, "gate_module", None)
+        if gate is None:
+            raise ValueError("--freeze-gate requires a gated_trainable method")
+        for parameter in gate.parameters():
+            parameter.requires_grad_(False)
+        gate.rejection_cost = 0.0
     # EBM construction consumes RNG only for methods that instantiate it.
     # Reseeding here keeps the PINN initialization and subsequent batch draws
     # paired across methods while preserving the already-created observations.
@@ -532,6 +608,7 @@ def main(args: argparse.Namespace) -> None:
             "joint_steps": args.joint_steps,
             "baseline_steps": args.baseline_steps,
             "estimator_init_steps": args.estimator_init_steps,
+            "time_budget_seconds": args.time_budget_seconds,
         },
     }
     with (output_dir / "config.yaml").open("w", encoding="utf-8") as stream:
@@ -608,7 +685,7 @@ def main(args: argparse.Namespace) -> None:
         )
         sync(device)
         phase_start = time.perf_counter()
-        train_range(
+        pinn_updates = train_range(
             label="ordinary",
             steps=args.baseline_steps,
             method=args.method,
@@ -620,12 +697,22 @@ def main(args: argparse.Namespace) -> None:
             pde_weight=pde_weight,
             data_weight=data_weight,
             start_step=0,
+            time_budget_seconds=args.time_budget_seconds,
+            budget_start=phase_start,
         )
         sync(device)
         phase_times["ordinary_training_seconds"] = (
             time.perf_counter() - phase_start
         )
-        pinn_updates = args.baseline_steps
+        if args.time_budget_seconds is not None and (
+            pinn_updates >= args.baseline_steps
+        ):
+            raise RuntimeError(
+                "Time-budgeted baseline exhausted its step cap "
+                f"({args.baseline_steps}) before the {args.time_budget_seconds}s "
+                "budget; raise --baseline-steps so the budget is the binding "
+                "constraint."
+            )
 
     sync(device)
     training_seconds = time.perf_counter() - training_start
@@ -667,6 +754,9 @@ def main(args: argparse.Namespace) -> None:
         "pde_parameter_learned": learned_value,
         "pde_parameter_absolute_error": abs(learned_value - true_value),
         "pinn_update_steps": pinn_updates,
+        "time_budget_seconds": args.time_budget_seconds,
+        "outlier_mode": args.outlier_mode or "additive",
+        "freeze_gate": bool(args.freeze_gate),
         "estimator_only_steps": (
             args.estimator_init_steps
             if args.method in {*NAPINN_METHODS, "pinn_ebm"}
@@ -712,6 +802,53 @@ if __name__ == "__main__":
     parser.add_argument("--baseline-steps", type=int, default=30000)
     parser.add_argument("--estimator-init-steps", type=int, default=5000)
     parser.add_argument(
+        "--freeze-gate",
+        action="store_true",
+        help=(
+            "Keep warm-up and EBM density estimation but hold the gate cutoff "
+            "and steepness at their initial values and set the rejection cost "
+            "to zero, isolating the contribution of the trainable gate."
+        ),
+    )
+    parser.add_argument(
+        "--outlier-mode",
+        choices=["additive", "replacement"],
+        default=None,
+        help=(
+            "Gross-outlier protocol. Unset keeps the additive positive offset "
+            "that produced every completed run; 'replacement' substitutes the "
+            "observation, matching the manuscript's wording."
+        ),
+    )
+    parser.add_argument(
+        "--gate-init-cutoff-sigma",
+        type=float,
+        default=None,
+        help=(
+            "Initial trainable-gate cutoff. Unset keeps the value the gate "
+            "constructor has always used (2.0)."
+        ),
+    )
+    parser.add_argument(
+        "--gate-init-steepness",
+        type=float,
+        default=None,
+        help=(
+            "Initial trainable-gate steepness. Unset keeps the value the gate "
+            "constructor has always used (30.0)."
+        ),
+    )
+    parser.add_argument(
+        "--time-budget-seconds",
+        type=float,
+        default=None,
+        help=(
+            "Equal-wall-clock budget for ordinary baselines. When set, the "
+            "baseline trains until this many seconds elapse instead of a fixed "
+            "step count, and --baseline-steps acts only as a safety cap."
+        ),
+    )
+    parser.add_argument(
         "--common-config",
         type=Path,
         default=Path("configs/rebuttal/common.yaml"),
@@ -726,6 +863,6 @@ if __name__ == "__main__":
     parser.add_argument(
         "--output-root",
         type=Path,
-        default=Path("analysis/results/runs/rebuttal_synthetic"),
+        default=Path("outputs/rebuttal/synthetic"),
     )
     main(parser.parse_args())

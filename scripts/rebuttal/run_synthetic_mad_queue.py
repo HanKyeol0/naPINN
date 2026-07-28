@@ -69,7 +69,7 @@ def main(args):
         descriptor = {"experiment": experiment, "seed": seed}
         try:
             checkpoint = find_lad_checkpoint(
-                args.output_root, experiment, seed
+                args.stage1_root, experiment, seed
             )
         except Exception as error:
             status["failed"].append({**descriptor, "error": str(error)})
@@ -125,16 +125,24 @@ if __name__ == "__main__":
     parser.add_argument("--shard-index", type=int, required=True)
     parser.add_argument("--num-shards", type=int, default=7)
     parser.add_argument(
+        "--stage1-root",
+        type=Path,
+        default=Path("outputs/rebuttal/synthetic"),
+        help=(
+            "Read-only root containing the canonical completed LAD runs. "
+            "This is deliberately separate from --output-root so MAD stage "
+            "2 cannot contaminate the exact core aggregation matrix."
+        ),
+    )
+    parser.add_argument(
         "--output-root",
         type=Path,
-        default=Path("analysis/results/runs/rebuttal_synthetic"),
+        default=Path("outputs/rebuttal/synthetic_mad"),
     )
     parser.add_argument(
         "--status-root",
         type=Path,
-        default=Path(
-            "analysis/results/runs/rebuttal_synthetic_mad_queue"
-        ),
+        default=Path("outputs/status/rebuttal_synthetic_mad"),
     )
     parser.add_argument("--fail-fast", action="store_true")
     main(parser.parse_args())

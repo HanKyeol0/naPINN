@@ -1,0 +1,65 @@
+schema_version: 1
+frozen_at_utc: "2026-07-25"
+status: "frozen_before_seed39_scale_training"
+purpose: >-
+  Select at most three non-center legacy-4G Cylinder-PIV scale cells for
+  seeds-40--42 confirmation without relaxing criteria after observing the
+  development grid.
+
+development:
+  seed: 39
+  ratios: [0.10, 0.15]
+  background_scale_multipliers: [0.5, 1.0, 2.0]
+  gross_scale_multipliers: [0.5, 1.0, 2.0]
+  exact_center: {background_scale_multiplier: 1.0, gross_scale_multiplier: 1.0}
+  exact_center_is_candidate: false
+  required_complete_cells: 144
+
+conditions:
+  non_napinn:
+    - mse
+    - lad
+    - orpinn_q29
+    - pinn_ebm_weight_1
+    - pinn_ebm_weight_50
+  napinn:
+    - napinn_mse
+    - napinn_l1
+    - napinn_q29
+  matched_ungated:
+    napinn_mse: mse
+    napinn_l1: lad
+    napinn_q29: orpinn_q29
+
+eligibility:
+  field: >-
+    One naPINN variant must have rMAE below the minimum rMAE of every
+    non-naPINN condition and rMSE below the minimum rMSE of every non-naPINN
+    condition. The same variant must also improve both metrics over its
+    matched ungated loss.
+  gross_outlier_rejection_minimum: 0.80
+  background_only_rejection_maximum: 0.40
+  physics_noncatastrophic_rule: >-
+    Because Cylinder uses fixed Reynolds number, compare nominal physics
+    residuals only. Both pde_momentum_rms and continuity_rms must be finite
+    and no more than 10 times the corresponding matched-ungated value.
+  physics_maximum_matched_degradation_factor: 10.0
+
+ranking:
+  primary_score: >-
+    Minimum of the relative rMAE gain over the smallest non-naPINN rMAE and
+    the relative rMSE gain over the smallest non-naPINN rMSE.
+  order:
+    - "primary score descending"
+    - "sum of the two relative field gains descending"
+    - "naPINN rMAE ascending"
+    - "naPINN rMSE ascending"
+    - "ratio, background multiplier, gross multiplier, variant lexicographically"
+  maximum_candidates: 3
+  if_none_eligible: "Do not relax any threshold; record that no candidate qualified."
+
+reporting:
+  retain_complete_heatmap: true
+  retain_ineligible_reasons: true
+  retain_all_positive_mixed_adverse_results: true
+  direct_napinn_vs_pinn_ebm_response_status: "RESPONSE HOLD"

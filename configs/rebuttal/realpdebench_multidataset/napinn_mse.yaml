@@ -1,0 +1,10 @@
+tag: napinn_mse
+method:
+  kind: napinn
+  description: "naPINN gate with MSE reconstruction"
+data_loss:
+  kind: mse
+estimator:
+  enabled: true
+gate:
+  enabled: true

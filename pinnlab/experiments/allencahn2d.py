@@ -93,6 +93,9 @@ class AllenCahn2D(BaseExperiment):
         self.use_extra_noise = bool(self.extra_noise_cfg.get("enabled", False))
         self.extra_noise_mask = None
         self.outlier_kind = self.extra_noise_cfg.get("kind", "std")  # 'std' or 'mean_level'
+        # 'additive' reproduces every completed run; 'replacement' matches the
+        # manuscript's wording. See _init_noisy_dataset.
+        self.outlier_mode = self.extra_noise_cfg.get("outlier_mode", "additive")
         print(f"[AllenCahn2D] use_extra_noise = {self.use_extra_noise}")
         
         self.X_data = None
@@ -133,7 +136,20 @@ class AllenCahn2D(BaseExperiment):
         self.gate_module = None
         if self.use_data_loss_balancer and self.data_loss_balancer_kind == "gated_trainable":
             self.rejection_cost = float(data_lb_cfg.get("rejection_cost", 0.5))
-            self.gate_module = TrainableLikelihoodGate(device=device, rejection_cost=self.rejection_cost)
+            # Distinct key names: the pre-existing ``init_steepness`` key
+            # belongs to LearnableThresholdGate, and reusing it here would
+            # silently change every completed gated_trainable run. Absent
+            # keys fall back to the constructor values used so far.
+            self.gate_module = TrainableLikelihoodGate(
+                device=device,
+                rejection_cost=self.rejection_cost,
+                init_cutoff_sigma=float(
+                    data_lb_cfg.get("gate_init_cutoff_sigma", 2.0)
+                ),
+                init_steepness=float(
+                    data_lb_cfg.get("gate_init_steepness", 30.0)
+                ),
+            )
 
         # --- Ablation 1: Quantile thresholding (no EBM) ---
         self.quantile_gate = None
@@ -291,6 +307,8 @@ class AllenCahn2D(BaseExperiment):
         
         # Outliers
         self.extra_noise_mask = torch.zeros(n, dtype=torch.bool)
+        replacement_rows = torch.zeros(n, dtype=torch.bool, device=self.device)
+        replacement_values = torch.zeros_like(eps)
         if self.use_extra_noise:
             n_extra = int(self.extra_noise_cfg.get("n_points", 0))
             print(f"Adding extra noise to {n_extra} points.")
@@ -308,9 +326,24 @@ class AllenCahn2D(BaseExperiment):
             else: # "mean_level"
                 f_outlier = base_scale * mean_level
                 amp = factors * f_outlier
-            eps[idx] += amp
+            # The manuscript describes gross outliers as replacing an
+            # observation, while this code has always added a positive offset
+            # to it. ``outlier_mode`` makes the difference explicit; the
+            # default reproduces every completed run bit-for-bit.
+            if self.outlier_mode == "replacement":
+                replacement_rows[idx] = True
+                replacement_values[idx] = amp
+            else:
+                eps[idx] += amp
 
         y_noisy = u_clean + eps
+        if self.outlier_mode == "replacement":
+            # A replaced reading carries no information about the local true
+            # value, so the observation becomes the spurious magnitude itself
+            # rather than the true value plus an offset. The corrupted rows,
+            # their draw and the background noise are otherwise identical to
+            # the additive protocol, which makes the two paired.
+            y_noisy = torch.where(replacement_rows.view(-1, 1), replacement_values, y_noisy)
 
         self.X_data = X
         self.y_clean = u_clean

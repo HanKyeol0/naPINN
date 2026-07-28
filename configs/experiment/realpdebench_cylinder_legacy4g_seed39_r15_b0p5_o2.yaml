@@ -1,0 +1,6 @@
+variant_tag_suffix: "_legacy4g_seed39_r15_b0p5_o2"
+data:
+  path: "analysis/results/runs/rebuttal_realpde_legacy_4g/data/realpdebench_cylinder_10031_frames1000-1200_stride1_legacy4g_seed39_r15_b0p5_o2.npz"
+output:
+  root: "analysis/results/runs/rebuttal_realpde_legacy_4g_scale"
+  benchmark: "cylinder_real_piv_legacy4g_scale"

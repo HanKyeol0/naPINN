@@ -286,6 +286,6 @@ if __name__ == "__main__":
     parser.add_argument(
         "--output-root",
         type=Path,
-        default=Path("analysis/results/runs/rebuttal_synthetic"),
+        default=Path("outputs/rebuttal/synthetic"),
     )
     main(parser.parse_args())

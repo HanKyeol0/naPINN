@@ -1,4 +1,6 @@
 /analysis/results/runs/
+/outputs/*
+!/outputs/README.md
 .env
 wandb/
 .ipynb

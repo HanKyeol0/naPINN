@@ -119,16 +119,12 @@ if __name__ == "__main__":
     parser.add_argument(
         "--output-root",
         type=Path,
-        default=Path(
-            "analysis/results/runs/rebuttal_synthetic_compute35"
-        ),
+        default=Path("outputs/rebuttal/synthetic_compute35"),
     )
     parser.add_argument(
         "--status-root",
         type=Path,
-        default=Path(
-            "analysis/results/runs/rebuttal_synthetic_compute35_queue"
-        ),
+        default=Path("outputs/status/rebuttal_synthetic_compute35"),
     )
     parser.add_argument("--fail-fast", action="store_true")
     main(parser.parse_args())

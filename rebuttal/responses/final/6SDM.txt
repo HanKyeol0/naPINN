@@ -1,0 +1,174 @@
+# Response to Reviewer 6SDM
+
+Thank you for the concrete, actionable list. We ran all five requested
+directions and report every outcome, including those where our method is not
+best. Against the closest prior in particular, our margin is modest on the
+synthetic benchmarks and much larger on real PIV; details in Q3.
+
+## Q1. A real / semi-realistic experiment
+
+We moved to real time-resolved PIV from RealPDEBench (Cylinder): 200 frames,
+192 fixed **irregular** sensors (38,400 velocity vectors) for training, and
+1,549,400 held-out vectors at 7,747 spatially disjoint locations for
+evaluation. Only training sensors are corrupted; held-out PIV is untouched and
+is treated as an independent measurement, not as noise-free truth. The forward
+model is nominal 2-D incompressible Navier-Stokes with latent pressure, so the
+setting also carries real model discrepancy.
+
+Using our submitted code's corruption generator at its **predeclared default
+intensity** (no post-hoc tuning), seeds 40-42:
+
+| Method | 10% rMAE / rMSE | 15% rMAE / rMSE |
+| --- | ---: | ---: |
+| PINN (MSE) | 0.40576 / 0.42918 | 0.57380 / 0.59140 |
+| LAD-PINN | 0.24617 / 0.27780 | 0.26997 / 0.30028 |
+| OrPINN q=2.9 | 0.21426 / 0.25026 | 0.23106 / 0.26514 |
+| PINN-EBM (w=50) | 0.22404 / 0.33065 | 0.33611 / 0.41420 |
+| naPINN | **0.15517 / 0.21532** | **0.16023 / 0.22266** |
+
+naPINN wins both metrics on each individual seed, not only on the mean. We
+extended this to a predeclared 144-run matrix over Controlled Cylinder, FSI
+and Foil. naPINN-MSE has the lowest mean rMAE in all 6 conditions but the
+lowest mean rMSE in only 4: OrPINN q=2.9 is lowest in FSI rMSE at both
+severities. One naPINN variant (q=2.9) also fails badly on a Foil seed
+(rMAE 0.70040). We report the whole matrix, not the favourable part.
+
+## Q2. Correlated noise, sensor failure, drift, model mismatch
+
+We built five structured corruption families on the real PIV, all with known
+labels, six methods, seeds 40-42 (102 runs). The result is genuinely mixed and
+we state it plainly:
+
+| Condition | Best rMAE / rMSE | naPINN rMAE / rMSE |
+| --- | --- | ---: |
+| AR(1) temporal (rho=0.98) | LAD 0.12291 / 0.19727 | 0.15036 / 0.21544 |
+| Spatial burst failure | LAD 0.11321 / 0.18545 | 0.15318 / 0.22605 |
+| Persistent drift 10% | LAD 0.13199 / 0.20828 | 0.15538 / 0.23260 |
+| Persistent drift 20% | **naPINN** | **0.17113 / 0.25266** |
+| Persistent drift 30% | **naPINN** | **0.21797 / 0.30886** |
+
+naPINN wins both metrics only at the two most severe persistent-failure
+levels; a plain robust loss wins the correlated and milder cases. Our gate
+calibration (rejection cost fixed from a separate seed-39 30%-severity
+calibration) does not transfer perfectly across severity or corruption
+structure: gate failure-recall is 92.90% at 30% drift but only 61.41% under
+AR(1).
+
+Two further families are not in the table because our submission did not cover
+them, and both bear on the correlated-noise case you raise. We predeclared and
+are running them on the same real PIV:
+(i) state-dependent heteroscedastic error whose scale grows with local
+velocity magnitude, so variance varies with position, time and state
+simultaneously; (ii) error drawn from a bivariate normal with fixed
+cross-component correlation rho=0.8 and no temporal correlation, which
+isolates u,v correlation from the AR(1) case. Both use the same magnitude
+family as the existing conditions and the same six methods and seeds. We will
+post these numbers during the discussion period whatever they show.
+
+For model mismatch: applying nominal Navier-Stokes to real PIV *is* a
+mismatch stress test. Its clearest consequence is negative -- see Q3 of our
+reply to Reviewer aoJS: when we additionally learn the Reynolds number, every
+method exceeds 51% relative error. We report that as failed identification.
+
+## Q3. Stronger baselines
+
+We added all three you named.
+
+**MAD-PINN**, faithful two-stage: 30,000 LAD updates, the published fixed MAD
+screen, then 30,000 masked-MSE updates. At 15% synthetic corruption its rMAE
+is 0.34354 / 0.24198 / 0.12735 (Allen-Cahn / Burgers / lambda-omega). It
+removes 98.4-98.6% of known outliers but also 10.6-19.0% of clean scalars, and
+it costs **60,000 PINN updates**, so we label it a non-compute-matched
+reference rather than a peer. On real PIV it is never uniquely best in any of
+the five structured conditions and discards 20.2-34.0% of clean data.
+
+**PINN-EBM with learned unknown noise** (Pilar & Wahlstrom, [31]): implemented
+as a direct no-gate baseline where the learned EBM NLL is the data loss, with
+its PDE-loss weight swept (1/10/50) so it is not disadvantaged by our default.
+
+Running it on both synthetic and real data, what varies is the size of the
+margin. On the synthetic benchmarks at 15% it is highly competitive:
+rMAE 0.153 / 0.077 / 0.082 on Allen-Cahn /
+Burgers / lambda-omega against 0.134 / 0.072 / 0.076 for naPINN, so our margin
+is consistent but modest. On the 13 real-PIV conditions (nominal
+Navier-Stokes, i.e. misspecified) it is **never best and never third** -- best
+rank 4th, 8th of 8 on FSI at 10%, last of 6 under spatial burst -- while naPINN
+is first in all eight gross-outlier conditions. Optimising a learned residual
+density directly is competitive when the model is right; when the density must
+also absorb model discrepancy, the method leaning hardest on it degrades
+hardest. LAD shows the same pattern from the other side, beating direct
+likelihood optimisation on all five structured real-PIV families.
+
+**Tuned robust losses**: MSE, LAD, OrPINN q=1.9 and q=2.9 on every condition,
+plus naPINN with L1 and q=2.9 reconstruction losses. We describe our q values
+as pre-selected, not exhaustively optimised.
+
+We also added two estimator-free selectors: a fixed-quantile screen
+(rMAE 0.509 / 0.373 / 0.237) and a learnable residual threshold
+(0.244 / 0.345 / 0.148), against 0.092 / 0.082 / 0.071 for naPINN. Neither
+reaches naPINN on any benchmark, so screening without a learned residual
+density is not sufficient here.
+
+## Q4. EMA coefficient and the beta / rho notation
+
+You are right that the notation is confusing. The implementation uses the
+update `s_t = (1 - m) s_{t-1} + m * s_hat_t`, so `m` is the weight on the
+**new** batch statistic and the decay on the old state is
+`rho = 1 - m`. The main text's beta and the appendix's rho are therefore not
+the same quantity; the code value is `m = 0.05`, i.e. `rho = 0.95`. We will fix
+this to a single stated convention.
+
+Sensitivity (Allen-Cahn, 15%, seeds 40-42):
+
+| m | 1-m | rMAE | rMSE |
+| ---: | ---: | ---: | ---: |
+| 0.01 | 0.99 | 0.10778 +- 0.03716 | 0.10931 +- 0.03179 |
+| 0.05 | 0.95 | 0.09202 +- 0.00352 | 0.09483 +- 0.00232 |
+| 0.10 | 0.90 | **0.08551 +- 0.00874** | **0.09235 +- 0.00494** |
+
+The method works across the range; 0.10 is lowest in this one severe cell and
+0.01 is the most seed-variable. We do not claim 0.10 is universally optimal.
+
+For the other key hyperparameter, Appendix C already sweeps `lambda_rej` from 0
+to 1.0 at 5%, 10% and 15% corruption: performance is flat over a broad
+intermediate band, degrades without the term, and degrades again at the top of
+the range.
+
+Two further sensitivity runs are in progress and will be posted during the
+discussion period: a sweep of the gate's initial cutoff and steepness, and the
+staged-training ablation re-run with the warm-up removed at a matched
+30,000-update budget so the comparison isolates the schedule rather than the
+budget.
+
+While preparing this we found and must disclose two code/paper mismatches:
+the YAML fields named `init_threshold` / `init_steepness` are consumed by a
+different (ablation) gate and never reach the main trainable gate, which always
+started from its constructor values; and Appendix D states
+`lambda_rej = 1.0` for Allen-Cahn, which cannot have produced our reported
+table -- cost 1.0 yields rMAE 0.86890 whereas the table reports 0.134. The
+configuration value is 0.5 and the appendix sentence is an error we will
+correct.
+
+## Q5. Compute-matched comparison
+
+Exact budgets: MSE/LAD/OrPINN use 30,000 PINN updates. PINN-EBM and naPINN use
+5,000 warm-up + 25,000 joint = 30,000 PINN updates, **plus** 5,000
+estimator-only updates that we previously did not foreground. MAD-PINN uses
+60,000. The one-off EBM initialisation costs 46-49 s. Adding it to the
+per-step costs in our appendix, end-to-end totals over the 30,000-step budget
+are about 1068 / 1269 / 1374 s for a standard PINN and 1239 / 1482 / 1464 s for
+naPINN on Allen-Cahn / Burgers / lambda-omega, with initialisation accounting
+for 3-4% of the naPINN total.
+
+As a conservative update-count control we gave the ordinary baselines 35,000
+full PINN updates (27 runs). Their rMAE remains 0.87534 / 0.59199 / 0.44803
+(Allen-Cahn / Burgers / lambda-omega), above both 30,000-update PINN-EBM and
+naPINN.
+
+That is an update-count control, not an equal-time one, because our earlier
+timings came from a shared server. We are therefore now running a
+**hardware-isolated equal-elapsed-time** comparison on a single exclusively
+reserved GPU, in which
+each baseline receives exactly naPINN's end-to-end seconds and takes as many
+updates as fit.
+We will report it during the discussion period.

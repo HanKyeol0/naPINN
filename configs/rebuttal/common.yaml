@@ -11,7 +11,7 @@ train:
     res: 1.0
     data: 1.0
 log:
-  out_dir: "analysis/results/runs/rebuttal_synthetic"
+  out_dir: "outputs/rebuttal/synthetic"
   wandb:
     enabled: false
     mode: disabled

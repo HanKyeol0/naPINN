@@ -1,0 +1,11 @@
+tag: "napinn_q29"
+method:
+  kind: napinn_q29
+  description: "naPINN-q2.9: staged EBM gate with q-Gaussian reconstruction and rejection cost"
+data_loss:
+  kind: q_gaussian
+  q: 2.9
+estimator:
+  enabled: true
+gate:
+  enabled: true

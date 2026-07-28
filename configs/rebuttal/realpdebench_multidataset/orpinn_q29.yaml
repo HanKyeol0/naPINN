@@ -1,0 +1,11 @@
+tag: orpinn_q29
+method:
+  kind: orpinn_q29
+  description: "Nominal-NS OrPINN with predeclared q=2.9"
+data_loss:
+  kind: q_gaussian
+  q: 2.9
+estimator:
+  enabled: false
+gate:
+  enabled: false

@@ -1,0 +1,90 @@
+schema_version: 1
+variant_id: B_paper_spec_8x20
+label: Paper-architecture specification
+evidence_class: paper_spec_reproduction
+description: >-
+  The same official Navier--Stokes execution path and settings as variant A,
+  except that Net_NS is changed to the paper-specified eight hidden layers of
+  width 20. This is not called exact upstream because the official active
+  source hard-codes four hidden layers of width 30.
+
+source:
+  repository: https://github.com/ppilar/PINN-EBM.git
+  commit: 0b74f6f9209d68c79ecb9608b71755977d08f578
+  patch: scripts/rebuttal/patches/pinn_ebm_paper_spec_8x20.patch
+
+dataset:
+  filename: cylinder_nektar_wake.mat
+  source_url: >-
+    https://raw.githubusercontent.com/maziarraissi/PINNs/master/main/Data/cylinder_nektar_wake.mat
+  sha256: 99d9e1f9da7d2dff113ff2723373237b455e2de6c6747ac681846fe86fbba3d0
+  size_bytes: 24081984
+
+execution:
+  seed: 0
+  nrun: 5
+  seed_semantics: >-
+    One seed-0 RNG stream across five sequential upstream runs, preserving
+    model order [0,3,2]. These are not independent naPINN reporting seeds
+    40--42.
+  x_opt: 101
+  noise: 3G
+  fnoise: 1
+  prop_noise: 0
+  model_indices: [0, 3, 2]
+  pinn_ebm_model_index: 3
+  pinn_updates: 100000
+  ebm_init_after_pinn_update: 10000
+  ebm_init_updates: 2000
+  scheduler_update: 80000
+  test_interval: 500
+  plot_interval: 25000
+  joint_pde_weight: 50
+  non_ebm_pde_weight: 1
+  initial_pde_weight: 1
+  ebm_initial_upper_bound: 1
+
+expected_active_source:
+  pinn:
+    representation: psi_and_pressure
+    hidden_layers: 8
+    width: 20
+    learned_parameters: [lambda1, lambda2]
+  ebm:
+    hidden_layers: 3
+    width: 5
+    dropout_before_output: 0.5
+    adaptive_integration_points: 1001
+    tail_retry: true
+  optimizer:
+    name: Adam
+    pinn_learning_rate: 0.002
+    ebm_learning_rate: 0.002
+    scheduler_factor: 0.3
+  batches:
+    data: 200
+    collocation: 100
+  samples:
+    train: 4000
+    validation: 1000
+    collocation_source: sampled_training_locations
+
+underspecified_choices:
+  - choice: Eight layers means eight hidden tanh layers plus one linear output.
+    basis: >-
+      Section 5.3 says "8 layers of width 20"; the upstream dataset class
+      declares [20] * 8, and the commented Net_NS loops use range(7) and
+      range(8), which implement eight hidden layers.
+  - choice: Use model index 3 (PINN0-EBM), not index 1 (offset PINN-EBM).
+    basis: >-
+      The official Navier--Stokes comparison and plotting order use indices
+      [0,3,2]; index 3 is the no-offset EBM method reported as PINN-EBM.
+  - choice: Use additive noise (prop_noise=0).
+    basis: >-
+      Commit 0b74f6f omits this required input; zero matches the prior active
+      behavior and the paper's additive measurement equation.
+  - choice: Keep the active-code data split, sampling, initialization, and
+      tail-retry implementation.
+    basis: >-
+      The paper does not specify alternatives sufficiently to replace these
+      official-code choices without introducing new semantics.

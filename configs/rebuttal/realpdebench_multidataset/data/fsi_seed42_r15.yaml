@@ -1,0 +1,4 @@
+data:
+  path: outputs/rebuttal/realpdebench_multidataset/corrupted/realpdebench_fsi_3272_18.2_0.8_1_frames1000-1200_legacy4g_seed42_r15.npz
+output:
+  benchmark: fsi_seed42_r15

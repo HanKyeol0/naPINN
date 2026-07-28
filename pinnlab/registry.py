@@ -18,6 +18,7 @@ _EXP_REG = {
     "allencahn2d": AllenCahn2D,
     "lambdaomega2d": LambdaOmega2D,
     "realpdebench_cylinder": RealPDEBenchCylinder,
+    "realpdebench_fluid": RealPDEBenchCylinder,
 }
 
 def get_model(name):     return _MODEL_REG[name]

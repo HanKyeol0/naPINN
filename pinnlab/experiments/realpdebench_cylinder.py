@@ -1,8 +1,9 @@
-"""Pressure-latent coordinate PINN for real Cylinder PIV measurements.
+"""Pressure-latent coordinate PINN for real RealPDEBench PIV measurements.
 
-The network predicts nondimensional ``(u, v, p)`` from coordinates normalized
-to ``[-1, 1]^3``. Derivatives below include the exact chain-rule factors from
-network coordinates to ``(x/D, y/D, tU/D)``.
+The legacy Cylinder artifact stores SI-labelled arrays and derives scales from
+``Re, nu, D``.  Generic artifacts instead store released-unit coordinates and
+explicit characteristic length/velocity scales.  Both paths predict
+nondimensional ``(u, v, p)`` from coordinates normalized to ``[-1, 1]^3``.
 """
 
 from __future__ import annotations
@@ -17,7 +18,10 @@ from pinnlab.experiments.base import BaseExperiment, grad_sum, make_leaf
 
 
 class RealPDEBenchCylinder(BaseExperiment):
-    """RealPDEBench Cylinder PIV inverse field reconstruction experiment."""
+    """RealPDEBench fluid-PIV nominal Navier--Stokes experiment.
+
+    The historical class name is retained for checkpoint/config compatibility.
+    """
 
     def __init__(self, cfg, device):
         super().__init__(cfg, device)
@@ -29,7 +33,18 @@ class RealPDEBenchCylinder(BaseExperiment):
                 "Run scripts/rebuttal/prepare_realpdebench_cylinder.py first."
             )
         with np.load(data_path, allow_pickle=False) as raw:
-            required = {
+            generic_required = {
+                "x_coord",
+                "y_coord",
+                "t_coord",
+                "u_observed",
+                "v_observed",
+                "fluid_mask",
+                "train_sensor_flat_indices",
+                "heldout_flat_indices",
+                "metadata_json",
+            }
+            legacy_required = {
                 "x_m",
                 "y_m",
                 "t_s",
@@ -40,20 +55,42 @@ class RealPDEBenchCylinder(BaseExperiment):
                 "heldout_flat_indices",
                 "metadata_json",
             }
+            if generic_required.issubset(raw.files):
+                keys = {
+                    "x": "x_coord",
+                    "y": "y_coord",
+                    "t": "t_coord",
+                    "u": "u_observed",
+                    "v": "v_observed",
+                    "u_clean": "u_clean",
+                    "v_clean": "v_clean",
+                }
+                required = generic_required
+            else:
+                keys = {
+                    "x": "x_m",
+                    "y": "y_m",
+                    "t": "t_s",
+                    "u": "u_mps",
+                    "v": "v_mps",
+                    "u_clean": "u_clean_mps",
+                    "v_clean": "v_clean_mps",
+                }
+                required = legacy_required
             missing = required.difference(raw.files)
             if missing:
                 raise ValueError(f"Prepared artifact lacks arrays: {sorted(missing)}")
             self.metadata = json.loads(str(raw["metadata_json"].item()))
-            self.x_m = raw["x_m"].astype(np.float64, copy=True)
-            self.y_m = raw["y_m"].astype(np.float64, copy=True)
-            self.t_s = raw["t_s"].astype(np.float64, copy=True)
-            self.u_mps = raw["u_mps"].astype(np.float32, copy=True)
-            self.v_mps = raw["v_mps"].astype(np.float32, copy=True)
-            self.u_clean_mps = raw[
-                "u_clean_mps" if "u_clean_mps" in raw.files else "u_mps"
+            self.x_coord = raw[keys["x"]].astype(np.float64, copy=True)
+            self.y_coord = raw[keys["y"]].astype(np.float64, copy=True)
+            self.t_coord = raw[keys["t"]].astype(np.float64, copy=True)
+            self.u_observed = raw[keys["u"]].astype(np.float32, copy=True)
+            self.v_observed = raw[keys["v"]].astype(np.float32, copy=True)
+            self.u_clean = raw[
+                keys["u_clean"] if keys["u_clean"] in raw.files else keys["u"]
             ].astype(np.float32, copy=True)
-            self.v_clean_mps = raw[
-                "v_clean_mps" if "v_clean_mps" in raw.files else "v_mps"
+            self.v_clean = raw[
+                keys["v_clean"] if keys["v_clean"] in raw.files else keys["v"]
             ].astype(np.float32, copy=True)
             self.fluid_mask = raw["fluid_mask"].astype(bool, copy=True)
             self.train_sensor_indices = raw[
@@ -69,46 +106,109 @@ class RealPDEBenchCylinder(BaseExperiment):
             else:
                 self.training_corruption_mask = None
 
-        if self.u_mps.shape != self.v_mps.shape:
+        if self.u_observed.shape != self.v_observed.shape:
             raise ValueError("u and v shapes differ")
         if (
-            self.u_clean_mps.shape != self.u_mps.shape
-            or self.v_clean_mps.shape != self.v_mps.shape
+            self.u_clean.shape != self.u_observed.shape
+            or self.v_clean.shape != self.v_observed.shape
         ):
             raise ValueError("Clean and observed velocity shapes differ")
-        if self.u_mps.shape[1:] != self.x_m.shape or self.x_m.shape != self.y_m.shape:
+        if (
+            self.u_observed.shape[1:] != self.x_coord.shape
+            or self.x_coord.shape != self.y_coord.shape
+        ):
             raise ValueError("Velocity and coordinate grid shapes differ")
-        if self.u_mps.shape[0] != self.t_s.size:
+        if self.u_observed.shape[0] != self.t_coord.size:
             raise ValueError("Velocity and time dimensions differ")
         overlap = np.intersect1d(
             self.train_sensor_indices, self.heldout_indices, assume_unique=True
         )
         if overlap.size:
             raise ValueError("Training sensors overlap held-out evaluation points")
+        valid_indices = np.flatnonzero(self.fluid_mask.reshape(-1))
         if not np.array_equal(
-            self.u_mps.reshape(self.t_s.size, -1)[:, self.heldout_indices],
-            self.u_clean_mps.reshape(self.t_s.size, -1)[:, self.heldout_indices],
+            np.sort(
+                np.concatenate(
+                    (self.train_sensor_indices, self.heldout_indices)
+                )
+            ),
+            valid_indices,
+        ):
+            raise ValueError(
+                "Training and held-out indices do not partition fluid_mask"
+            )
+        if not np.array_equal(
+            self.u_observed.reshape(self.t_coord.size, -1)[
+                :, self.heldout_indices
+            ],
+            self.u_clean.reshape(self.t_coord.size, -1)[
+                :, self.heldout_indices
+            ],
         ) or not np.array_equal(
-            self.v_mps.reshape(self.t_s.size, -1)[:, self.heldout_indices],
-            self.v_clean_mps.reshape(self.t_s.size, -1)[:, self.heldout_indices],
+            self.v_observed.reshape(self.t_coord.size, -1)[
+                :, self.heldout_indices
+            ],
+            self.v_clean.reshape(self.t_coord.size, -1)[
+                :, self.heldout_indices
+            ],
         ):
             raise ValueError("Observed artifact corrupts held-out PIV labels")
+        if not all(
+            np.isfinite(array).all()
+            for array in (
+                self.x_coord.reshape(-1)[valid_indices],
+                self.y_coord.reshape(-1)[valid_indices],
+                self.u_observed.reshape(self.t_coord.size, -1)[
+                    :, valid_indices
+                ],
+                self.v_observed.reshape(self.t_coord.size, -1)[
+                    :, valid_indices
+                ],
+            )
+        ):
+            raise ValueError(
+                "Selected training/held-out domain contains non-finite values"
+            )
 
         self.reynolds = float(self.metadata["reynolds_number"])
-        self.diameter_m = float(self.metadata["cylinder_diameter_m"])
-        self.kinematic_viscosity_m2ps = float(
-            self.metadata["water_kinematic_viscosity_m2ps"]
-        )
-        self.velocity_scale_mps = (
-            self.reynolds * self.kinematic_viscosity_m2ps / self.diameter_m
-        )
-        recorded_velocity = float(
-            self.metadata.get(
-                "characteristic_velocity_mps", self.velocity_scale_mps
+        if "characteristic_length_source_units" in self.metadata:
+            self.length_scale = float(
+                self.metadata["characteristic_length_source_units"]
             )
-        )
-        if not np.isclose(recorded_velocity, self.velocity_scale_mps, rtol=1e-10):
-            raise ValueError("Prepared artifact has inconsistent velocity scale")
+            self.velocity_scale = float(
+                self.metadata["characteristic_velocity_source_units"]
+            )
+            self.scale_mode = "explicit_released_units"
+        else:
+            self.length_scale = float(self.metadata["cylinder_diameter_m"])
+            kinematic_viscosity = float(
+                self.metadata["water_kinematic_viscosity_m2ps"]
+            )
+            self.velocity_scale = (
+                self.reynolds * kinematic_viscosity / self.length_scale
+            )
+            recorded_velocity = float(
+                self.metadata.get(
+                    "characteristic_velocity_mps", self.velocity_scale
+                )
+            )
+            if not np.isclose(
+                recorded_velocity, self.velocity_scale, rtol=1e-10
+            ):
+                raise ValueError(
+                    "Prepared artifact has inconsistent velocity scale"
+                )
+            self.scale_mode = "legacy_cylinder_si"
+        if (
+            not np.isfinite(self.length_scale)
+            or self.length_scale <= 0.0
+            or not np.isfinite(self.velocity_scale)
+            or self.velocity_scale <= 0.0
+        ):
+            raise ValueError("Characteristic scales must be finite and positive")
+        # Compatibility aliases used by the existing runner's metadata path.
+        self.diameter_m = self.length_scale
+        self.velocity_scale_mps = self.velocity_scale
 
         pde_cfg = cfg.get("pde", {})
         self.learn_reynolds = bool(pde_cfg.get("learn_reynolds", False))
@@ -126,13 +226,15 @@ class RealPDEBenchCylinder(BaseExperiment):
         else:
             self.log_effective_reynolds = None
 
-        self.x_star = self.x_m / self.diameter_m
-        self.y_star = self.y_m / self.diameter_m
-        self.t_star = self.t_s * self.velocity_scale_mps / self.diameter_m
-        self.u_star = self.u_mps / self.velocity_scale_mps
-        self.v_star = self.v_mps / self.velocity_scale_mps
-        self.u_clean_star = self.u_clean_mps / self.velocity_scale_mps
-        self.v_clean_star = self.v_clean_mps / self.velocity_scale_mps
+        self.x_star = self.x_coord / self.length_scale
+        self.y_star = self.y_coord / self.length_scale
+        self.t_star = (
+            self.t_coord * self.velocity_scale / self.length_scale
+        )
+        self.u_star = self.u_observed / self.velocity_scale
+        self.v_star = self.v_observed / self.velocity_scale
+        self.u_clean_star = self.u_clean / self.velocity_scale
+        self.v_clean_star = self.v_clean / self.velocity_scale
 
         lower = np.asarray(
             [self.x_star.min(), self.y_star.min(), self.t_star.min()],
@@ -148,10 +250,22 @@ class RealPDEBenchCylinder(BaseExperiment):
         self.upper = torch.tensor(upper, device=self.device)
         self.derivative_scale = 2.0 / (self.upper - self.lower)
 
-        mask_cfg = self.metadata["cylinder_mask"]
+        mask_cfg = self.metadata.get(
+            "geometry_exclusion", self.metadata.get("cylinder_mask")
+        )
+        if mask_cfg is None:
+            raise ValueError("Prepared artifact lacks geometry provenance")
+        self.geometry_kind = str(
+            mask_cfg.get("kind", "official_reference_disk")
+        )
         center_row = int(round(float(mask_cfg["center_y_px"])))
         center_column = int(round(float(mask_cfg["center_x_px"])))
-        self.cylinder_center_star = torch.tensor(
+        if not (
+            0 <= center_row < self.x_star.shape[0]
+            and 0 <= center_column < self.x_star.shape[1]
+        ):
+            raise ValueError("Geometry reference centre lies outside the grid")
+        self.geometry_center_star = torch.tensor(
             [
                 self.x_star[center_row, center_column],
                 self.y_star[center_row, center_column],
@@ -159,7 +273,7 @@ class RealPDEBenchCylinder(BaseExperiment):
             dtype=torch.float32,
             device=self.device,
         )
-        self.cylinder_radius_star = 0.5
+        self.geometry_half_extent_star = 0.5
 
         (
             self.X_data,
@@ -266,13 +380,19 @@ class RealPDEBenchCylinder(BaseExperiment):
             star = self.lower + 0.5 * (candidates + 1.0) * (
                 self.upper - self.lower
             )
-            distance_sq = (
-                (star[:, 0] - self.cylinder_center_star[0]).square()
-                + (star[:, 1] - self.cylinder_center_star[1]).square()
-            )
-            fluid = candidates[
-                distance_sq > self.cylinder_radius_star**2
-            ]
+            offset_x = star[:, 0] - self.geometry_center_star[0]
+            offset_y = star[:, 1] - self.geometry_center_star[1]
+            if self.geometry_kind == "official_reference_square_envelope":
+                excluded = (
+                    (offset_x.abs() <= self.geometry_half_extent_star)
+                    & (offset_y.abs() <= self.geometry_half_extent_star)
+                )
+            else:
+                excluded = (
+                    offset_x.square() + offset_y.square()
+                    <= self.geometry_half_extent_star**2
+                )
+            fluid = candidates[~excluded]
             accepted.append(fluid)
             n_accepted += fluid.shape[0]
         return torch.cat(accepted, dim=0)[:n_points]

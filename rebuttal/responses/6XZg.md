@@ -1,0 +1,165 @@
+# Response to Reviewer 6XZg
+
+<!-- Submission-ready text for Reviewer 6XZg. HTML comments are evidence pointers
+for internal audit and must be stripped before posting; run
+scripts/rebuttal/strip_response_comments.py to emit the final text.
+Character budget: 10,000 excluding comments. -->
+
+Thank you -- your comments on comparison fairness were correct on every point
+we could check, and several led us to findings we now disclose below.
+
+## 1. Our Bayesian baseline is not a faithful HMC B-PINN
+
+You are right. Our Bayesian baseline uses mean-field variational inference,
+not the HMC posterior sampling of Yang et al., so it is not a faithful
+implementation of that work and we should not have presented it as one. We
+will state that distinction explicitly.
+
+We are currently implementing and running an HMC B-PINN. It samples the network
+weights and the unknown PDE coefficient jointly under a Gaussian prior and
+Gaussian data and PDE likelihoods, on a fixed design: the collocation and
+measurement sets are drawn once, since resampling them per step would make the
+potential stochastic and break detailed balance. The leapfrog step size is
+adapted by dual averaging during burn-in only. The sampler configuration
+(2 chains, 1,000 burn-in, 1,000 retained samples, 30 leapfrog steps) was fixed
+on a separate calibration seed using the acceptance rate alone, before any
+error metric was inspected, and we run two data-noise scales so that HMC is not
+represented by a single possibly-misspecified choice.
+
+HMC over a 26k-parameter posterior is demanding, and our calibration confirmed
+the sampler is sensitive here: one noise-scale setting drove the adapted step
+size to about 1e-8, at which the chain cannot explore. We therefore report
+acceptance rate, split R-hat and effective sample size for every run against
+thresholds fixed in advance (acceptance >= 0.4, R-hat <= 1.1), and will treat a
+run as inconclusive rather than quote an error value if they are not met. We
+will share the results during the discussion period.
+
+## 2. The uncertainty-quantification claim in Related Work
+
+Your criticism is fair; the paragraph overstates a contrast. Bayesian methods
+have long been used to reduce the influence of noise and anomalies, including
+on experimental data, and we should not have implied otherwise. The accurate
+statement is that the two are **complementary**, not competing: a Bayesian
+treatment provides a posterior over solutions and parameters, while naPINN
+learns explicit per-measurement inclusion weights within a point-estimate
+PINN. Nothing prevents combining them. We will rewrite that paragraph to make
+the complementarity explicit and remove the effectiveness claim, which we
+cannot support.
+
+## 3. Is naPINN a subset of B-PINN?
+
+We do not think either method contains the other, but we want to start by
+granting the part of your point that is correct. Our own appendix derives the
+connection: under a two-component residual mixture, the posterior probability
+that an observation is clean gives a weighted log-likelihood structurally
+identical to our gate-weighted data loss, with the rejection cost acting like a
+Beta-type prior on the inclusion rate. So naPINN does admit a latent-variable
+reading, and we are not claiming it sits outside that family.
+
+What we would resist is the inference from that to "a subset of B-PINN". The
+two differ in what they infer and in what they assume. B-PINN replaces the
+point estimate with a posterior over network weights under a specified
+parametric likelihood -- Gaussian in the original formulation -- so its
+robustness comes from the assumed noise model and from averaging over the
+posterior. naPINN keeps an ordinary point-estimate PINN and instead learns the
+residual density nonparametrically, then converts it into an explicit
+per-measurement inclusion decision. It therefore targets no particular noise
+family, which is what lets the same pipeline run under Gaussian, Laplace and
+multimodal corruption without changing the likelihood.
+
+The second difference is architectural in the opposite sense to what a subset
+relation would imply: naPINN leaves the PINN untouched and adds interchangeable
+parts around it. The estimator can be an EBM, a KDE or a GMM, the reconstruction
+loss can be MSE, L1 or q-Gaussian, and the backbone can be swapped, all without
+touching the gate. A Bayesian treatment of the weights is orthogonal to that,
+and combining the two -- posterior inference over the weights together with an
+explicit inclusion decision on the measurements -- strikes us as a natural
+direction rather than a contradiction. We will state the latent-variable
+connection in the main text instead of contrasting with Bayesian UQ.
+
+## 4. A fair PINN baseline with standard statistical preprocessing
+
+We agree the comparison needs a preprocessed baseline, and we have added one.
+But we would also argue that the untreated PINN is not a straw man here, for a
+reason that motivates the method: in this setting you cannot tell in advance
+which measurements are the obvious outliers. The corruption is a multimodal
+mixture, so mild noise and gross outliers overlap, and the boundary is genuinely
+ambiguous rather than a matter of applying a wide enough cutoff. A z-score rule
+on the raw measurements is also poorly matched to the problem, because the
+solution field varies over space and time and a globally large value is often a
+legitimate extremum rather than a corrupted reading. Doing the screening
+data-driven during reconstruction, and getting anomaly detection out of it, is
+the contribution rather than a step we skipped.
+
+The results support that reading. At 15% corruption:
+
+| Method (15% corruption) | Allen-Cahn | Burgers | lambda-omega |
+| --- | ---: | ---: | ---: |
+| Fixed-quantile residual screen | 0.509 | 0.373 | 0.237 |
+| Two-stage MAD-PINN (published screen) | 0.344 | 0.242 | 0.127 |
+| Learnable residual threshold | 0.244 | 0.345 | 0.148 |
+| naPINN | **0.092** | **0.082** | **0.071** |
+
+MAD-PINN is the closest thing to the practice you describe, and is arguably the
+more appropriate version of it: the median absolute deviation is the robust
+analogue of a z-score, since the standard deviation is itself inflated by the
+outliers being screened. It runs 30,000 LAD updates, applies its published MAD
+screen, then 30,000 masked-MSE updates. It removes 98.4-98.6% of the known
+outliers but also 10.6-19.0% of the clean observations, uses **60,000** PINN
+updates, and still trails naPINN on every benchmark. On real PIV it discards
+20.2-34.0% of clean data and is never uniquely best across the five structured
+conditions.
+
+One caveat about our own framing: the learnable residual threshold is a
+*trained* rule rather than fixed preprocessing, so that row is not evidence
+about classical preprocessing. The two genuinely fixed procedures are the
+quantile screen and the MAD pipeline.
+
+## 5. Stability and hyperparameter optimisation
+
+We have run sensitivity studies rather than claiming optimisation.
+
+EMA update weight `m` (Allen-Cahn, 15%): rMAE 0.10778 / 0.09202 / 0.08551 for
+`m` = 0.01 / 0.05 / 0.10. We do not claim 0.10 is universally optimal, but the
+method is robust across this range.
+
+For the rejection cost, Appendix C already sweeps `lambda_rej` from 0 to 1.0 at
+5%, 10% and 15% corruption: performance is flat over a broad intermediate band,
+degrades without the term, and degrades again at the top of the range.
+
+## 6. Different noise distributions
+
+Appendix B already reports Laplace and Gaussian measurement noise on the
+lambda-omega benchmark at 15% outliers. The result there is informative about
+the framework rather than about a single configuration: base naPINN does not
+beat LAD-PINN or OrPINN under either family, but swapping the reconstruction
+loss inside the same gated pipeline does, with naPINN + L1 reaching rMSE
+0.059 / 0.064 against 0.085 / 0.109 for LAD-PINN. We read this as evidence that
+the reliability gate is a component that composes with an appropriate loss, not
+a replacement for choosing one. On real PIV we additionally cover persistent
+drift, AR(1) temporal correlation and spatially clustered burst failure, where
+a plain LAD loss wins three of five conditions.
+
+## 7. Training cost in the main body
+
+Agreed, and we will move it there. A standard PINN uses 30,000 updates; naPINN
+uses the same 30,000 (5,000 warm-up + 25,000 joint) plus a one-off 5,000-step
+estimator initialisation that the step budget did not count. That stage costs
+46-49 s, so end to end the totals are about 1068 / 1269 / 1374 s for the PINN
+against 1239 / 1482 / 1464 s for naPINN on Allen-Cahn / Burgers / lambda-omega.
+
+## 8. References
+
+Reference [3] should be Baydin et al., JMLR 18(153), 2018, not 1989. We are
+re-checking every entry rather than only that one.
+
+## Disclosures
+
+Two further mismatches we found while preparing this response, which we prefer
+to state ourselves. Appendix D reports `lambda_rej = 1.0` for Allen-Cahn, but
+that value cannot have generated our table (re-running it gives rMAE 0.86890
+against the reported 0.134; the configuration value is 0.5), so the appendix
+sentence is an error. And the YAML fields `init_threshold` / `init_steepness`
+are consumed by a different ablation gate and never reach the main trainable
+gate. Neither changes a reported number, but both are documentation defects we
+will correct.

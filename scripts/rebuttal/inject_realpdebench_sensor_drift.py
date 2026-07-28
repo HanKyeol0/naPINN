@@ -27,8 +27,14 @@ def sha256(path: Path, chunk_size: int = 8 * 1024 * 1024) -> str:
 def inject(args: argparse.Namespace) -> tuple[Path, Path]:
     source = args.input.resolve()
     output = args.output.resolve()
+    manifest_path = output.with_suffix(".manifest.json")
     if not source.is_file():
         raise FileNotFoundError(source)
+    if output.exists() or manifest_path.exists():
+        raise FileExistsError(
+            f"Refusing to overwrite derived artifact or sidecar: "
+            f"{output}, {manifest_path}"
+        )
     if not 0.0 < args.failure_fraction < 1.0:
         raise ValueError("failure_fraction must lie strictly between 0 and 1")
     if args.bias_scale_std <= 0.0 or args.drift_end_scale_std <= 0.0:
@@ -178,7 +184,6 @@ def inject(args: argparse.Namespace) -> tuple[Path, Path]:
         "heldout_values_bitwise_equal_to_parent": True,
         "clean_training_sensors_bitwise_equal_to_parent": True,
     }
-    manifest_path = output.with_suffix(".manifest.json")
     manifest_path.write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",

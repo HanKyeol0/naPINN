@@ -1,0 +1,11 @@
+tag: napinn_q29
+method:
+  kind: napinn_q29
+  description: "naPINN gate with q-Gaussian q=2.9 reconstruction"
+data_loss:
+  kind: q_gaussian
+  q: 2.9
+estimator:
+  enabled: true
+gate:
+  enabled: true

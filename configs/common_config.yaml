@@ -11,7 +11,7 @@ train:
     res: 1.0    # PDE residual
     data: 1.0  # data loss
 log:
-  out_dir: "analysis/results/runs"
+  out_dir: "outputs/training"
   wandb:
     enabled: true
     project: "naPINN_AllenCahn_v1"

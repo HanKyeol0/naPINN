@@ -41,19 +41,28 @@ VARIANTS = {
     "spatial_burst": Path(
         "configs/experiment/realpdebench_cylinder_spatial_burst.yaml"
     ),
+    # Added for the reviewer-named gaps that the recovery manifest recorded as
+    # not_started: variance that changes with position/time/state, and error
+    # correlated across the two velocity components.
+    "heteroscedastic": Path(
+        "configs/experiment/realpdebench_cylinder_heteroscedastic.yaml"
+    ),
+    "uv_correlated": Path(
+        "configs/experiment/realpdebench_cylinder_uv_correlated.yaml"
+    ),
 }
+DEFAULT_VARIANTS = [
+    "sensor_drift30",
+    "sensor_drift20",
+    "sensor_drift10",
+    "ar1",
+    "spatial_burst",
+]
 
 
-def jobs():
+def jobs(variants):
     # Severe persistent failures are evaluated first; correlated families
     # follow. All cells are retained regardless of which method wins.
-    variants = [
-        "sensor_drift30",
-        "sensor_drift20",
-        "sensor_drift10",
-        "ar1",
-        "spatial_burst",
-    ]
     methods = ["napinn", "lad", "orpinn_q29", "mse", "pinn_ebm"]
     seeds = [40, 41, 42]
     return list(product(variants, seeds, methods))
@@ -95,7 +104,7 @@ def main(args):
     method_configs = dict(METHOD_CONFIGS)
     method_configs["napinn"] = args.napinn_config
     all_jobs = [
-        job for job in jobs() if job[2] in set(args.methods)
+        job for job in jobs(args.variants) if job[2] in set(args.methods)
     ]
     shard = [
         job
@@ -144,6 +153,8 @@ def main(args):
             str(seed),
             "--device",
             f"cuda:{args.gpu}",
+            "--output-root",
+            str(args.output_root),
             "--run-name",
             f"heldout_seed_{seed}",
         ]
@@ -198,16 +209,27 @@ if __name__ == "__main__":
             "reuse a different rejection cost."
         ),
     )
+    parser.add_argument(
+        "--variants",
+        nargs="+",
+        choices=sorted(VARIANTS),
+        default=DEFAULT_VARIANTS,
+        help=(
+            "Structured corruption variants to run. Defaults to the five "
+            "already-reported conditions so existing invocations are "
+            "unchanged."
+        ),
+    )
     parser.add_argument("--status-label", default="all")
     parser.add_argument(
         "--output-root",
         type=Path,
-        default=Path("analysis/results/runs/rebuttal_realpde"),
+        default=Path("outputs/rebuttal/realpde"),
     )
     parser.add_argument(
         "--status-root",
         type=Path,
-        default=Path("analysis/results/runs/rebuttal_realpde_queue"),
+        default=Path("outputs/status/rebuttal_realpde"),
     )
     parser.add_argument("--fail-fast", action="store_true")
     main(parser.parse_args())

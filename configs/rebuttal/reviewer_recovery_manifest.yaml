@@ -1,0 +1,245 @@
+schema_version: 1
+frozen_at_utc: "2026-07-26T14:10:00Z"
+paper_policy: "paper/neurips_2026.tex is frozen and must not be edited."
+evidence_policy:
+  - "Smoke tests, partial runs, interrupted runs, and training logs are never performance evidence."
+  - "Every reporting group must contain its exact predeclared seeds."
+  - "Strict aggregates are immutable and are written only after exact run and group coverage, checkpoints, schedules, finite metrics, and provenance validate."
+  - "Seed 39 is calibration context only and must not enter held-out tables for seeds 40--42."
+
+active:
+  synthetic_core:
+    status: running
+    output_root: outputs/rebuttal/synthetic_recovery_20260726
+    status_root: outputs/status/rebuttal_synthetic_recovery_20260726
+    expected_runs: 162
+    expected_groups: 54
+    required_seeds: [40, 41, 42]
+    strict_aggregate:
+      json: outputs/rebuttal/synthetic_recovery_20260726/aggregation_strict.json
+      csv: outputs/rebuttal/synthetic_recovery_20260726/aggregation_strict.csv
+      expected_pinn_steps: 30000
+  realpdebench_multidataset:
+    status: running
+    napinn_rejection_cost: 0.5
+    rejection_cost_scope: canonical_legacy4g_generalization_not_persistent_drift_calibration
+    output_root: outputs/rebuttal/realpdebench_multidataset/runs
+    status_root: outputs/status/realpdebench_multidataset
+    expected_runs: 144
+    expected_groups: 48
+    paired_input_blocks: 18
+    required_seeds: [40, 41, 42]
+    datasets: [controlled_cylinder, fsi, foil]
+    strict_aggregate:
+      json: outputs/rebuttal/realpdebench_multidataset/aggregation.json
+      csv: outputs/rebuttal/realpdebench_multidataset/aggregation.csv
+  pinn_ebm_upstream_a_b:
+    status: running
+    monitor_json: outputs/status/pinn_ebm_upstream/status.json
+    required_seed: 0
+    nrun_per_variant: 5
+    model_index: 3
+    variants:
+      A_upstream_active_0b74f6f: outputs/rebuttal/pinn_ebm_upstream/runs/A_upstream_active_0b74f6f/seed000_nrun5_official_session_20260726
+      B_paper_spec_8x20: outputs/rebuttal/pinn_ebm_upstream/runs/B_paper_spec_8x20/seed000_nrun5_official_session_20260726
+    strict_aggregate:
+      json: outputs/rebuttal/pinn_ebm_upstream/aggregation_strict.json
+
+complete:
+  allen_cahn_rejection_cost_1:
+    status: strict_complete
+    output_root: outputs/rebuttal/allen_cost1_recovery_20260726
+    expected_runs: 9
+    expected_groups: 3
+    required_seeds: [40, 41, 42]
+    strict_aggregate:
+      json: outputs/rebuttal/allen_cost1_recovery_20260726/aggregation_strict.json
+      csv: outputs/rebuttal/allen_cost1_recovery_20260726/aggregation_strict.csv
+
+queued_after_primary_gpu_release:
+  synthetic_supplement:
+    status: ready_not_started
+    output_root: outputs/rebuttal/synthetic_supplement_recovery_20260726
+    status_root: outputs/status/synthetic_supplement_recovery_20260726
+    expected_runs: 108
+    expected_groups: 36
+    required_seeds: [40, 41, 42]
+    shared_center:
+      ema_momentum: 0.05
+      rejection_cost: 0.5
+      reuse: [ema_sensitivity, rejection_cost_sensitivity]
+    strict_aggregate:
+      json: outputs/rebuttal/synthetic_supplement_recovery_20260726/aggregation_strict.json
+      csv: outputs/rebuttal/synthetic_supplement_recovery_20260726/aggregation_strict.csv
+      expected_pinn_steps: 30000
+  synthetic_pinn_ebm_weight_calibration:
+    status: ready_not_started
+    output_root: outputs/rebuttal/synthetic_pinn_ebm_weight_calibration_20260726
+    status_root: outputs/status/synthetic_pinn_ebm_weight_calibration_20260726
+    expected_runs: 9
+    expected_groups: 9
+    required_seeds: [39]
+    phase: calibration
+    strict_aggregate:
+      json: outputs/rebuttal/synthetic_pinn_ebm_weight_calibration_20260726/aggregation_strict.json
+      csv: outputs/rebuttal/synthetic_pinn_ebm_weight_calibration_20260726/aggregation_strict.csv
+      expected_pinn_steps: 30000
+  synthetic_pinn_ebm_weight_heldout:
+    status: ready_not_started
+    output_root: outputs/rebuttal/synthetic_pinn_ebm_weight_heldout_20260726
+    status_root: outputs/status/synthetic_pinn_ebm_weight_heldout_20260726
+    expected_runs: 18
+    expected_groups: 6
+    required_seeds: [40, 41, 42]
+    phase: heldout
+    strict_aggregate:
+      json: outputs/rebuttal/synthetic_pinn_ebm_weight_heldout_20260726/aggregation_strict.json
+      csv: outputs/rebuttal/synthetic_pinn_ebm_weight_heldout_20260726/aggregation_strict.csv
+      expected_pinn_steps: 30000
+  synthetic_compute_35k:
+    status: ready_not_started
+    output_root: outputs/rebuttal/synthetic_compute35_recovery_20260726
+    status_root: outputs/status/synthetic_compute35_recovery_20260726
+    expected_runs: 27
+    expected_groups: 9
+    required_seeds: [40, 41, 42]
+    strict_aggregate:
+      json: outputs/rebuttal/synthetic_compute35_recovery_20260726/aggregation_strict.json
+      csv: outputs/rebuttal/synthetic_compute35_recovery_20260726/aggregation_strict.csv
+      expected_pinn_steps: 35000
+  synthetic_mad:
+    status: blocked_on_synthetic_core_lad
+    stage1_root: outputs/rebuttal/synthetic_recovery_20260726
+    output_root: outputs/rebuttal/synthetic_mad_recovery_20260726
+    status_root: outputs/status/synthetic_mad_recovery_20260726
+    expected_runs: 9
+    expected_groups: 3
+    required_seeds: [40, 41, 42]
+    strict_aggregate:
+      json: outputs/rebuttal/synthetic_mad_recovery_20260726/aggregation_strict.json
+      csv: outputs/rebuttal/synthetic_mad_recovery_20260726/aggregation_strict.csv
+      expected_pinn_steps: 60000
+  structured_piv_fixed_re:
+    status: ready_not_started
+    napinn_config: configs/experiment/realpdebench_cylinder_napinn_rejection_01.yaml
+    napinn_rejection_cost: 0.10
+    selection_provenance: seed_39_calibration_selected_before_recovery
+    output_root: outputs/rebuttal/realpde_recovery_20260726
+    status_root: outputs/status/realpde_recovery_20260726
+    expected_runs: 75
+    expected_groups: 25
+    required_seeds: [40, 41, 42]
+  structured_piv_inverse_re:
+    status: ready_not_started
+    napinn_config: configs/experiment/realpdebench_cylinder_napinn_rejection_01.yaml
+    napinn_rejection_cost: 0.10
+    selection_provenance: same_frozen_setting_as_fixed_re_matrix
+    output_root: outputs/rebuttal/realpde_recovery_20260726
+    status_root: outputs/status/realpde_recovery_20260726
+    expected_runs: 12
+    expected_groups: 4
+    required_seeds: [40, 41, 42]
+  structured_piv_mad:
+    status: blocked_on_structured_piv_lad
+    output_root: outputs/rebuttal/realpde_recovery_20260726
+    status_root: outputs/status/realpde_recovery_20260726
+    expected_runs: 15
+    expected_groups: 5
+    required_seeds: [40, 41, 42]
+  structured_piv_combined_strict_aggregate:
+    status: blocked_on_all_three_structured_tracks
+    input_root: outputs/rebuttal/realpde_recovery_20260726
+    expected_runs: 102
+    expected_groups: 34
+    required_seeds: [40, 41, 42]
+    strict_aggregate:
+      json: outputs/rebuttal/realpde_recovery_20260726/injected_piv_aggregation_strict.json
+      csv: outputs/rebuttal/realpde_recovery_20260726/injected_piv_aggregation_strict.csv
+
+execution_order:
+  - "Finish and strictly aggregate synthetic_core and realpdebench_multidataset."
+  - "On released GPUs, run synthetic_supplement and structured_piv_fixed_re."
+  - "Run synthetic PINN-EBM calibration and held-out phases in separate roots, then compute_35k and structured_piv_inverse_re."
+  - "Run synthetic_mad from the sealed core LAD root and structured_piv_mad from completed structured LAD checkpoints."
+  - "Strictly aggregate every isolated synthetic root and the exact combined 102-run structured-PIV root."
+  - "Wait for both official PINN-EBM A/B result pickles and strictly aggregate them."
+  - "Only then update Korean Markdown reports, response evidence status, and strategy."
+
+# All six entries below were unblocked on 2026-07-28. Each now has a frozen
+# protocol and a launched campaign; none of their numbers may be used until
+# the stated completeness rule is met.
+reviewer_requests_with_protocol_frozen_20260728:
+  heteroscedastic_noise:
+    status: protocol_frozen_running
+    protocol: >-
+      State-dependent sensor error on real Cylinder PIV with
+      sigma_i(t) = base * clean_component_std * (1 + gain * speed_i(t) /
+      mean_training_speed), base 1.0 and gain 4.0, failure fraction 0.15.
+      Variance therefore varies with position, time and state together.
+    frozen_manifest: outputs/rebuttal/structured_piv_extra_20260728/manifest_frozen.json
+    derived_npz_sha256: a0503518c527aeae5d6b5bc9ef8469d2ba751f1713444a076aa1783a7fc42f88
+  controlled_uv_noise_covariance:
+    status: protocol_frozen_running
+    protocol: >-
+      Bivariate normal innovation with fixed correlation rho = 0.8 between the
+      u and v components, scale 3.0 matching the AR(1) condition and no
+      temporal correlation, so the contrast with AR(1) isolates cross-component
+      correlation. Realized correlation 0.8029.
+    frozen_manifest: outputs/rebuttal/structured_piv_extra_20260728/manifest_frozen.json
+    derived_npz_sha256: 7ddf47301ca7425943653be72c08b2def05699fe6cfe72ae08d4bf3ea53a0cd7
+  hmc_bayesian_pinn:
+    status: protocol_frozen_running
+    protocol: >-
+      Full HMC over network weights and the unknown PDE coefficient with a
+      fixed design (collocation and measurement sets drawn once), leapfrog 30,
+      2 chains, 1000 burn-in and 1000 retained samples, dual-averaging step
+      size confined to burn-in. sigma_pde = 1.0 and both sigma_data in
+      {0.1, 1.0} are reported. Sampler settings were fixed on calibration seed
+      39 using acceptance rate only, before any error metric was inspected.
+    reporting_rule: >-
+      Every run emits acceptance rate, split R-hat and effective sample size.
+      If the predeclared thresholds (acceptance >= 0.4, R-hat <= 1.1) fail, the
+      error values must be reported as an inconclusive reproduction attempt and
+      must not be presented as HMC B-PINN performance.
+    output_root: outputs/rebuttal/hmc_bpinn_20260728
+  gate_initializer_sweep:
+    status: protocol_frozen_running
+    resolved_discrepancy: >-
+      Confirmed by code inspection: the YAML keys init_threshold and
+      init_steepness are consumed by LearnableThresholdGate and never reach
+      TrainableLikelihoodGate, so the paper's main gated_trainable path always
+      used the constructor values cutoff 2.0 and steepness 30.0. New keys
+      gate_init_cutoff_sigma and gate_init_steepness were added with exactly
+      those defaults, so every completed run reproduces bit-for-bit.
+    protocol: >-
+      One-factor-at-a-time sweep around the historical operating point on
+      Allen-Cahn at 15%, seeds 40-42: cutoff in {1.0, 2.0, 4.0} at default
+      steepness and steepness in {10.0, 30.0, 60.0} at default cutoff.
+    output_root: outputs/rebuttal/gate_stability_20260728
+  hardware_isolated_wall_clock:
+    status: protocol_frozen_running
+    unblocked_because: >-
+      The shared-server constraint no longer applies; four GPUs were idle and
+      cuda:0 is now exclusively reserved for this campaign.
+    frozen_manifest: outputs/rebuttal/wallclock_isolated_20260728/manifest_frozen.json
+    output_root: outputs/rebuttal/wallclock_isolated_20260728
+  replacement_outlier_protocol:
+    status: protocol_frozen_running
+    resolved_discrepancy: >-
+      Confirmed by code inspection: the manuscript says gross outliers replace
+      an observation, while the code adds a positive offset. An outlier_mode
+      option now makes both explicit, defaulting to the additive protocol that
+      produced every completed run; the default was verified to reproduce the
+      identical corrupted dataset hash.
+    protocol: >-
+      Allen-Cahn at 15%, six methods, seeds 40-42, with the same corrupted rows
+      and the same magnitude draw as the completed additive core, so the two
+      protocols are paired and differ only in substitution versus addition.
+    output_root: outputs/rebuttal/replacement_outlier_20260728
+  staged_training_stability:
+    status: protocol_frozen_running
+    protocol: >-
+      Warm-up removed with the joint stage extended to 30,000 updates, so the
+      comparison isolates the schedule rather than the PINN update budget.
+      Three PDEs at 15%, seeds 40-42.
+    output_root: outputs/rebuttal/gate_stability_20260728

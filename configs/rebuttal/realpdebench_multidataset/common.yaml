@@ -1,0 +1,59 @@
+experiment_name: realpdebench_fluid
+model_name: mlp
+in_features: 3
+out_features: 3
+seed: 40
+device: "cuda:0"
+
+data:
+  path: null
+
+pde:
+  learn_reynolds: false
+
+batch:
+  n_f: 8192
+  n_data: 2048
+
+training:
+  total_steps: 30000
+  warmup_steps: 5000
+  estimator_init_steps: 5000
+  joint_steps: 25000
+  model_lr: 1.0e-3
+  weight_decay: 0.0
+  pde_weight: 1.0
+  data_weight: 1.0
+  estimator_weight: 1.0
+
+estimator:
+  enabled: true
+  density_estimator: ebm
+  hidden_dim: 32
+  depth: 3
+  num_grid: 256
+  lr: 1.0e-3
+  std_momentum: 0.05
+
+gate:
+  enabled: true
+  lr: 1.0e-3
+  init_cutoff_sigma: 2.0
+  init_steepness: 30.0
+  rejection_cost: 0.5
+
+eval:
+  batch_size: 65536
+  pde_points: 4096
+  pde_seed: 20260725
+
+output:
+  root: "outputs/rebuttal/realpdebench_multidataset/runs"
+  benchmark: null
+  log_every: 100
+  checkpoint_every: 5000
+
+wandb:
+  enabled: false
+video:
+  enabled: false

@@ -108,7 +108,32 @@ def jobs():
                         "rejection": 0.5,
                     }
                 )
-    return result
+    # The EMA sweep's (momentum=0.05, rejection=0.5) center is identical to
+    # the rejection sweep's center. Train that cell once and reuse it in both
+    # sensitivity summaries; attempting it twice would collide with the
+    # immutable run directory.
+    unique = []
+    seen = set()
+    for job in result:
+        key = (
+            job["experiment"],
+            job["method"],
+            job["seed"],
+            job["noise"],
+            job["ratio"],
+            job["momentum"],
+            job["rejection"],
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(job)
+    if len(unique) != 108:
+        raise AssertionError(
+            f"Frozen supplement matrix must contain 108 unique runs, "
+            f"found {len(unique)}"
+        )
+    return unique
 
 
 def main(args):
@@ -124,6 +149,17 @@ def main(args):
     )
     status_path.parent.mkdir(parents=True, exist_ok=True)
     status = {
+        "campaign": "synthetic_supplement_frozen_108_unique",
+        "expected_total_unique_jobs": 108,
+        "shared_sensitivity_center": {
+            "experiment": "allencahn2d",
+            "method": "napinn",
+            "noise": "4G",
+            "ratio": 0.15,
+            "momentum": 0.05,
+            "rejection": 0.5,
+            "reuse": "ema_and_rejection_summaries",
+        },
         "gpu": args.gpu,
         "shard_index": args.shard_index,
         "num_shards": args.num_shards,
@@ -194,12 +230,12 @@ if __name__ == "__main__":
     parser.add_argument(
         "--output-root",
         type=Path,
-        default=Path("analysis/results/runs/rebuttal_synthetic"),
+        default=Path("outputs/rebuttal/synthetic"),
     )
     parser.add_argument(
         "--status-root",
         type=Path,
-        default=Path("analysis/results/runs/rebuttal_synthetic_queue"),
+        default=Path("outputs/status/rebuttal_synthetic"),
     )
     parser.add_argument("--fail-fast", action="store_true")
     main(parser.parse_args())

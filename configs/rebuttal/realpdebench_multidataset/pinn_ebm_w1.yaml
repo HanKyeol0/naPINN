@@ -1,0 +1,12 @@
+tag: pinn_ebm_w1
+method:
+  kind: pinn_ebm
+  description: "Direct PINN-EBM NLL, equal nominal-PDE weight"
+data_loss:
+  kind: ebm_nll
+training:
+  joint_pde_weight: 1.0
+estimator:
+  enabled: true
+gate:
+  enabled: false

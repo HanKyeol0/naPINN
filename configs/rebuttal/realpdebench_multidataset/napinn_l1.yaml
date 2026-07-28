@@ -1,0 +1,10 @@
+tag: napinn_l1
+method:
+  kind: napinn_lad
+  description: "naPINN gate with L1 reconstruction"
+data_loss:
+  kind: l1
+estimator:
+  enabled: true
+gate:
+  enabled: true

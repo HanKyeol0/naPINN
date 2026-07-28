@@ -29,14 +29,15 @@ controlled corruption을 주입한 setting만 포함한다.
 
 현재까지 완료된 direct naPINN-versus-PINN-EBM 수치, ranking, 그리고
 그로부터 도출되는 contribution/novelty 결론은 모두 내부 evidence로
-보존하되 reviewer response에는 아직 사용하지 않는다. Real-PIV
-legacy-corruption, scale, robust-loss, closest-prior 관련 실험을 가능한
-범위까지 수행한 뒤 저자가 response 방향을 명시적으로 결정한다. 아래
-표의 direct-comparison 수치는 experiment planning을 위한 내부 기록이며,
-그 전까지 reviewer-facing report로 복사하면 안 된다.
+보존하되 reviewer response에는 아직 사용하지 않는다. 계획된 Real-PIV
+legacy-corruption, scale, robust-loss, closest-prior campaign은 완료되어
+strict validation까지 통과했다. 이제 저자가 direct comparison의 사용
+여부와 response 방향을 명시적으로 결정해야 한다. 아래 표의
+direct-comparison 수치는 내부 기록이며, author release 전에는
+reviewer-facing report로 복사하면 안 된다.
 이 문서 뒤쪽에 남아 있는 “direct result를 response에 report한다”는 기존
-표현이 있다면 이 author decision이 우선하며, 추가 실험과 저자 release
-전에는 실행 지침으로 사용하지 않는다.
+표현이 있다면 이 author decision이 우선하며, 저자 release 전에는 실행
+지침으로 사용하지 않는다.
 
 ## 2. 먼저 내릴 결론
 
@@ -382,7 +383,12 @@ corruption 전체를 대표한다는 증명이 아니라 broader stress coverage
 
 ## 7. Additional experiment protocol
 
-### 7.1 Synthetic core
+### 7.1 세 합성 PDE의 기본 비교 행렬
+
+여기서 “기본 비교 행렬”은 Allen--Cahn, Burgers, lambda--omega 각각에
+5%, 10%, 15%의 큰 이상치를 넣고 아래 여섯 방법을 같은 예산으로 비교한
+실험 묶음이다. 내부 기록에서 사용했던 `synthetic core`라는 짧은 이름은
+신경망의 core 구성요소를 뜻하지 않는다.
 
 - PDE: Allen--Cahn, Burgers, lambda--omega
 - Four-Gaussian corruption ratio: 5%, 10%, 15%
@@ -491,44 +497,37 @@ Calibration에서 고정한 rejection cost 0.10과 모든 baseline의 seeds
 
 | Method | held-out rMAE | held-out rMSE | momentum RMS | continuity RMS |
 | --- | ---: | ---: | ---: | ---: |
-| MSE-PINN | 0.37100 ± 0.00190 | 0.49065 ± 0.00544 | 0.07605 ± 0.00096 | 0.06977 ± 0.00149 |
-| LAD-PINN | 0.23558 ± 0.00678 | 0.35840 ± 0.00590 | 0.07195 ± 0.00299 | 0.07857 ± 0.00140 |
-| OrPINN \(q=2.9\) | 0.29745 ± 0.00073 | 0.41328 ± 0.00164 | 0.08974 ± 0.00048 | 0.08378 ± 0.00178 |
-| PINN-EBM, no gate | **0.20329 ± 0.01529** | 0.31052 ± 0.00543 | 0.07841 ± 0.02578 | 0.14667 ± 0.03555 |
-| naPINN, rejection cost 0.10 | 0.21194 ± 0.01783 | **0.30034 ± 0.02341** | **0.01426 ± 0.00305** | **0.01176 ± 0.00201** |
+| MSE-PINN | 0.37077 ± 0.00552 | 0.49075 ± 0.00855 | 0.07650 ± 0.00028 | 0.07055 ± 0.00030 |
+| LAD-PINN | 0.23411 ± 0.00458 | 0.35852 ± 0.00694 | 0.07400 ± 0.00094 | 0.07963 ± 0.00138 |
+| OrPINN \(q=2.9\) | 0.29880 ± 0.00431 | 0.41375 ± 0.00656 | 0.08878 ± 0.00096 | 0.08250 ± 0.00250 |
+| PINN-EBM, no gate | 0.29558 ± 0.08992 | 0.39053 ± 0.09202 | 0.10077 ± 0.03362 | 0.15588 ± 0.04155 |
+| naPINN, rejection cost 0.10 | **0.21797 ± 0.01092** | **0.30886 ± 0.00296** | **0.01567 ± 0.00072** | **0.01379 ± 0.00089** |
 
-naPINN은 MSE 대비 rMAE/rMSE를 42.9%/38.8%, LAD 대비
-10.0%/16.2%, OrPINN 대비 28.7%/27.3% 낮춘다. 따라서 severe
-identity-level failure에서는 fixed robust-loss 및 practical LAD
-baseline보다 분명한 benefit이 있다.
-
-Closest prior와의 결과는 mixed하다. Direct PINN-EBM은 rMAE가 naPINN보다
-4.1% 낮지만, naPINN은 rMSE가 3.3% 낮고 momentum/continuity RMS가 각각
-81.8%/92.0% 낮다. 따라서 `naPINN wins the real example`이라고 단순화하지
-않고, field metric에 따라 direct prior와 순위가 바뀌며 naPINN은 훨씬
-작은 nominal-physics residual을 제공하는 trade-off라고 답한다.
+새 strict aggregate에서는 naPINN이 MSE, LAD, OrPINN, direct PINN-EBM보다
+rMAE와 rMSE가 모두 낮다. 다만 clean observation을 많이 거부하고 seed별
+gate 동작이 흔들리므로, 이 결과를 모든 구조화 오염에서의 보편적 우위로
+확대하지 않는다. Direct PINN-EBM은 표본 표준편차도 매우 크다.
 
 Corruption detection은 다음과 같다.
 
 | Method / score | AUROC | failed rejection | clean rejection | retained fraction |
 | --- | ---: | ---: | ---: | ---: |
-| PINN-EBM raw EBM surprise | **0.95046 ± 0.00695** | -- | -- | -- |
-| naPINN learned gate | 0.93445 ± 0.01306 | 93.22% ± 3.26% | 28.64% ± 13.07% | 51.85% ± 10.08% |
+| PINN-EBM raw EBM surprise | 0.91928 ± 0.03547 | -- | -- | -- |
+| naPINN raw EBM surprise | **0.93060 ± 0.00348** | -- | -- | -- |
+| naPINN learned gate | 0.93002 ± 0.00395 | 92.90% ± 4.12% | 32.67% ± 24.25% | 49.13% ± 18.16% |
 
 Calibration의 eligibility 조건은 held-out seeds에서도 평균적으로
-유지됐지만 clean rejection의 seed variability는 크다. 따라서 30%
+유지됐지만 clean rejection의 seed variability는 매우 크다. 따라서 30%
 identity-level sensor failure에서도 corruption ranking이 작동했다는
-evidence는 되지만, clean observation을 안정적으로 모두 보존했다는
-evidence는 아니다. 또한 raw EBM score의 AUROC가 더 높으므로 gate가
-anomaly ranking을 최초로 가능하게 한다고 주장하지 않는다.
+evidence는 되지만, clean observation을 안정적으로 보존했다는 evidence는
+아니다. Raw estimator와 gate AUROC가 거의 같으므로 gate가 anomaly ranking
+자체를 새로 가능하게 한다고 주장하지 않는다.
 
-Measured phase time은 warm-up 427.7 ± 86.1초, estimator-only
-initialization 72.6 ± 14.0초, joint training 1922.3 ± 265.4초였고,
-evaluation을 포함한 end-to-end time은 2425.6 ± 299.1초였다. Shared GPU
-contention이 포함된 observational timing이며 hardware-isolated speed
-benchmark로 해석하지 않는다. 같은 end-to-end 값은 MSE
-1705.9 ± 256.6초, LAD 1859.1 ± 144.5초, OrPINN
-1764.0 ± 168.5초, direct PINN-EBM 2396.4 ± 185.6초다.
+새 실행의 naPINN phase time은 warm-up 206.2 ± 37.5초,
+estimator-only initialization 46.0 ± 1.5초, joint training
+1572.6 ± 21.6초이며 end-to-end는 1825.4 ± 51.7초다. Direct PINN-EBM의
+end-to-end는 1698.0 ± 35.1초다. Shared GPU에서 측정한 observational
+timing이므로 hardware-isolated speed benchmark로 해석하지 않는다.
 
 ### 8.3 Real PIV + 10% persistent sensor bias/drift: cost-0.01 sensitivity
 
@@ -572,11 +571,11 @@ Earlier cost-0.01 sensitivity를 버리지 않은 채, seed-39에서 선택한 0
 
 | Method | held-out rMAE | held-out rMSE | momentum RMS | continuity RMS |
 | --- | ---: | ---: | ---: | ---: |
-| MSE-PINN | 0.21182 ± 0.00261 | 0.28836 ± 0.00888 | 0.04915 ± 0.00101 | 0.04404 ± 0.00076 |
-| LAD-PINN | **0.13212 ± 0.00251** | **0.20881 ± 0.00157** | 0.05127 ± 0.00064 | 0.07348 ± 0.00056 |
-| OrPINN \(q=2.9\) | 0.16655 ± 0.00441 | 0.24307 ± 0.01013 | 0.06550 ± 0.00135 | 0.07164 ± 0.00122 |
-| PINN-EBM, no gate | 0.26545 ± 0.08838 | 0.35567 ± 0.08225 | 0.04847 ± 0.01452 | 0.08889 ± 0.01527 |
-| naPINN, rejection cost 0.10 | 0.15501 ± 0.00119 | 0.23226 ± 0.00463 | **0.01818 ± 0.00072** | **0.01932 ± 0.00154** |
+| MSE-PINN | 0.21017 ± 0.00548 | 0.28448 ± 0.01167 | 0.04866 ± 0.00097 | 0.04413 ± 0.00126 |
+| LAD-PINN | **0.13199 ± 0.00017** | **0.20828 ± 0.00208** | 0.05159 ± 0.00052 | 0.07469 ± 0.00072 |
+| OrPINN \(q=2.9\) | 0.16528 ± 0.00548 | 0.24054 ± 0.00826 | 0.06583 ± 0.00201 | 0.07090 ± 0.00107 |
+| PINN-EBM, no gate | 0.20739 ± 0.01055 | 0.31176 ± 0.01785 | 0.03623 ± 0.00615 | 0.08531 ± 0.01766 |
+| naPINN, rejection cost 0.10 | 0.15538 ± 0.00052 | 0.23260 ± 0.00328 | **0.01789 ± 0.00040** | **0.01891 ± 0.00085** |
 
 naPINN은 MSE, OrPINN, direct PINN-EBM보다 두 field metric이 낮지만 LAD가
 여전히 best다. Cost 0.01보다 naPINN field agreement와 clean retention은
@@ -584,33 +583,32 @@ naPINN은 MSE, OrPINN, direct PINN-EBM보다 두 field metric이 낮지만 LAD�
 
 | naPINN detection metric | mean ± sample std |
 | --- | ---: |
-| Gate failure-detection AUROC | 0.92989 ± 0.00134 |
-| Raw EBM failure-detection AUROC | **0.94513 ± 0.00082** |
-| Failed-scalar rejection rate | 84.97% ± 1.90% |
-| Clean-scalar rejection rate | 3.63% ± 0.89% |
-| Retained fraction | 88.32% ± 0.99% |
+| Gate failure-detection AUROC | 0.92914 ± 0.00080 |
+| Raw EBM failure-detection AUROC | **0.94339 ± 0.00016** |
+| Failed-scalar rejection rate | 86.15% ± 0.33% |
+| Clean-scalar rejection rate | 4.03% ± 0.33% |
+| Retained fraction | 87.85% ± 0.33% |
 
 30% seed-39 calibration의 failed rejection ≥90% criterion은 10%
 held-out condition에서 유지되지 않았다. 대신 clean rejection은 cost
-0.01의 33.68%에서 3.63%로 크게 줄었다. 이는 rejection cost가 단순한
+0.01의 33.68%에서 4.03%로 크게 줄었다. 이는 rejection cost가 단순한
 cosmetic hyperparameter가 아니라 failure recall과 clean retention의
 trade-off를 제어하며, 한 severity에서 정한 constraint가 다른 severity로
 완전히 transfer되지 않는다는 limitation이다. Raw EBM AUROC가 gate보다
 높다는 결과도 그대로 유지한다.
 
 같은 condition의 MAD-PINN은 rMAE/rMSE
-0.15850 ± 0.00133 / 0.24077 ± 0.00059로 naPINN보다 조금 높고
-LAD보다 높다. 반면 momentum/continuity RMS는 0.01443/0.01354로
-naPINN보다 낮다. MAD screen은 corrupted 91.38% ± 0.49%와 clean
-30.30% ± 0.43%를 reject하여 63.65% ± 0.40%를 retained한다. naPINN은
+0.15738 ± 0.00134 / 0.23950 ± 0.00144로 naPINN보다 조금 높고
+LAD보다 높다. 반면 momentum/continuity RMS는 0.01445/0.01363으로
+naPINN보다 낮다. MAD screen은 corrupted 91.57% ± 0.92%와 clean
+30.42% ± 0.73%를 reject하여 63.53%를 retained한다. naPINN은
 field와 clean retention이 더 좋고, MAD는 physics residual과 failure
 recall이 더 좋은 trade-off다. MAD는 60,000-update,
 non-compute-matched reference다.
 
-Selected-cost naPINN end-to-end time은 5313.8 ± 2275.0초였지만, run별
-shared-server contention이 크게 달라 variance가 매우 크다. 이를
-cost-0.01 또는 baseline과의 controlled speed comparison으로 사용하지
-않는다.
+Selected-cost naPINN end-to-end time은 1835.7 ± 11.5초다. Shared-server
+측정이므로 cost-0.01 또는 baseline과의 hardware-isolated speed
+comparison으로 사용하지 않는다.
 
 ### 8.5 Real PIV + 20% persistent failure: calibration-selected cost 0.10
 
@@ -618,33 +616,32 @@ cost-0.01 또는 baseline과의 controlled speed comparison으로 사용하지
 
 | Method | held-out rMAE | held-out rMSE | momentum RMS | continuity RMS |
 | --- | ---: | ---: | ---: | ---: |
-| MSE-PINN | 0.29806 ± 0.00414 | 0.37994 ± 0.00526 | 0.06124 ± 0.00112 | 0.05989 ± 0.00236 |
-| LAD-PINN | 0.17195 ± 0.00576 | 0.25329 ± 0.00745 | 0.06163 ± 0.00248 | 0.07726 ± 0.00291 |
-| OrPINN \(q=2.9\) | 0.23768 ± 0.00330 | 0.32710 ± 0.00941 | 0.07669 ± 0.00201 | 0.08331 ± 0.00128 |
-| PINN-EBM, no gate | 0.20534 ± 0.02983 | 0.29317 ± 0.02936 | 0.06210 ± 0.00869 | 0.11887 ± 0.00783 |
-| naPINN, rejection cost 0.10 | **0.16889 ± 0.00337** | **0.24869 ± 0.00871** | **0.01444 ± 0.00072** | **0.01408 ± 0.00036** |
+| MSE-PINN | 0.30046 ± 0.00418 | 0.38291 ± 0.00385 | 0.06220 ± 0.00128 | 0.06070 ± 0.00103 |
+| LAD-PINN | 0.17190 ± 0.00333 | 0.25310 ± 0.00208 | 0.06023 ± 0.00237 | 0.07765 ± 0.00126 |
+| OrPINN \(q=2.9\) | 0.23666 ± 0.00390 | 0.32521 ± 0.00482 | 0.07747 ± 0.00019 | 0.08340 ± 0.00185 |
+| PINN-EBM, no gate | 0.19577 ± 0.02248 | 0.29842 ± 0.00907 | 0.06206 ± 0.00646 | 0.11471 ± 0.01221 |
+| naPINN, rejection cost 0.10 | **0.17113 ± 0.00251** | **0.25266 ± 0.00747** | **0.01432 ± 0.00037** | **0.01378 ± 0.00003** |
 
-naPINN은 LAD 대비 rMAE/rMSE를 각각 1.8%/1.8% 낮춘다. Improvement
-margin은 30% failure보다 작지만, 이 setting에서는 direct PINN-EBM보다
-field error도 낮다. LAD 대비 nominal momentum/continuity residual은
-각각 76.6%/81.8% 낮다.
+naPINN은 LAD보다 rMAE와 rMSE가 각각 약 0.4%와 0.2% 낮은 매우 작은
+평균 차이를 보인다. 반복이 세 번뿐이므로 강한 우위로 해석하지 않는다.
+이 setting에서는 direct PINN-EBM보다 field error도 낮고 nominal
+momentum/continuity residual도 작다.
 
 | Detection score | AUROC | failed rejection | clean rejection | retained |
 | --- | ---: | ---: | ---: | ---: |
-| PINN-EBM raw EBM surprise | **0.95991 ± 0.00790** | -- | -- | -- |
-| naPINN raw EBM surprise | 0.94612 ± 0.00642 | -- | -- | -- |
-| naPINN learned gate | 0.94192 ± 0.01330 | 91.25% ± 1.72% | 9.16% ± 1.03% | 74.59% ± 1.16% |
+| PINN-EBM raw EBM surprise | **0.95706 ± 0.00724** | -- | -- | -- |
+| naPINN raw EBM surprise | 0.94439 ± 0.00533 | -- | -- | -- |
+| naPINN learned gate | 0.93683 ± 0.00957 | 90.66% ± 0.70% | 8.38% ± 0.32% | 75.33% ± 0.34% |
 
 Raw EBM ranking이 gate보다 좋은 pattern은 다시 나타난다. 따라서
 20% condition의 positive field result도 gate가 anomaly score 자체를
 새로 가능하게 한다는 claim으로 해석하지 않는다.
 
 같은 condition의 MAD-PINN은 rMAE/rMSE
-0.17087 ± 0.00580 / 0.25418 ± 0.00785로 LAD와 거의 같고 naPINN보다
-조금 높다. Momentum/continuity RMS는 0.01767/0.01529로 LAD보다 크게
-낮지만 naPINN의 0.01444/0.01408보다는 높다. Fixed MAD screen은 known
-corrupted scalars 91.60% ± 0.79%와 clean scalars 25.42% ± 0.82%를
-reject하여 61.48% ± 0.80%를 retained한다. 이는 60,000-update,
+0.17346 ± 0.00401 / 0.25574 ± 0.00195로 LAD와 naPINN보다 조금 높다.
+Momentum/continuity RMS는 0.01808/0.01484다. Fixed MAD screen은 known
+corrupted scalars 91.43% ± 0.85%와 clean scalars 25.46% ± 0.29%를
+reject하여 61.49%를 retained한다. 이는 60,000-update,
 non-compute-matched reference다.
 
 ### 8.6 Compute evidence for the same 10% cost-0.01 sensitivity
@@ -670,16 +667,16 @@ log-parameterization의 Re를 8000에서 시작하여 metadata value 10031을
 
 | Method | held-out rMAE | held-out rMSE | learned Re | Re relative error | momentum RMS | continuity RMS |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| MSE-PINN | 0.37046 ± 0.00155 | 0.48957 ± 0.00516 | 1309 ± 155 | 86.95% ± 1.55% | 0.07674 ± 0.00114 | 0.07026 ± 0.00127 |
-| LAD-PINN | 0.23385 ± 0.00515 | 0.36157 ± 0.00655 | 4133 ± 506 | 58.80% ± 5.04% | 0.07128 ± 0.00157 | 0.07888 ± 0.00090 |
-| PINN-EBM, no gate | **0.20197 ± 0.01048** | **0.30589 ± 0.00218** | **4651 ± 2561** | **53.63% ± 25.53%** | 0.06069 ± 0.01140 | 0.13219 ± 0.02388 |
-| naPINN | 0.23092 ± 0.02378 | 0.31708 ± 0.01356 | 2284 ± 533 | 77.23% ± 5.32% | **0.02891 ± 0.02106** | **0.02926 ± 0.02736** |
+| MSE-PINN | 0.37221 ± 0.00662 | 0.49041 ± 0.00917 | 1331.81 ± 111.03 | 86.72% ± 1.11% | 0.07606 ± 0.00215 | 0.07098 ± 0.00054 |
+| LAD-PINN | 0.23303 ± 0.00332 | 0.35739 ± 0.00643 | 3634.24 ± 1650.42 | 63.77% ± 16.45% | 0.07269 ± 0.00072 | 0.07913 ± 0.00125 |
+| PINN-EBM, no gate | 0.28567 ± 0.15308 | 0.36947 ± 0.11387 | **7681.08 ± 5927.76** | **51.54% ± 18.20%** | 0.07782 ± 0.01289 | 0.14246 ± 0.01231 |
+| naPINN | **0.22825 ± 0.02198** | **0.31499 ± 0.00886** | 2306.53 ± 550.97 | 77.01% ± 5.49% | **0.02488 ± 0.01538** | **0.02777 ± 0.02501** |
 
 이 extension은 naPINN의 parameter-recovery success를 보여주지 않는다.
-Direct PINN-EBM이 field와 mean Re error에서 가장 좋지만 seed variability가
-매우 크고, 모든 method의 learned Re가 metadata value보다 크게 낮다.
-naPINN은 nominal momentum/continuity residual은 가장 낮지만 Re recovery는
-LAD와 direct prior보다 나쁘다.
+naPINN은 field rMAE/rMSE가 가장 낮지만 Re 상대오차는 77.0%다. Direct
+PINN-EBM은 mean Re error가 가장 낮아도 51.5%이고 seed별 learned Re가
+14,260.66, 2,757.24, 6,025.34로 매우 크게 흔들린다. 모든 방법이 metadata
+Re를 안정적으로 복원하지 못했다.
 
 따라서 이 결과는 AC가 지적한 observation error와 physics-model
 discrepancy의 confounding을 실증한다. Real PIV에 nominal pressure-latent
@@ -693,32 +690,34 @@ result는 fixed-Re real-data benefit과 함께 보고해야 한다.
 
 다음 direct PINN-EBM과 naPINN 비교는 seeds 40--42가 모두 완료됐다.
 두 method는 같은 backbone, corrupted observations, 30,000 PINN updates,
-5,000 estimator-only updates, PDE/data weight를 사용한다. Allen 값은
-현재 rejection cost 0.5 run이며 paper-aligned 1.0 extension이 별도로
-진행될 예정이다.
+5,000 estimator-only updates, PDE/data weight를 사용한다. 현재 서버에서
+rejection cost 0.5의 9/9 기본 비교와 paper-aligned 1.0의 9/9 extension이
+모두 엄격 집계됐다. 이전 서버 요약은 별도 계보로 남기되, 아래 새
+수치는 같은 서버와 같은 seeds의 비교로 해석한다.
 
 | PDE | Method | field rMAE | field rMSE | parameter abs. error | detection AUROC |
 | --- | --- | ---: | ---: | ---: | ---: |
-| Allen--Cahn | PINN-EBM | **0.08334 ± 0.01430** | **0.08343 ± 0.01374** | epsilon: 0.00272 ± 0.00113 | raw EBM: **0.99419 ± 0.00188** |
-| Allen--Cahn | naPINN | 0.10060 ± 0.02587 | 0.10038 ± 0.01791 | epsilon: 0.00273 ± 0.00027 | gate: 0.99286 ± 0.00159 |
-| Burgers | PINN-EBM | **0.04783 ± 0.01230** | **0.06504 ± 0.01881** | nu: **0.00080 ± 0.00028** | raw EBM: **0.99320 ± 0.00210** |
-| Burgers | naPINN | 0.08179 ± 0.00335 | 0.09983 ± 0.01022 | nu: 0.00271 ± 0.00024 | gate: 0.99037 ± 0.00152 |
-| lambda--omega | PINN-EBM | **0.03976 ± 0.00158** | **0.05542 ± 0.00257** | beta: **0.00966 ± 0.00366** | raw EBM: **0.99420 ± 0.00012** |
-| lambda--omega | naPINN | 0.06989 ± 0.00132 | 0.08851 ± 0.00102 | beta: 0.01340 ± 0.00057 | gate: 0.99214 ± 0.00052 |
+| Allen--Cahn | PINN-EBM | 0.10288 ± 0.02365 | 0.10169 ± 0.02132 | epsilon: **0.00215 ± 0.00036** | raw EBM: 0.99386 ± 0.00233 |
+| Allen--Cahn | naPINN | **0.09202 ± 0.00352** | **0.09483 ± 0.00232** | epsilon: 0.00275 ± 0.00048 | gate: **0.99476 ± 0.00118** |
+| Burgers | PINN-EBM | **0.04738 ± 0.01326** | **0.06743 ± 0.01227** | nu: **0.00065 ± 0.00018** | raw EBM: **0.99307 ± 0.00067** |
+| Burgers | naPINN | 0.08186 ± 0.00240 | 0.09858 ± 0.00700 | nu: 0.00272 ± 0.00029 | gate: 0.99132 ± 0.00080 |
+| lambda--omega | PINN-EBM | **0.04023 ± 0.00218** | **0.05564 ± 0.00313** | beta: **0.01016 ± 0.00409** | raw EBM: **0.99406 ± 0.00030** |
+| lambda--omega | naPINN | 0.07056 ± 0.00121 | 0.08890 ± 0.00075 | beta: 0.01359 ± 0.00068 | gate: 0.99302 ± 0.00040 |
 
-이 결과는 reviewer의 closest-prior concern을 약화시키지 않고 오히려
-강화한다. Direct PINN-EBM은 세 PDE 모두 field error가 더 낮고, Burgers와
-lambda--omega parameter recovery도 더 좋다. Raw EBM AUROC도 naPINN
-gate보다 약간 높다. 따라서 다음 주장은 사용할 수 없다.
+이 결과는 reviewer의 closest-prior concern을 없애지 않는다. Direct
+PINN-EBM은 Burgers와 lambda--omega의 field error, 그리고 세 PDE의
+parameter error가 더 낮다. Allen--Cahn field error와 detection AUROC는
+naPINN이 더 낮거나 높다. Burgers와 lambda--omega의 raw EBM AUROC는
+naPINN gate보다 약간 높다. 따라서 다음 주장은 사용할 수 없다.
 
 - direct EBM-NLL은 severe outlier에서 실패한다.
 - gain의 대부분은 trainable gate에서 온다.
 - gate만 corruption ranking을 가능하게 한다.
 
-Rebuttal에서 남는 방어는 explicit inclusion decision, rejection-cost
-regularization, separated objectives, 그리고 injected-real-PIV에서의
-behavior다. 이 결과만 보면 novelty/significance score를 뒤집을
-가능성은 낮으며, response는 이를 숨기기보다 claim을 좁혀야 한다.
+Rebuttal에서 남는 방어는 명시적인 관측 포함/제외 결정, 관측을 버릴 때의
+비용, density 학습과 field reconstruction의 분리, 그리고 실제 PIV 큰
+이상치 실험에서의 결과다. 이 합성 결과를 숨기지 않고 claim을 조건부로
+좁혀야 한다.
 
 ### 8.9 Closest-prior PDE-loss-weight sensitivity
 
@@ -729,15 +728,15 @@ direct PINN-EBM의 PDE-loss weight \(1,10,50\)을 seeds 40--42에도 모두
 
 | PDE | PDE weight | field rMAE | field rMSE | parameter abs. error |
 | --- | ---: | ---: | ---: | ---: |
-| Allen--Cahn | 1 | 0.08334 ± 0.01430 | 0.08343 ± 0.01374 | 0.00272 ± 0.00113 |
-| Allen--Cahn | 10 | **0.08226 ± 0.03434** | **0.08111 ± 0.02832** | **0.00117 ± 0.00048** |
-| Allen--Cahn | 50 | 0.78955 ± 0.00594 | 0.77896 ± 0.00924 | 0.50221 ± 0.05523 |
-| Burgers | 1 | 0.04783 ± 0.01230 | 0.06504 ± 0.01881 | 0.00080 ± 0.00028 |
-| Burgers | 10 | 0.04776 ± 0.00959 | 0.06676 ± 0.01248 | **0.00033 ± 0.00027** |
-| Burgers | 50 | **0.04122 ± 0.00630** | **0.05679 ± 0.01124** | 0.00087 ± 0.00068 |
-| lambda--omega | 1 | 0.03976 ± 0.00158 | 0.05542 ± 0.00257 | 0.00966 ± 0.00366 |
-| lambda--omega | 10 | **0.03708 ± 0.00087** | **0.05422 ± 0.00180** | 0.00334 ± 0.00092 |
-| lambda--omega | 50 | 0.04551 ± 0.00164 | 0.08013 ± 0.00873 | **0.00297 ± 0.00069** |
+| Allen--Cahn | 1 | 0.10288 ± 0.02365 | 0.10169 ± 0.02132 | 0.00215 ± 0.00036 |
+| Allen--Cahn | 10 | **0.07629 ± 0.03903** | **0.07533 ± 0.03738** | **0.00141 ± 0.00042** |
+| Allen--Cahn | 50 | 0.75508 ± 0.01691 | 0.74897 ± 0.01852 | 0.54693 ± 0.10998 |
+| Burgers | 1 | 0.04738 ± 0.01326 | 0.06743 ± 0.01227 | 0.00065 ± 0.00018 |
+| Burgers | 10 | 0.04239 ± 0.00763 | 0.06060 ± 0.01086 | **0.00025 ± 0.00011** |
+| Burgers | 50 | **0.03496 ± 0.00199** | **0.04926 ± 0.00112** | 0.00054 ± 0.00020 |
+| lambda--omega | 1 | 0.04023 ± 0.00218 | **0.05564 ± 0.00313** | 0.01016 ± 0.00409 |
+| lambda--omega | 10 | **0.03995 ± 0.00345** | 0.05728 ± 0.00092 | 0.00398 ± 0.00143 |
+| lambda--omega | 50 | 0.04384 ± 0.00282 | 0.07635 ± 0.00408 | **0.00289 ± 0.00117** |
 
 Weight sensitivity는 PDE-dependent하다. Weight 10은 Allen--Cahn과
 lambda--omega의 field mean을 조금 개선하고, weight 50은 Burgers를
@@ -760,25 +759,25 @@ equal-weight 하나로 제한하지 않는다.
 
 | Corruption | Method | held-out rMAE | held-out rMSE | momentum RMS | continuity RMS |
 | --- | --- | ---: | ---: | ---: | ---: |
-| AR(1) | MSE | 0.22047 ± 0.00068 | 0.28117 ± 0.00238 | 0.05440 ± 0.00026 | 0.05116 ± 0.00226 |
-| AR(1) | LAD | **0.12330 ± 0.00054** | **0.19799 ± 0.00123** | 0.04886 ± 0.00066 | 0.07191 ± 0.00120 |
-| AR(1) | OrPINN q=2.9 | 0.14541 ± 0.00340 | 0.21048 ± 0.00232 | 0.05696 ± 0.00258 | 0.06515 ± 0.00161 |
-| AR(1) | PINN-EBM | 0.20891 ± 0.01607 | 0.31499 ± 0.01447 | 0.04120 ± 0.00919 | 0.09298 ± 0.01323 |
-| AR(1) | naPINN | 0.14997 ± 0.00039 | 0.21480 ± 0.00196 | **0.01921 ± 0.00029** | **0.02007 ± 0.00027** |
-| Spatial burst | MSE | 0.15981 ± 0.00052 | 0.21766 ± 0.00025 | 0.03967 ± 0.00090 | 0.03829 ± 0.00095 |
-| Spatial burst | LAD | **0.11358 ± 0.00083** | **0.18549 ± 0.00077** | 0.04636 ± 0.00056 | 0.07346 ± 0.00083 |
-| Spatial burst | OrPINN q=2.9 | 0.12634 ± 0.00219 | 0.18973 ± 0.00160 | 0.04737 ± 0.00072 | 0.06324 ± 0.00069 |
-| Spatial burst | PINN-EBM | 0.23979 ± 0.00654 | 0.33950 ± 0.01824 | 0.04372 ± 0.01817 | 0.07795 ± 0.01918 |
-| Spatial burst | naPINN | 0.15167 ± 0.00316 | 0.22627 ± 0.00122 | **0.01674 ± 0.00051** | **0.01762 ± 0.00067** |
+| AR(1) | MSE | 0.22005 ± 0.00048 | 0.27981 ± 0.00029 | 0.05440 ± 0.00070 | 0.05108 ± 0.00136 |
+| AR(1) | LAD | **0.12291 ± 0.00063** | **0.19727 ± 0.00107** | 0.04862 ± 0.00097 | 0.07134 ± 0.00133 |
+| AR(1) | OrPINN q=2.9 | 0.14582 ± 0.00106 | 0.21065 ± 0.00051 | 0.05616 ± 0.00081 | 0.06556 ± 0.00170 |
+| AR(1) | PINN-EBM | 0.20843 ± 0.01835 | 0.31694 ± 0.02182 | 0.04211 ± 0.00293 | 0.09907 ± 0.01109 |
+| AR(1) | naPINN | 0.15036 ± 0.00064 | 0.21544 ± 0.00238 | **0.01925 ± 0.00018** | **0.02022 ± 0.00018** |
+| Spatial burst | MSE | 0.15975 ± 0.00020 | 0.21735 ± 0.00037 | 0.04019 ± 0.00041 | 0.03901 ± 0.00017 |
+| Spatial burst | LAD | **0.11321 ± 0.00009** | **0.18545 ± 0.00028** | 0.04602 ± 0.00062 | 0.07418 ± 0.00127 |
+| Spatial burst | OrPINN q=2.9 | 0.12539 ± 0.00077 | 0.18828 ± 0.00012 | 0.04795 ± 0.00032 | 0.06300 ± 0.00021 |
+| Spatial burst | PINN-EBM | 0.25594 ± 0.03873 | 0.35479 ± 0.02211 | 0.03473 ± 0.00954 | 0.08566 ± 0.01815 |
+| Spatial burst | naPINN | 0.15318 ± 0.00354 | 0.22605 ± 0.00151 | **0.01730 ± 0.00105** | **0.01719 ± 0.00026** |
 
 | Corruption | Score | AUROC | failed rejection | clean rejection | retained |
 | --- | --- | ---: | ---: | ---: | ---: |
-| AR(1) | PINN-EBM raw EBM | 0.87252 ± 0.01659 | -- | -- | -- |
-| AR(1) | naPINN raw EBM | **0.91443 ± 0.00082** | -- | -- | -- |
-| AR(1) | naPINN gate | 0.91391 ± 0.00081 | 64.97% ± 7.89% | 3.86% ± 1.87% | 86.91% ± 2.78% |
-| Spatial burst | PINN-EBM raw EBM | **0.99271 ± 0.00093** | -- | -- | -- |
-| Spatial burst | naPINN raw EBM | 0.98237 ± 0.00529 | -- | -- | -- |
-| Spatial burst | naPINN gate | 0.98303 ± 0.00482 | 100.00% | 5.53% ± 0.25% | 91.62% ± 0.25% |
+| AR(1) | PINN-EBM raw EBM | 0.88157 ± 0.01359 | -- | -- | -- |
+| AR(1) | naPINN raw EBM | **0.91378 ± 0.00048** | -- | -- | -- |
+| AR(1) | naPINN gate | 0.91307 ± 0.00085 | 61.41% ± 3.12% | 2.96% ± 0.50% | 88.21% ± 0.90% |
+| Spatial burst | PINN-EBM raw EBM | **0.98745 ± 0.00436** | -- | -- | -- |
+| Spatial burst | naPINN raw EBM | 0.98544 ± 0.00895 | -- | -- | -- |
+| Spatial burst | naPINN gate | 0.98459 ± 0.01042 | 100.00% | 4.62% ± 0.85% | 92.50% ± 0.82% |
 
 LAD가 두 structured conditions 모두 field metric에서 가장 좋고,
 naPINN은 우승하지 못한다. AR(1)에서는 OrPINN도 naPINN보다 field
@@ -787,7 +786,7 @@ agreement가 조금 좋다. Spatial burst에서 naPINN은 MSE보다 rMAE는
 두 조건 모두 가장 낮다.
 
 Detection도 condition-dependent하다. Spatial burst는 gate가 injected
-failed scalars를 모두 reject하지만, AR(1)에서는 64.97%만 reject한다.
+failed scalars를 모두 reject하지만, AR(1)에서는 61.41%만 reject한다.
 30% persistent-failure calibration에서 고른 rejection cost가 temporal
 correlation으로 완전히 transfer되지 않는다는 뜻이다. 따라서 이 matrix는
 “correlated noise에서도 consistently best”라는 근거가 아니라,
@@ -795,64 +794,66 @@ structured corruption coverage와 field/physics/detection trade-off를
 보여주는 evidence다.
 
 AR(1)의 MAD-PINN result도 seeds 40--42가 완료됐다. rMAE/rMSE는
-0.15266 ± 0.00119 / 0.23266 ± 0.00322로 naPINN보다 높고 LAD보다 높다.
-반면 momentum/continuity RMS는 0.01524/0.01333으로 naPINN보다 낮다.
-MAD screen은 corrupted 94.34% ± 0.05%와 clean 27.60% ± 0.26%를
-reject하여 62.32% ± 0.23%를 retained한다. naPINN gate의 64.97%
-failure rejection과 3.86% clean rejection에 비해, MAD는 훨씬 높은
+0.15158 ± 0.00088 / 0.23113 ± 0.00188로 naPINN보다 높고 LAD보다 높다.
+반면 momentum/continuity RMS는 0.01529/0.01377으로 naPINN보다 낮다.
+MAD screen은 corrupted 94.30% ± 0.12%와 clean 27.51% ± 0.24%를
+reject하여 62.40%를 retained한다. naPINN gate의 61.41%
+failure rejection과 2.96% clean rejection에 비해, MAD는 훨씬 높은
 failure recall을 얻는 대신 clean data를 더 버리고 field agreement도
 악화시킨다. 이 결과 역시 60,000-update, non-compute-matched
 trade-off다.
 
 Spatial burst MAD-PINN도 seeds 40--42가 완료됐다. rMAE/rMSE는
-0.14967 ± 0.00075 / 0.22770 ± 0.00030이다. naPINN과 비교하면 MAD가
-rMAE는 약 1.3% 낮고 naPINN이 rMSE는 약 0.6% 낮으며, LAD가 두 field
+0.14851 ± 0.00072 / 0.22623 ± 0.00123이다. naPINN과 비교하면 MAD가
+rMAE는 낮고 naPINN이 rMSE는 아주 조금 낮으며, LAD가 두 field
 metrics 모두 가장 좋다. MAD momentum/continuity RMS는
-0.01448/0.01364로 naPINN의 0.01674/0.01762보다 낮다. 두 selector 모두
-corrupted scalars를 100% reject하지만 MAD는 clean scalars 33.60% ±
-0.73%를 reject하고 naPINN은 5.53% ± 0.25%만 reject한다. 따라서
+0.01448/0.01354로 naPINN의 0.01730/0.01719보다 낮다. 두 selector 모두
+corrupted scalars를 100% reject하지만 MAD는 clean scalars 34.04% ±
+0.10%를 reject하고 naPINN은 4.62% ± 0.85%만 reject한다. 따라서
 spatial burst에서도 MAD는 physics fit과 rMAE를 조금 개선하는 대신
 clean retention을 크게 희생한다.
 
-## 9. 확정 severe synthetic core와 PDE parameter recovery
+## 9. 세 합성 PDE의 15% 큰 이상치 엄격 집계와 PDE parameter 복원
 
-15% four-Gaussian corruption의 seeds 40--42 mean ± sample standard
-deviation이다. 모든 method는 동일한 field/data realization과 30,000 PINN
-updates를 사용한다. PINN-EBM과 naPINN에는 추가로 5,000 estimator-only
-updates가 있다.
+현재 서버에서 다시 생성하고 162/162 실행을 모두 확인한 자료 중 15%
+four-Gaussian 큰 이상치 조건의 seeds 40--42 평균 ± 표본 표준편차다.
+모든 방법은 같은 좌표, 같은 오염 관측값, 같은 이상치 위치와 30,000
+PINN update를 사용한다. PINN-EBM과 naPINN에는 추가로 5,000회
+estimator-only update가 있다. 이전 서버에서 전달된 숫자와 하나의 표로
+섞지 않고, 아래에는 현재 서버의 엄격 집계만 쓴다.
 
 | PDE | Method | field rMAE | field rMSE | learned parameter | parameter abs. error |
 | --- | --- | ---: | ---: | ---: | ---: |
-| Allen--Cahn | MSE | 0.83957 ± 0.11123 | 0.70033 ± 0.08835 | epsilon=0.29633 ± 0.00178 | 0.00367 ± 0.00178 |
-| Allen--Cahn | LAD | 0.35920 ± 0.04052 | 0.30535 ± 0.02906 | epsilon=0.29734 ± 0.00059 | 0.00266 ± 0.00059 |
-| Allen--Cahn | OrPINN q=1.9 | 0.66361 ± 0.06553 | 0.55480 ± 0.04962 | epsilon=0.30653 ± 0.00277 | 0.00653 ± 0.00277 |
-| Allen--Cahn | OrPINN q=2.9 | 0.26319 ± 0.06330 | 0.23233 ± 0.04521 | epsilon=0.29687 ± 0.00036 | 0.00313 ± 0.00036 |
-| Allen--Cahn | PINN-EBM | **0.08334 ± 0.01430** | **0.08343 ± 0.01374** | epsilon=0.29728 ± 0.00113 | 0.00272 ± 0.00113 |
-| Allen--Cahn | naPINN | 0.10060 ± 0.02587 | 0.10038 ± 0.01791 | epsilon=0.29727 ± 0.00027 | 0.00273 ± 0.00027 |
-| Burgers | MSE | 0.58621 ± 0.03931 | 0.56572 ± 0.03663 | nu=0.01558 ± 0.00090 | 0.00558 ± 0.00090 |
-| Burgers | LAD | 0.25976 ± 0.00367 | 0.25014 ± 0.00249 | nu=0.01178 ± 0.00059 | 0.00178 ± 0.00059 |
-| Burgers | OrPINN q=1.9 | 0.39205 ± 0.01346 | 0.38496 ± 0.01559 | nu=0.01516 ± 0.00081 | 0.00516 ± 0.00081 |
-| Burgers | OrPINN q=2.9 | 0.19407 ± 0.02426 | 0.19455 ± 0.01921 | nu=0.01123 ± 0.00074 | 0.00123 ± 0.00074 |
-| Burgers | PINN-EBM | **0.04783 ± 0.01230** | **0.06504 ± 0.01881** | nu=0.00920 ± 0.00028 | **0.00080 ± 0.00028** |
-| Burgers | naPINN | 0.08179 ± 0.00335 | 0.09983 ± 0.01022 | nu=0.01271 ± 0.00024 | 0.00271 ± 0.00024 |
-| lambda--omega | MSE | 0.42138 ± 0.01071 | 0.44034 ± 0.01019 | beta=0.67222 ± 0.00543 | 0.32778 ± 0.00543 |
-| lambda--omega | LAD | 0.19194 ± 0.00642 | 0.19914 ± 0.00568 | beta=0.91559 ± 0.00421 | 0.08441 ± 0.00421 |
-| lambda--omega | OrPINN q=1.9 | 0.17540 ± 0.01494 | 0.19868 ± 0.01611 | beta=0.93914 ± 0.00453 | 0.06086 ± 0.00453 |
-| lambda--omega | OrPINN q=2.9 | 0.15123 ± 0.00353 | 0.16390 ± 0.00343 | beta=0.94769 ± 0.00382 | 0.05231 ± 0.00382 |
-| lambda--omega | PINN-EBM | **0.03976 ± 0.00158** | **0.05542 ± 0.00257** | beta=0.99034 ± 0.00366 | **0.00966 ± 0.00366** |
-| lambda--omega | naPINN | 0.06989 ± 0.00132 | 0.08851 ± 0.00102 | beta=0.98660 ± 0.00057 | 0.01340 ± 0.00057 |
+| Allen--Cahn | MSE | 0.85525 ± 0.10760 | 0.71225 ± 0.08689 | epsilon=0.29645 ± 0.00163 | 0.00355 ± 0.00163 |
+| Allen--Cahn | LAD | 0.38339 ± 0.03061 | 0.32211 ± 0.02022 | epsilon=0.29688 ± 0.00088 | 0.00312 ± 0.00088 |
+| Allen--Cahn | OrPINN q=1.9 | 0.67317 ± 0.08160 | 0.56108 ± 0.06205 | epsilon=0.30606 ± 0.00274 | 0.00606 ± 0.00274 |
+| Allen--Cahn | OrPINN q=2.9 | 0.26754 ± 0.07363 | 0.23081 ± 0.05536 | epsilon=0.29679 ± 0.00060 | 0.00321 ± 0.00060 |
+| Allen--Cahn | PINN-EBM | 0.10288 ± 0.02365 | 0.10169 ± 0.02132 | epsilon=0.29785 ± 0.00036 | **0.00215 ± 0.00036** |
+| Allen--Cahn | naPINN | **0.09202 ± 0.00352** | **0.09483 ± 0.00232** | epsilon=0.29725 ± 0.00048 | 0.00275 ± 0.00048 |
+| Burgers | MSE | 0.58642 ± 0.03949 | 0.56590 ± 0.03655 | nu=0.01566 ± 0.00085 | 0.00566 ± 0.00085 |
+| Burgers | LAD | 0.25627 ± 0.00195 | 0.24634 ± 0.00099 | nu=0.01181 ± 0.00073 | 0.00181 ± 0.00073 |
+| Burgers | OrPINN q=1.9 | 0.39356 ± 0.01173 | 0.38632 ± 0.01363 | nu=0.01515 ± 0.00080 | 0.00515 ± 0.00080 |
+| Burgers | OrPINN q=2.9 | 0.19082 ± 0.02191 | 0.19223 ± 0.01710 | nu=0.01123 ± 0.00074 | 0.00123 ± 0.00074 |
+| Burgers | PINN-EBM | **0.04738 ± 0.01326** | **0.06743 ± 0.01227** | nu=0.00935 ± 0.00018 | **0.00065 ± 0.00018** |
+| Burgers | naPINN | 0.08186 ± 0.00240 | 0.09858 ± 0.00700 | nu=0.01272 ± 0.00029 | 0.00272 ± 0.00029 |
+| lambda--omega | MSE | 0.42187 ± 0.01052 | 0.44110 ± 0.01033 | beta=0.67215 ± 0.00530 | 0.32785 ± 0.00530 |
+| lambda--omega | LAD | 0.19097 ± 0.00784 | 0.19909 ± 0.00623 | beta=0.91630 ± 0.00410 | 0.08370 ± 0.00410 |
+| lambda--omega | OrPINN q=1.9 | 0.17492 ± 0.01256 | 0.19818 ± 0.01311 | beta=0.93913 ± 0.00528 | 0.06087 ± 0.00528 |
+| lambda--omega | OrPINN q=2.9 | 0.15263 ± 0.00309 | 0.16514 ± 0.00325 | beta=0.94766 ± 0.00403 | 0.05234 ± 0.00403 |
+| lambda--omega | PINN-EBM | **0.04023 ± 0.00218** | **0.05564 ± 0.00313** | beta=0.98984 ± 0.00409 | **0.01016 ± 0.00409** |
+| lambda--omega | naPINN | 0.07056 ± 0.00121 | 0.08890 ± 0.00075 | beta=0.98641 ± 0.00068 | 0.01359 ± 0.00068 |
 
 이 결과는 field reconstruction뿐 아니라 reviewer가 요청한 Burgers
-viscosity와 lambda--omega beta recovery까지 포함한다. Direct PINN-EBM이
-세 PDE 모두 field error가 가장 낮고, Burgers와 lambda--omega parameter
-error도 가장 낮다. Allen--Cahn parameter error는 PINN-EBM과 naPINN이
-사실상 같다. 따라서 gate의 value를 synthetic accuracy superiority로
-설명할 수 없다.
+viscosity와 lambda--omega beta recovery까지 포함한다. Direct PINN-EBM은
+Burgers와 lambda--omega의 field error와 세 PDE의 parameter error가 가장
+낮다. 반면 Allen--Cahn field reconstruction은 naPINN이 가장 낮다.
+따라서 gate의 가치를 모든 합성 조건의 정확도 우위로 설명할 수 없고,
+field 복원과 parameter 복원의 승자도 다를 수 있다.
 
-동시에 naPINN은 세 PDE 모두 second-best field method이며 OrPINN \(q=2.9\)
-대비 rMAE를 각각 61.8%, 57.9%, 53.8% 낮춘다. 따라서 fixed robust-loss
-baselines 대비 효과는 유지되지만, 이 positive result가 closest-prior
-comparison을 대신할 수는 없다.
+naPINN은 Allen--Cahn에서 1위, Burgers와 lambda--omega에서 2위다.
+OrPINN \(q=2.9\) 대비 rMAE를 각각 약 65.6%, 57.1%, 53.8% 낮춘다.
+따라서 고정 robust-loss baseline 대비 효과는 유지되지만, 이 결과가
+closest-prior 비교를 대신할 수는 없다.
 
 Raw EBM likelihood alone도 corruption ranking을 잘한다. Direct PINN-EBM의
 raw-score AUROC가 세 PDE 모두 naPINN gate보다 약간 높다. Gate의 더 좁은
@@ -869,15 +870,15 @@ hardware-isolated speed benchmark가 아니라 phase accounting evidence로만
 
 | PDE | Method | warm-up | estimator-only initialization | joint | total training |
 | --- | --- | ---: | ---: | ---: | ---: |
-| Allen--Cahn | PINN-EBM | 66.5 ± 5.6 | 22.9 ± 6.3 | 448.1 ± 58.9 | 537.5 ± 69.6 |
-| Allen--Cahn | naPINN | 60.3 ± 2.7 | 20.2 ± 2.5 | 487.6 ± 59.6 | 568.2 ± 63.3 |
-| Burgers | PINN-EBM | 88.0 ± 2.1 | 20.1 ± 1.7 | 550.4 ± 14.4 | 658.5 ± 15.2 |
-| Burgers | naPINN | 95.8 ± 13.9 | 24.2 ± 5.9 | 707.8 ± 134.8 | 827.8 ± 154.6 |
-| lambda--omega | PINN-EBM | 104.9 ± 33.0 | 23.7 ± 6.6 | 664.9 ± 187.8 | 793.5 ± 227.1 |
-| lambda--omega | naPINN | 92.4 ± 3.8 | 21.1 ± 1.0 | 684.7 ± 39.6 | 798.2 ± 42.1 |
+| Allen--Cahn | PINN-EBM | 132.7 ± 28.9 | 46.9 ± 1.6 | 896.8 ± 84.2 | 1076.4 ± 112.2 |
+| Allen--Cahn | naPINN | 142.7 ± 7.7 | 47.6 ± 0.7 | 1150.4 ± 33.1 | 1340.7 ± 34.4 |
+| Burgers | PINN-EBM | 162.1 ± 12.8 | 46.1 ± 1.0 | 1027.8 ± 25.2 | 1236.0 ± 32.0 |
+| Burgers | naPINN | 163.0 ± 18.6 | 48.5 ± 3.1 | 1306.7 ± 90.3 | 1518.1 ± 111.8 |
+| lambda--omega | PINN-EBM | 176.6 ± 14.9 | 47.3 ± 0.6 | 1048.6 ± 90.5 | 1272.5 ± 103.6 |
+| lambda--omega | naPINN | 179.4 ± 18.9 | 47.5 ± 0.8 | 1329.8 ± 85.4 | 1556.7 ± 94.2 |
 
-Estimator-only 5,000 updates는 이 runs에서 약 20--24초였고 total training의
-약 2.6--4.3%다. 따라서 cost가 작다는 사용자의 intuition은 방향상
+Estimator-only 5,000 updates는 이 runs에서 약 46--48초였고 total training의
+약 3.0--4.4%다. 따라서 cost가 작다는 사용자의 intuition은 방향상
 맞지만, “몇 초”라고 낮춰 말하지 않고 측정값을 제시한다. Joint phase
 안에도 estimator update가 들어 있으므로 estimator-only time만으로
 naPINN의 전체 overhead를 대표하지 않는다.
@@ -890,30 +891,32 @@ convention의 EMA update weight \(m\)을 바꿨다. Old-state decay로 쓰면
 
 | Update weight \(m\) | Decay \(\rho\) | field rMAE | field rMSE | epsilon abs. error |
 | ---: | ---: | ---: | ---: | ---: |
-| 0.01 | 0.99 | 0.11397 ± 0.04817 | 0.11187 ± 0.03993 | 0.00271 |
-| 0.05 | 0.95 | **0.10060 ± 0.02587** | **0.10038 ± 0.01791** | 0.00273 |
-| 0.10 | 0.90 | 0.10898 ± 0.04136 | 0.10613 ± 0.03030 | 0.00282 |
+| 0.01 | 0.99 | 0.10778 ± 0.03716 | 0.10931 ± 0.03179 | 0.00264 |
+| 0.05 | 0.95 | 0.09202 ± 0.00352 | 0.09483 ± 0.00232 | 0.00275 |
+| 0.10 | 0.90 | **0.08551 ± 0.00874** | **0.09235 ± 0.00494** | 0.00262 |
 
-세 값의 variance가 겹치므로 \(m=0.05\)가 universally optimal이라고
-주장하지 않는다. 다만 tested range에서 mean field error 변화가 작고
-default 0.05가 가장 낮았다. Main text의 beta와 appendix의 rho를 같은
-숫자로 취급하지 않고, update-weight와 decay convention을 명시하는 것이
-핵심 response다.
+세 값의 표본 표준편차가 겹치므로 \(m=0.10\)이 보편적으로 최적이라고
+주장하지 않는다. 이 세 값에서는 0.10의 평균 field error가 가장 낮지만,
+이는 Allen--Cahn 15% 한 조건의 국소 민감도 결과다. Main text의 beta와
+appendix의 rho를 같은 숫자로 취급하지 않고, update-weight와 decay
+convention을 명시하는 것이 핵심 response다.
 
 ### 9.3 Rejection-cost sensitivity와 paper/config discrepancy
 
-같은 Allen--Cahn 15% condition에서 \(\lambda_{\mathrm{rej}}\)를
-0.10--1.00으로 바꾼 확정 결과다.
+다음 표는 현재 서버에서 Allen--Cahn 15% 조건의
+\(\lambda_{\mathrm{rej}}\)를 0.10--1.00으로 바꾸어 각 값마다 seeds
+40--42를 모두 실행한 엄격 집계다. 총 15회이며 일부 값이나 seed를
+결과를 본 뒤 제외하지 않았다.
 
 | Rejection cost | field rMAE | field rMSE | outlier rejection | clean rejection | gate AUROC |
 | ---: | ---: | ---: | ---: | ---: | ---: |
-| 0.10 | 0.09814 ± 0.01185 | 0.09987 ± 0.01075 | 99.27% ± 0.25% | 0.87% ± 0.21% | **0.99346 ± 0.00104** |
-| 0.30 | 0.11383 ± 0.02902 | 0.11191 ± 0.02532 | 99.18% ± 0.27% | 0.88% ± 0.25% | 0.99097 ± 0.00314 |
-| 0.50 | 0.10060 ± 0.02587 | 0.10038 ± 0.01791 | 99.19% ± 0.24% | 0.68% ± 0.13% | 0.99286 ± 0.00159 |
-| 0.70 | **0.09564 ± 0.00269** | **0.09783 ± 0.00307** | 99.27% ± 0.21% | 0.61% ± 0.13% | 0.99324 ± 0.00169 |
-| 1.00 | 0.87859 ± 0.05709 | 0.73081 ± 0.04713 | 2.21% ± 0.34% | **0.13% ± 0.07%** | 0.54961 ± 0.00952 |
+| 0.10 | **0.08847 ± 0.00549** | **0.09283 ± 0.00668** | 99.30% | 0.76% | **0.99403** |
+| 0.30 | 0.09133 ± 0.00282 | 0.09631 ± 0.00330 | 99.25% | 0.72% | 0.99316 |
+| 0.50 | 0.09202 ± 0.00352 | 0.09483 ± 0.00232 | 99.29% | 0.66% | 0.99377 |
+| 0.70 | 0.09886 ± 0.01590 | 0.09869 ± 0.01361 | 99.28% | 0.72% | 0.99258 |
+| 1.00 | 0.86890 ± 0.02391 | 0.72211 ± 0.02451 | 2.12% | **0.15%** | 0.55067 |
 
-0.10--0.70의 field mean은 서로 가깝고 0.70이 가장 낮지만, 1.00에서는
+0.10--0.70의 field mean은 서로 가깝고 0.10이 가장 낮지만, 1.00에서는
 gate가 거의 모든 observation을 accept하여 outlier rejection과 field
 reconstruction이 함께 붕괴한다. 이는 submitted appendix에 적힌
 Allen--Cahn cost 1.0과 실제 initial core cost 0.5 사이의 discrepancy가
@@ -923,14 +926,26 @@ clarify하고, submitted value 1.0의 degradation을 인정해야 한다.
 
 이 sweep 역시 post-hoc optimal-cost selection 근거로 사용하지 않는다.
 Core result는 frozen 0.5를 유지하고, 표 전체를 sensitivity로 보고한다.
-Paper-aligned 1.0의 5%/10% cells까지 seeds 40--42를 모두 실행한 결과는
-다음과 같다.
 
-| Corruption ratio | cost 0.5 field rMAE | cost 1.0 field rMAE | cost 1.0 outlier rejection | cost 1.0 gate AUROC |
-| ---: | ---: | ---: | ---: | ---: |
-| 5% | **0.09621 ± 0.01677** | 0.25878 ± 0.06094 | 3.27% | 0.57107 |
-| 10% | **0.10159 ± 0.00811** | 0.56180 ± 0.08248 | 2.18% | 0.55669 |
-| 15% | **0.10060 ± 0.02587** | 0.87859 ± 0.05709 | 2.21% | 0.54961 |
+추가로 paper-aligned cost 1.0의 5%·10%·15%, seeds 40--42는 현재 서버에서
+새로 실행해 9/9 full run과 strict aggregate를 완료했다.
+
+| Corruption ratio | cost 1.0 field rMAE | cost 1.0 field rMSE | epsilon 절대오차 | cost 1.0 outlier rejection | cost 1.0 gate AUROC |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 5% | 0.26088 ± 0.07158 | 0.23520 ± 0.06119 | 0.00419 ± 0.00395 | 3.07% | 0.56380 |
+| 10% | 0.56828 ± 0.08379 | 0.47785 ± 0.06770 | 0.00530 ± 0.00440 | 2.25% | 0.55831 |
+| 15% | 0.86890 ± 0.02391 | 0.72211 ± 0.02451 | 0.00408 ± 0.00285 | 2.12% | 0.55067 |
+
+Fresh aggregate:
+`outputs/rebuttal/allen_cost1_recovery_20260726/aggregation_strict.json`
+
+이 값은 이전 서버에서 전달된 cost-1.0 rMAE
+0.25878/0.56180/0.87859와 조금 다르므로 두 실행을 하나로 합치거나
+새 값으로 조용히 덮어쓰지 않는다. 그러나 gate가 이상치의 약 2--3%만
+거부하고 오염률이 높아질수록 field reconstruction이 크게 악화된다는
+결론은 일치한다. 같은 서버의 cost-0.5 기본 비교도 완료됐으므로 15%
+조건에서는 동일 seed의 새 결과끼리 비교할 수 있다. 다만 이 새 비교가
+제출 당시 실제 설정을 증명하지는 않는다.
 
 Cost 1.0의 degradation은 severe 15% 하나에 국한되지 않고 corruption
 ratio가 높아질수록 커진다. Gate가 거의 모든 observation을 accept하며
@@ -948,15 +963,13 @@ Published two-stage rule인 LAD 30,000 updates, scalar
 
 | PDE | field rMAE | field rMSE | parameter abs. error | outlier rejection | clean rejection | retained |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Allen--Cahn | 0.32482 ± 0.03642 | 0.27377 ± 0.02822 | 0.01040 ± 0.01072 | 98.52% ± 0.26% | 17.85% ± 2.85% | 70.05% ± 2.46% |
-| Burgers | 0.24696 ± 0.01307 | 0.24091 ± 0.01395 | 0.00167 ± 0.00076 | 98.59% ± 0.16% | 17.08% ± 0.46% | 70.69% ± 0.39% |
-| lambda--omega | 0.13008 ± 0.00765 | 0.14535 ± 0.00497 | 0.03574 ± 0.00486 | 98.42% ± 0.05% | 10.76% ± 0.88% | 76.07% ± 0.74% |
+| Allen--Cahn | 0.34354 ± 0.04332 | 0.28913 ± 0.03100 | 0.00735 ± 0.00583 | 98.52% ± 0.21% | 18.95% ± 2.25% | 69.11% ± 1.94% |
+| Burgers | 0.24198 ± 0.01160 | 0.23555 ± 0.00988 | 0.00166 ± 0.00104 | 98.58% ± 0.14% | 16.67% ± 0.36% | 71.04% ± 0.32% |
+| lambda--omega | 0.12735 ± 0.00622 | 0.14349 ± 0.00323 | 0.03766 ± 0.00322 | 98.42% ± 0.08% | 10.57% ± 1.09% | 76.24% ± 0.92% |
 
 MAD-PINN은 세 PDE 모두 LAD field error를 개선하지만 direct PINN-EBM과
 naPINN보다 높다. Screening 자체는 severe outlier를 거의 모두 제거하나
-clean scalar도 10.8--17.8% 제거한다. Total training time은 shared GPU
-관측에서 PDE별 약 1025/1349/1498초였으며, 이는 stage-one과 stage-two를
-합친 값이다. 이 baseline은 reviewer의 practical preprocessing 질문에
+clean scalar도 10.6--19.0% 제거한다. 이 baseline은 reviewer의 practical preprocessing 질문에
 답하지만 60,000 PINN updates이므로 30,000-update method와 compute
 matched라고 부르지 않는다.
 
@@ -967,21 +980,20 @@ Seeds 40--42 aggregate는 다음과 같다.
 
 | Method | held-out rMAE | held-out rMSE | momentum RMS | continuity RMS |
 | --- | ---: | ---: | ---: | ---: |
-| LAD-PINN, stage-one reference | **0.23558 ± 0.00678** | **0.35840 ± 0.00590** | 0.07195 ± 0.00299 | 0.07857 ± 0.00140 |
-| MAD-PINN, 60k updates | 0.25127 ± 0.00817 | 0.37205 ± 0.00738 | **0.02676 ± 0.00159** | **0.02146 ± 0.00054** |
+| LAD-PINN, stage-one reference | **0.23411 ± 0.00458** | **0.35852 ± 0.00694** | 0.07400 ± 0.00094 | 0.07963 ± 0.00138 |
+| MAD-PINN, 60k updates | 0.24848 ± 0.00831 | 0.36792 ± 0.00974 | **0.02655 ± 0.00022** | **0.02211 ± 0.00100** |
 
-MAD screen은 known failed scalars의 80.45% ± 1.66%와 clean scalars의
-20.30% ± 0.54%를 제거하고, 전체의 61.53% ± 0.14%를 retained했다.
+MAD screen은 known failed scalars의 80.63% ± 0.25%와 clean scalars의
+20.16% ± 0.62%를 제거하고, 전체의 61.57% ± 0.38%를 retained했다.
 Field agreement는 stage-one LAD보다 오히려 나빠졌고 naPINN
-(rMAE 0.21194, rMSE 0.30034)보다도 나쁘다. Nominal-physics residual은
+(rMAE 0.21797, rMSE 0.30886)보다도 나쁘다. Nominal-physics residual은
 LAD보다 작지만 naPINN보다 크다. 따라서 basic preprocessing만으로
 naPINN result를 설명할 수 없다는 evidence는 되지만, MAD-PINN이
 compute-matched라는 주장은 하지 않는다.
 
-Shared-GPU에서 two-stage pipeline wall time은
-6600.5 ± 1500.4초였고 정확히 60,000 PINN updates다. 이 큰 wall time은
-동시 workload의 영향을 포함하므로 standalone runtime estimate로
-일반화하지 않는다.
+두 단계 pipeline은 정확히 60,000 PINN updates다. Strict aggregate에는
+두 단계 전체 wall time이 공통 metric으로 저장되지 않았으므로, 이전
+서버의 wall time을 새 실행 시간으로 재사용하지 않는다.
 
 ### 9.6 전체 four-Gaussian corruption-ratio core
 
@@ -991,20 +1003,21 @@ Shared-GPU에서 two-stage pipeline wall time은
 
 | PDE | Outlier ratio | MSE | LAD | OrPINN q=1.9 | OrPINN q=2.9 | PINN-EBM | naPINN |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Allen--Cahn | 5% | 0.3372 ± 0.1219 | 0.2710 ± 0.0581 | 0.2218 ± 0.0525 | 0.1616 ± 0.0840 | **0.0724 ± 0.0158** | 0.0962 ± 0.0276 |
-| Allen--Cahn | 10% | 0.5995 ± 0.1430 | 0.3071 ± 0.0262 | 0.4279 ± 0.1081 | 0.2389 ± 0.0662 | **0.0800 ± 0.0059** | 0.1016 ± 0.0218 |
-| Allen--Cahn | 15% | 0.8396 ± 0.1112 | 0.3592 ± 0.0405 | 0.6636 ± 0.0655 | 0.2632 ± 0.0633 | **0.0833 ± 0.0143** | 0.1006 ± 0.0259 |
-| Burgers | 5% | 0.2164 ± 0.0150 | 0.2005 ± 0.0147 | 0.1630 ± 0.0085 | 0.1347 ± 0.0135 | **0.0418 ± 0.0015** | 0.0802 ± 0.0076 |
-| Burgers | 10% | 0.4033 ± 0.0036 | 0.2273 ± 0.0066 | 0.2646 ± 0.0071 | 0.1625 ± 0.0205 | **0.0602 ± 0.0322** | 0.0783 ± 0.0062 |
-| Burgers | 15% | 0.5862 ± 0.0393 | 0.2598 ± 0.0037 | 0.3921 ± 0.0135 | 0.1941 ± 0.0243 | **0.0478 ± 0.0123** | 0.0818 ± 0.0033 |
-| lambda--omega | 5% | 0.1528 ± 0.0099 | 0.1613 ± 0.0111 | 0.0899 ± 0.0025 | 0.1226 ± 0.0061 | **0.0453 ± 0.0061** | 0.0738 ± 0.0072 |
-| lambda--omega | 10% | 0.2885 ± 0.0089 | 0.1777 ± 0.0062 | 0.1298 ± 0.0105 | 0.1394 ± 0.0049 | **0.0443 ± 0.0064** | 0.0755 ± 0.0154 |
-| lambda--omega | 15% | 0.4214 ± 0.0107 | 0.1919 ± 0.0064 | 0.1754 ± 0.0149 | 0.1512 ± 0.0035 | **0.0398 ± 0.0016** | 0.0699 ± 0.0013 |
+| Allen--Cahn | 5% | 0.3417 ± 0.0949 | 0.2412 ± 0.0416 | 0.2220 ± 0.0283 | 0.1624 ± 0.0823 | **0.0916 ± 0.0096** | 0.1389 ± 0.0701 |
+| Allen--Cahn | 10% | 0.6263 ± 0.1423 | 0.2803 ± 0.0163 | 0.4060 ± 0.0482 | 0.2390 ± 0.0561 | **0.0785 ± 0.0126** | 0.1043 ± 0.0226 |
+| Allen--Cahn | 15% | 0.8553 ± 0.1076 | 0.3834 ± 0.0306 | 0.6732 ± 0.0816 | 0.2675 ± 0.0736 | 0.1029 ± 0.0237 | **0.0920 ± 0.0035** |
+| Burgers | 5% | 0.2148 ± 0.0135 | 0.1975 ± 0.0077 | 0.1650 ± 0.0112 | 0.1354 ± 0.0130 | **0.0393 ± 0.0023** | 0.0799 ± 0.0081 |
+| Burgers | 10% | 0.4037 ± 0.0036 | 0.2311 ± 0.0108 | 0.2662 ± 0.0063 | 0.1624 ± 0.0202 | **0.0498 ± 0.0058** | 0.0802 ± 0.0109 |
+| Burgers | 15% | 0.5864 ± 0.0395 | 0.2563 ± 0.0020 | 0.3936 ± 0.0117 | 0.1908 ± 0.0219 | **0.0474 ± 0.0133** | 0.0819 ± 0.0024 |
+| lambda--omega | 5% | 0.1529 ± 0.0098 | 0.1585 ± 0.0110 | 0.0895 ± 0.0027 | 0.1229 ± 0.0060 | **0.0444 ± 0.0059** | 0.0735 ± 0.0073 |
+| lambda--omega | 10% | 0.2886 ± 0.0087 | 0.1731 ± 0.0071 | 0.1301 ± 0.0141 | 0.1391 ± 0.0054 | **0.0497 ± 0.0142** | 0.0753 ± 0.0140 |
+| lambda--omega | 15% | 0.4219 ± 0.0105 | 0.1910 ± 0.0078 | 0.1749 ± 0.0126 | 0.1526 ± 0.0031 | **0.0402 ± 0.0022** | 0.0706 ± 0.0012 |
 
-Direct PINN-EBM이 9개 field condition 모두 가장 낮고 naPINN이 모두
-second-best다. 따라서 outlier ratio를 넓혀도 closest-prior에 대한
-accuracy-superiority claim은 성립하지 않는다. 반면 fixed-loss 및
-OrPINN baseline에 대한 naPINN의 benefit은 모든 condition에서 유지된다.
+Direct PINN-EBM이 9개 field 조건 중 8개에서 가장 낮고, Allen--Cahn
+15%에서는 naPINN이 가장 낮다. 나머지 8개 조건에서는 naPINN이 2위다.
+따라서 closest-prior에 대한 보편적인 정확도 우위 주장은 성립하지 않는다.
+반면 fixed-loss 및 OrPINN baseline에 대한 naPINN의 장점은 모든 조건에서
+유지된다.
 
 같은 runs의 PDE-parameter absolute error mean은 다음과 같다. Standard
 deviation과 learned value까지 포함한 원자료는
@@ -1012,15 +1025,15 @@ deviation과 learned value까지 포함한 원자료는
 
 | PDE | Outlier ratio | MSE | LAD | OrPINN q=1.9 | OrPINN q=2.9 | PINN-EBM | naPINN |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Allen--Cahn epsilon | 5% | 0.00408 | 0.00234 | **0.00091** | 0.00240 | 0.00183 | 0.00246 |
-| Allen--Cahn epsilon | 10% | 0.00613 | 0.00307 | 0.00298 | 0.00330 | **0.00194** | 0.00325 |
-| Allen--Cahn epsilon | 15% | 0.00367 | **0.00266** | 0.00653 | 0.00313 | 0.00272 | 0.00273 |
-| Burgers viscosity | 5% | 0.00205 | 0.00107 | 0.00287 | **0.00081** | 0.00093 | 0.00200 |
-| Burgers viscosity | 10% | 0.00267 | 0.00134 | 0.00342 | 0.00083 | **0.00082** | 0.00219 |
-| Burgers viscosity | 15% | 0.00558 | 0.00178 | 0.00516 | 0.00123 | **0.00080** | 0.00271 |
-| lambda--omega beta | 5% | 0.05703 | 0.05453 | 0.01977 | 0.03790 | 0.01191 | **0.01171** |
-| lambda--omega beta | 10% | 0.15239 | 0.06707 | 0.03524 | 0.04424 | 0.01386 | **0.01128** |
-| lambda--omega beta | 15% | 0.32778 | 0.08441 | 0.06086 | 0.05231 | **0.00966** | 0.01340 |
+| Allen--Cahn epsilon | 5% | 0.00411 | 0.00254 | **0.00139** | 0.00260 | 0.00187 | 0.00268 |
+| Allen--Cahn epsilon | 10% | 0.00592 | 0.00302 | 0.00262 | 0.00349 | **0.00242** | 0.00319 |
+| Allen--Cahn epsilon | 15% | 0.00355 | 0.00312 | 0.00606 | 0.00321 | **0.00215** | 0.00275 |
+| Burgers viscosity | 5% | 0.00208 | 0.00106 | 0.00290 | **0.00079** | 0.00080 | 0.00203 |
+| Burgers viscosity | 10% | 0.00269 | 0.00148 | 0.00342 | 0.00080 | **0.00068** | 0.00215 |
+| Burgers viscosity | 15% | 0.00566 | 0.00181 | 0.00515 | 0.00123 | **0.00065** | 0.00272 |
+| lambda--omega beta | 5% | 0.05700 | 0.05471 | 0.01954 | 0.03765 | 0.01266 | **0.01171** |
+| lambda--omega beta | 10% | 0.15227 | 0.06667 | 0.03525 | 0.04414 | 0.01222 | **0.01136** |
+| lambda--omega beta | 15% | 0.32785 | 0.08370 | 0.06087 | 0.05234 | **0.01016** | 0.01359 |
 
 Parameter recovery의 winner는 PDE와 corruption ratio에 따라 달라진다.
 따라서 이 table은 “모든 benchmark의 unknown coefficient를 평가했다”는
@@ -1036,17 +1049,17 @@ reconstruction loss도 MSE/LAD/OrPINN-\(q=2.9\)로 바꿨다. 아래는 seeds
 
 | Noise family | MSE | LAD | OrPINN q=2.9 | PINN-EBM | naPINN-MSE | naPINN-LAD | naPINN-q2.9 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Gaussian | 0.21689 | 0.08798 | 0.07908 | 0.06834 | **0.05422** | 0.06011 | 0.05954 |
-| Laplace | 0.31439 | 0.07414 | 0.07108 | 0.06930 | 0.05800 | **0.05506** | 0.05900 |
-| Student-t | 0.09335 | 0.04694 | 0.06184 | **0.04648** | 0.09641 | 0.04686 | 0.06550 |
-| Four-Gaussian | 0.42138 | 0.19194 | 0.15123 | **0.03976** | 0.06989 | 0.14179 | 0.13770 |
+| Gaussian | 0.21636 | 0.08686 | 0.07858 | 0.06853 | **0.05545** | 0.06058 | 0.06004 |
+| Laplace | 0.31517 | 0.07447 | 0.07028 | 0.06921 | 0.05826 | **0.05631** | 0.05954 |
+| Student-t | 0.09437 | **0.04516** | 0.06048 | 0.04545 | 0.09773 | 0.04578 | 0.06355 |
+| Four-Gaussian | 0.42187 | 0.19097 | 0.15263 | **0.04023** | 0.07056 | 0.13995 | 0.13801 |
 
 한 method가 모든 family에서 best가 아니다.
 
 - Gaussian에서는 base naPINN-MSE가 best다.
 - Laplace에서는 naPINN-LAD가 best다.
-- Student-t에서는 direct PINN-EBM이 best이고 LAD 및 naPINN-LAD가 거의
-  같으며, base naPINN-MSE는 MSE보다도 나쁘다.
+- Student-t에서는 LAD가 가장 낮고 direct PINN-EBM과 naPINN-LAD가 매우
+  가깝다. base naPINN-MSE는 MSE보다도 나쁘다.
 - Four-Gaussian에서는 direct PINN-EBM이 best이고 base naPINN이
   second-best다. naPINN-LAD/q2.9는 base naPINN보다 크게 악화된다.
 
@@ -1068,22 +1081,22 @@ wall-clock match는 아니다.
 
 | PDE | 35k MSE | 35k LAD | 35k OrPINN q=2.9 | 30k PINN-EBM | 30k naPINN |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Allen--Cahn | 0.88440 ± 0.05581 | 0.34645 ± 0.03387 | 0.30771 ± 0.07454 | **0.08334 ± 0.01430** | 0.10060 ± 0.02587 |
-| Burgers | 0.59215 ± 0.02302 | 0.24871 ± 0.02657 | 0.19923 ± 0.01764 | **0.04783 ± 0.01230** | 0.08179 ± 0.00335 |
-| lambda--omega | 0.44750 ± 0.02580 | 0.18358 ± 0.01124 | 0.14191 ± 0.02118 | **0.03976 ± 0.00158** | 0.06989 ± 0.00132 |
+| Allen--Cahn | 0.87534 ± 0.06598 | 0.34754 ± 0.02568 | 0.32539 ± 0.07577 | 0.10288 ± 0.02365 | **0.09202 ± 0.00352** |
+| Burgers | 0.59199 ± 0.02152 | 0.25301 ± 0.02045 | 0.20131 ± 0.01710 | **0.04738 ± 0.01326** | 0.08186 ± 0.00240 |
+| lambda--omega | 0.44803 ± 0.02466 | 0.18677 ± 0.00963 | 0.14221 ± 0.02097 | **0.04023 ± 0.00218** | 0.07056 ± 0.00121 |
 
 표의 값은 field rMAE, seeds 40--42의 mean ± sample standard
 deviation이다. 35k ordinary baseline은 세 PDE 모두 direct PINN-EBM과
 naPINN보다 높다. 그러나 ordinary baseline 자체의 30k→35k 변화는
-일관되지 않다. 예를 들어 Allen--Cahn LAD는 0.35920에서 0.34645로
-조금 낮아지지만 MSE와 OrPINN은 오히려 높아진다. 따라서 이 결과는
+일관되지 않다. 예를 들어 Allen--Cahn LAD는 30k에서 0.38339, 35k에서
+0.34754로 낮아지지만 MSE와 OrPINN은 여전히 훨씬 높다. 따라서 이 결과는
 “추가 step이 항상 성능을 높인다”가 아니라, extra estimator-only update가
 ordinary baseline에 불리한 update-count accounting 때문에 생긴
 ranking은 아니라는 제한된 evidence로 사용한다.
 
 35k total training time은 Allen--Cahn에서 MSE/LAD/OrPINN이 각각
-436.5/483.2/424.3초, Burgers에서 689.5/617.9/615.6초,
-lambda--omega에서 640.8/835.7/665.9초였다. Concurrent shared-server
+996.7/1077.8/884.0초, Burgers에서 1084.8/1022.8/1072.7초,
+lambda--omega에서 1088.1/1230.1/1129.7초였다. Concurrent shared-server
 load가 달랐으므로 이 값으로 speed superiority를 주장하지 않는다.
 
 ### 9.9 Estimator-free selector ablations
@@ -1098,26 +1111,125 @@ Reviewer의 “gate가 아니라 residual screening 자체가 gain의 원인인�
 
 | PDE | Method | field rMAE | field rMSE | parameter abs. error | outlier rejection | clean rejection |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| Allen--Cahn | fixed-quantile | 0.54862 ± 0.15512 | 0.46304 ± 0.11639 | 0.00418 ± 0.00091 | 33.33% | 0.00% |
-| Allen--Cahn | learnable-threshold | 0.22245 ± 0.02472 | 0.20101 ± 0.02024 | 0.00394 ± 0.00095 | 72.46% | 0.00% |
-| Burgers | fixed-quantile | 0.37395 ± 0.03197 | 0.36432 ± 0.02790 | 0.00320 ± 0.00101 | 33.33% | 0.00% |
-| Burgers | learnable-threshold | 0.08493 ± 0.01394 | 0.09745 ± 0.01380 | 0.00171 ± 0.00038 | 89.76% | 0.00% |
-| lambda--omega | fixed-quantile | 0.23718 ± 0.00908 | 0.25674 ± 0.01029 | 0.11604 ± 0.00598 | 33.28% | 0.00% |
-| lambda--omega | learnable-threshold | 0.06644 ± 0.00949 | 0.08171 ± 0.00859 | 0.01296 ± 0.00266 | 95.90% | 0.03% |
+| Allen--Cahn | fixed-quantile | 0.50940 ± 0.15872 | 0.43452 ± 0.11742 | 0.00420 | 33.33% | 0.00% |
+| Allen--Cahn | learnable-threshold | 0.24415 ± 0.03941 | 0.21852 ± 0.02432 | 0.00387 | 71.94% | 0.00% |
+| Burgers | fixed-quantile | 0.37315 ± 0.03110 | 0.36354 ± 0.02706 | 0.00321 | 33.33% | 0.00% |
+| Burgers | learnable-threshold | 0.08557 ± 0.01422 | 0.09796 ± 0.01427 | 0.00172 | 89.75% | 0.00% |
+| lambda--omega | fixed-quantile | 0.23726 ± 0.00883 | 0.25678 ± 0.00989 | 0.11599 | 33.28% | 0.00% |
+| lambda--omega | learnable-threshold | 0.06730 ± 0.01120 | 0.08243 ± 0.00991 | 0.01308 | 95.90% | 0.03% |
 
-같은 severe setting의 naPINN rMAE는
-0.10060/0.08179/0.06989이고 direct PINN-EBM은
-0.08334/0.04783/0.03976이다. Fixed-quantile은 15% injected outlier 중
+같은 15% 설정의 naPINN rMAE는
+0.09202/0.08186/0.07056이고 direct PINN-EBM은
+0.10288/0.04738/0.04023이다. Fixed-quantile은 15% injected outlier 중
 약 1/3만 제거하기 때문에 세 PDE 모두 약하다. Learnable-threshold는
 훨씬 강하고 Burgers에서 naPINN과 비슷하며 lambda--omega에서는 naPINN보다
-약 4.9% 낮은 rMAE를 보이지만, Allen--Cahn에서는 크게 나쁘고 direct
-PINN-EBM보다 세 PDE 모두 높다.
+약 4.6% 낮은 rMAE를 보이지만, Allen--Cahn에서는 크게 나쁘다. Direct
+PINN-EBM과 비교해도 세 PDE 모두 높다.
 
 따라서 fixed residual screening만으로 충분하다는 결론도, EBM gate가
 항상 estimator-free threshold보다 우월하다는 결론도 둘 다 evidence와
 맞지 않는다. 나오는 결론은 selector choice가 PDE-dependent하며,
 naPINN의 gate contribution을 universal accuracy gain으로 분리해 주장하기
 어렵다는 것이다.
+
+### 9.10 실제 Cylinder PIV에 제출 코드의 기본 오염 규칙을 적용한 실험 (`RESPONSE HOLD`)
+
+Controlled corruption만 사용한 campaign은 완료되었다.
+Natural/unmodified PIV는 제외했으며, 변형하지 않은 held-out PIV는
+physical ground truth가 아니라 독립적인 real measurement로 해석한다.
+
+`Legacy-4G`는 제출 코드가 합성 데이터에서 사용하던 four-Gaussian 배경
+잡음과 큰 점 이상치 생성 규칙을 뜻한다. `(b,o)=(1,1)`은 수학적 참값을
+안다는 뜻이 아니다. 배경 잡음의 크기 `b`와 큰 이상치의 추가 크기 `o`를
+제출 코드의 기본값에서 바꾸지 않았다는 뜻이며, 결과를 보기 전에 반드시
+보고하기로 정한 조건이다. 모델 parameter나 신경망 weight를 실제 PIV로
+옮긴 것도 아니다. 합성 데이터에 쓰던 **오염 생성 규칙만** 실제 PIV의
+학습 측정에 적용했다. 또한 이 문서의 “세 합성 PDE 기본 비교”는
+Allen--Cahn, Burgers, lambda--omega와 5%/10%/15% 이상치 비율을 조합한
+아홉 조건을 뜻한다. 신경망의 내부 core나 kernel을 뜻하지 않는다.
+
+- 제출 코드의 기본 오염 강도 `(b,o)=(1,1)`: 48 verified runs, 16 complete three-seed groups,
+  6 paired input blocks
+- Predeclared seed-39 scale grid: 18 cells × 8 conditions, 총 144 verified
+  runs; frozen selection rule은 threshold relaxation 없이 적용
+- Fresh-seed confirmation stage: 72 verified runs, 24 complete three-seed
+  groups, 9 paired input blocks
+
+가장 방어력 높은 결과는 강도 탐색 결과로 선택하지 않은, 제출 코드의
+기본 오염 강도 `(b,o)=(1,1)`이다. naPINN-MSE의 held-out-PIV rMAE/rMSE는 10%에서
+0.15517 ± 0.00237 / 0.21532 ± 0.00338, 15%에서
+0.16023 ± 0.00060 / 0.22266 ± 0.00304였다. 두 ratio에서 가장 강한
+non-naPINN baseline은 OrPINN q=2.9였고, naPINN-MSE는 각각
+rMAE 27.6%/30.7%, rMSE 14.0%/16.0% 낮았다. Seeds 40--42의 모든
+paired comparison에서 두 field metric이 같은 방향이었다. Exact
+10%/15%의 gross-outlier rejection은 98.99%/99.23%이고
+background-only rejection은 2.95%/4.23%였다. 다만 gate AUROC와 raw
+EBM AUROC가 사실상 같으므로 gate-only anomaly-ranking superiority는
+주장하지 않는다.
+
+Scale confirmation은 더 mixed하다. Frozen mean criterion으로 세 후보
+중 두 후보가 confirmed였지만, 3/3 fresh seeds에서 두 field metric을
+모두 개선한 후보는 rank 1 `(b,o)=(2,2)` 하나뿐이다. Rank 2
+`(2,1)`은 평균상 개선됐지만 2/3 seeds에 그쳤고, rank 3
+`(1,0.5)`는 rMAE 열세/rMSE 우세 trade-off로 confirmation에 실패했다.
+따라서 reviewer-facing release가 승인되면 이 사전 고정 기본 강도를 primary
+evidence로 사용하고 scale search는 selection 사실과 세 후보 전체를
+공개할 수 있을 때만 secondary evidence로 쓰는 것이 안전하다. 기존
+세 합성 PDE 기본 비교에서 direct PINN-EBM이 9개 중 8개 field 조건에서 우세했던
+adverse result도 함께 유지해 결론을 regime-dependent benefit으로
+한정해야 한다.
+
+Complete-only evidence는
+`analysis/results/runs/rebuttal_realpde_legacy_4g/aggregation.json`,
+`analysis/results/runs/rebuttal_realpde_legacy_4g_scale/seed39_scale_selection.json`,
+`analysis/results/runs/rebuttal_realpde_legacy_4g_candidates/aggregation.json`,
+`analysis/results/runs/rebuttal_realpde_legacy_4g_candidates/candidate_validation.json`
+에 보존했다. Positive, mixed, adverse outcome을 모두 유지한다. Direct
+수치, ranking, selected-candidate identity, response positioning은 author
+release 전까지 `RESPONSE HOLD`이다. 수치표, paired-seed 결과,
+오염 강도, reviewer별 전략을 포함한 내부 한국어 보고서는
+`rebuttal/reports/legacy4g_experiment_ko/report.md`에 있다.
+
+### 9.11 Controlled Cylinder·FSI·Foil 144-run 일반화 실험
+
+Cylinder 한 trajectory에만 유리한 결과인지 확인하기 위해 RealPDEBench의
+속도 `u,v` 관측을 제공하는 Controlled Cylinder, Fluid--Structure
+Interaction(FSI), Foil 세 시나리오를 같은 사전 고정 절차로 실행했다.
+각 데이터셋에 10%와 15% 큰 이상치를 넣고, seeds 40--42와 여덟 방법을
+모두 실행했다. 데이터셋 3개 × 이상치 비율 2개 × seed 3개 × 방법 8개로
+총 144회이며 144/144 실행, 48/48 세-seed group, 18/18 paired input block이
+모두 엄격 검사를 통과했다. 이 가운데 사용자가 요청한 새 FSI·Foil
+실행은 96회다.
+
+| 데이터셋·이상치 | naPINN-MSE rMAE | 가장 낮은 비-naPINN rMAE | naPINN-MSE rMSE | 전체 rMSE 1위 |
+| --- | ---: | ---: | ---: | --- |
+| Cylinder 10% | **0.14937** | OrPINN 0.22579 | **0.19981** | naPINN-MSE |
+| Cylinder 15% | **0.15220** | OrPINN 0.23876 | **0.20209** | naPINN-MSE |
+| Foil 10% | **0.09968** | OrPINN 0.19554 | **0.15158** | naPINN-MSE |
+| Foil 15% | **0.11783** | OrPINN 0.21482 | **0.16361** | naPINN-MSE |
+| FSI 10% | **0.39948** | OrPINN 0.42476 | 0.64632 | OrPINN 0.60933 |
+| FSI 15% | **0.41764** | OrPINN 0.43626 | 0.67973 | OrPINN 0.61541 |
+
+naPINN-MSE는 평균 rMAE 6/6에서 1위였지만 평균 rMSE는 4/6에서만
+1위였다. FSI의 rMSE 두 조건에서는 OrPINN이 1위이고 naPINN-MSE는
+3위다. Foil 15%의 naPINN-q2.9는 seed 40에서 정상 관측까지 과도하게
+버려 평균 rMAE 0.70040, rMSE 0.71768로 실패했다. 이 seed도 제외하지
+않았다. 따라서 이 실험은 큰 이상치가 있는 실제 PIV에서 naPINN-MSE의
+rMAE가 일관되게 낮았다는 주장은 지지하지만, 모든 실제 데이터와 모든
+지표에서 항상 1위라는 주장은 지지하지 않는다. 여덟 방법의 전체 순위는
+`rebuttal/reports/method_rankings_and_pinn_ebm_audit_ko.md`에 있다.
+
+Combustion은 속도나 압력이 아니라 OH* chemiluminescence intensity 한
+채널을 관측한다. 현재의 2-D incompressible Navier--Stokes PINN에 이
+영상을 바로 넣는 것은 같은 benchmark가 아니다. 검증된 reacting-flow
+PDE와 OH* intensity observation operator가 없으므로 성능 숫자를 만들지
+않고 적용 범위의 한계로 기록했다.
+
+근거는
+`outputs/rebuttal/realpdebench_multidataset/aggregation.json`
+(SHA-256
+`88acccad036ff36fb1bf23b95099a233d068b48eec58f6c1b3e562418e97e7a8`)과
+`outputs/rebuttal/realpdebench_multidataset/combustion_applicability.json`이다.
 
 ## 10. 답변에서 피해야 할 표현
 
@@ -1162,7 +1274,7 @@ naPINN의 gate contribution을 universal accuracy gain으로 분리해 주장하
 - Conservative 35k aggregation:
   `analysis/results/runs/rebuttal_synthetic_compute35_aggregation.json`
 - Injected-PIV aggregation:
-  `analysis/results/runs/rebuttal_realpde/injected_piv_aggregation.json`
+  `outputs/rebuttal/realpde_recovery_20260726/injected_piv_aggregation_strict.json`
 - PIV calibration selection:
   `analysis/results/runs/rebuttal_realpde/piv_rejection_calibration_selection.json`
 - Pilar--Wahlström official paper:
@@ -1174,5 +1286,9 @@ naPINN의 gate contribution을 universal accuracy gain으로 분리해 주장하
   `https://journals.aps.org/pre/abstract/10.1103/PhysRevE.111.L023302`
 - MAD-PINN paper: `https://arxiv.org/abs/2210.10646`
 
-Frozen additional-experiment matrix는 모두 완료됐으며, 이 문서는 final
-aggregate와 positive, mixed, adverse result를 모두 반영한다.
+합성·민감도·추가 RealPDEBench·구조화 PIV 102회 행렬은 엄격 집계까지
+완료됐다. 공식 PINN-EBM active-code A와 paper-architecture B도 각각
+5회 완료되어 strict aggregate를 통과했다. B의 평가 MAE 평균은 A보다
+0.00245 낮지만 반복 표준편차보다 작은 차이이므로, 구조 차이의 결정적
+성능 우위로 해석하지 않는다. 완료된 결과의 positive, mixed, adverse
+outcome은 모두 유지한다.

@@ -1,0 +1,4 @@
+data:
+  path: outputs/rebuttal/realpdebench_multidataset/corrupted/realpdebench_foil_10000_0.0_frames1000-1200_legacy4g_seed41_r10.npz
+output:
+  benchmark: foil_seed41_r10

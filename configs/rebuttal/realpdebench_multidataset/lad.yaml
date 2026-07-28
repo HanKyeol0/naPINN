@@ -1,0 +1,10 @@
+tag: lad
+method:
+  kind: lad
+  description: "Nominal-NS LAD-PINN"
+data_loss:
+  kind: l1
+estimator:
+  enabled: false
+gate:
+  enabled: false

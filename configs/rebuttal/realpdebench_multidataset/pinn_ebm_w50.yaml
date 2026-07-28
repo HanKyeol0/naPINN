@@ -1,0 +1,12 @@
+tag: pinn_ebm_w50
+method:
+  kind: pinn_ebm
+  description: "Direct PINN-EBM NLL, closest-prior nominal-PDE weight 50"
+data_loss:
+  kind: ebm_nll
+training:
+  joint_pde_weight: 50.0
+estimator:
+  enabled: true
+gate:
+  enabled: false

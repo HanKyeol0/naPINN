@@ -67,6 +67,8 @@ def main(args):
             str(seed),
             "--device",
             f"cuda:{args.gpu}",
+            "--output-root",
+            str(args.output_root),
             "--run-name",
             f"heldout_seed_{seed}",
         ]
@@ -118,9 +120,14 @@ if __name__ == "__main__":
         help="Calibration-selected naPINN experiment YAML.",
     )
     parser.add_argument(
+        "--output-root",
+        type=Path,
+        default=Path("outputs/rebuttal/realpde"),
+    )
+    parser.add_argument(
         "--status-root",
         type=Path,
-        default=Path("analysis/results/runs/rebuttal_realpde_queue"),
+        default=Path("outputs/status/rebuttal_realpde"),
     )
     parser.add_argument("--fail-fast", action="store_true")
     main(parser.parse_args())

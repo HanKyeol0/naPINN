@@ -1,0 +1,105 @@
+schema_version: 1
+status: frozen_144_run_matrix_not_started
+evidence_policy: >-
+  Smoke tests and partial runs are never performance evidence. Aggregate only
+  complete full runs that pass all manifest, input-hash, update-budget,
+  checkpoint, finite-metric, and pairing checks.
+
+input_manifests:
+  prepared:
+    path: outputs/rebuttal/realpdebench_multidataset/prepared_manifest.json
+    sha256: 1a8437c2561eb6f2f9e7f15fe3c084546a7fffc67191301e677b57bef5076199
+  corruption:
+    path: outputs/rebuttal/realpdebench_multidataset/corruption_manifest.json
+    sha256: b1a7fac0338229ffc1c6f05c54167274c3f072546d721ca78bcb41203dffa1dc
+
+runner:
+  path: scripts/rebuttal/run_realpdebench.py
+  common_config: configs/rebuttal/realpdebench_multidataset/common.yaml
+  model_config: configs/model/mlp.yaml
+  output_root: outputs/rebuttal/realpdebench_multidataset/runs
+  queue: scripts/rebuttal/run_realpdebench_multidataset_queue.py
+  aggregator: analysis/aggregate_realpdebench_multidataset.py
+
+protocol:
+  datasets:
+    controlled_cylinder:
+      sim_id: 1781_0.5.h5
+      nominal_reynolds_from_sim_id: 1781
+      geometry: official_reference_disk_d18_center_16_32
+    fsi:
+      sim_id: 3272_18.2_0.8_1.h5
+      nominal_reynolds_from_sim_id: 3272
+      geometry: official_static_reference_disk_d24_center_66_64
+      limitation: >-
+        Released measurement metadata do not expose time-varying body
+        coordinates; the static exclusion does not guarantee exclusion of the
+        second or moving body.
+    foil:
+      sim_id: 10000_0.0.h5
+      nominal_reynolds_from_sim_id: 10000
+      geometry: conservative_official_reference_square_d62_center_30_64
+      limitation: >-
+        The body is not a disk and no real-measurement body mask is released.
+        The d-by-d square is a conservative reference-envelope approximation.
+  frame_start_inclusive: 1000
+  frame_stop_exclusive: 1200
+  fixed_spatial_sensors: 192
+  sensor_seed: 20260724
+  heldout_policy: disjoint_remaining_valid_finite_spatial_points
+  corruption_seeds: [40, 41, 42]
+  gross_row_ratios: [0.10, 0.15]
+  corruption: exact_legacy_4g_plus_positive_additive_nested_gross_offsets
+  model: pressure_latent_nominal_2d_incompressible_navier_stokes
+  model_discrepancy_policy: >-
+    This is an explicit nominal-PDE stress. Observation corruption and
+    physics-model discrepancy are not separately identifiable.
+  backbone:
+    hidden_layers: 5
+    hidden_width: 80
+    activation: tanh
+  batches:
+    data: 2048
+    pde: 8192
+  update_budget:
+    ordinary_baselines_pinn: 30000
+    staged_warmup_pinn: 5000
+    staged_estimator_only: 5000
+    staged_joint_pinn: 25000
+    staged_total_pinn: 30000
+
+methods:
+  mse:
+    config: configs/rebuttal/realpdebench_multidataset/mse.yaml
+  lad:
+    config: configs/rebuttal/realpdebench_multidataset/lad.yaml
+  orpinn_q29:
+    config: configs/rebuttal/realpdebench_multidataset/orpinn_q29.yaml
+  pinn_ebm_w1:
+    config: configs/rebuttal/realpdebench_multidataset/pinn_ebm_w1.yaml
+  pinn_ebm_w50:
+    config: configs/rebuttal/realpdebench_multidataset/pinn_ebm_w50.yaml
+  napinn_mse:
+    config: configs/rebuttal/realpdebench_multidataset/napinn_mse.yaml
+  napinn_l1:
+    config: configs/rebuttal/realpdebench_multidataset/napinn_l1.yaml
+  napinn_q29:
+    config: configs/rebuttal/realpdebench_multidataset/napinn_q29.yaml
+
+data_overlays:
+  directory: configs/rebuttal/realpdebench_multidataset/data
+  filename_template: "{dataset}_seed{seed}_r{ratio_percent}.yaml"
+
+matrix:
+  cartesian_dimensions:
+    datasets: 3
+    ratios: 2
+    seeds: 3
+    methods: 8
+  expected_runs: 144
+  require_all_cells: true
+  post_hoc_selection_permitted: false
+
+combustion:
+  applicability_record: outputs/rebuttal/realpdebench_multidataset/combustion_applicability.json
+  performance_runs: 0

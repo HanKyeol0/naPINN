@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Canonical RealPDEBench Cylinder PIV rebuttal runner.
+"""Canonical RealPDEBench real fluid-PIV rebuttal runner.
 
 This dedicated runner keeps the Pilar--Wahlström PINN-EBM objective explicit:
 MSE warm-up, estimator-only initialization, then one joint NLL backward pass
@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.metadata
 import json
 import os
 import platform
@@ -30,11 +31,29 @@ from pinnlab.utils.density import create_density_estimator
 from pinnlab.utils.ebm import TrainableLikelihoodGate
 from pinnlab.utils.seed import seed_everything
 
-
-STAGED_METHODS = {"pinn_ebm", "napinn"}
+NAPINN_METHODS = {"napinn", "napinn_lad", "napinn_q29"}
+STAGED_METHODS = {"pinn_ebm", *NAPINN_METHODS}
 BASELINE_METHODS = {"mse", "lad", "orpinn_q19", "orpinn_q29"}
 MAD_METHOD = "mad_pinn"
 ALL_METHODS = STAGED_METHODS | BASELINE_METHODS | {MAD_METHOD}
+METHOD_DATA_LOSSES = {
+    "mse": ("mse", None),
+    "lad": ("l1", None),
+    "orpinn_q19": ("q_gaussian", 1.9),
+    "orpinn_q29": ("q_gaussian", 2.9),
+    "pinn_ebm": ("ebm_nll", None),
+    "napinn": ("mse", None),
+    "napinn_lad": ("l1", None),
+    "napinn_q29": ("q_gaussian", 2.9),
+    MAD_METHOD: ("masked_mse", None),
+}
+DATA_LOSS_ALIASES = {
+    "lad": "l1",
+    "l1": "l1",
+    "mse": "mse",
+    "q_gaussian": "q_gaussian",
+    "q-gaussian": "q_gaussian",
+}
 
 
 def load_yaml(path: Path) -> dict[str, Any]:
@@ -48,10 +67,7 @@ def load_yaml(path: Path) -> dict[str, Any]:
 def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     merged = dict(base)
     for key, value in override.items():
-        if (
-            isinstance(value, dict)
-            and isinstance(merged.get(key), dict)
-        ):
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
             merged[key] = deep_merge(merged[key], value)
         else:
             merged[key] = value
@@ -70,6 +86,32 @@ def sha256_file(path: Path, chunk_size: int = 8 * 1024 * 1024) -> str:
         while chunk := stream.read(chunk_size):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def package_metadata() -> dict[str, str | None]:
+    distributions = {
+        "numpy": "numpy",
+        "scipy": "scipy",
+        "scikit_learn": "scikit-learn",
+        "pyyaml": "PyYAML",
+        "pandas": "pandas",
+        "imageio": "imageio",
+        "imageio_ffmpeg": "imageio-ffmpeg",
+        "matplotlib": "matplotlib",
+        "seaborn": "seaborn",
+        "wandb": "wandb",
+    }
+    versions: dict[str, str | None] = {
+        "python": platform.python_version(),
+        "torch": torch.__version__,
+        "cuda": torch.version.cuda,
+    }
+    for key, distribution in distributions.items():
+        try:
+            versions[key] = importlib.metadata.version(distribution)
+        except importlib.metadata.PackageNotFoundError:
+            versions[key] = None
+    return versions
 
 
 def git_metadata() -> dict[str, Any]:
@@ -98,6 +140,7 @@ def hardware_metadata(device: torch.device) -> dict[str, Any]:
         "device": str(device),
         "cuda_available": torch.cuda.is_available(),
         "cuda_version": torch.version.cuda,
+        "packages": package_metadata(),
     }
     if device.type == "cuda":
         properties = torch.cuda.get_device_properties(device)
@@ -112,6 +155,132 @@ def hardware_metadata(device: torch.device) -> dict[str, Any]:
             }
         )
     return payload
+
+
+def resolve_data_loss(
+    config: dict[str, Any], method: str
+) -> dict[str, str | float | None]:
+    expected_kind, expected_q = METHOD_DATA_LOSSES[method]
+    configured = config.get("data_loss", {})
+    if configured is None:
+        configured = {}
+    if not isinstance(configured, dict):
+        raise ValueError("data_loss must be a YAML mapping")
+
+    raw_kind = configured.get("kind")
+    if raw_kind is None:
+        resolved_kind = expected_kind
+    else:
+        normalized_kind = str(raw_kind).strip().lower()
+        resolved_kind = DATA_LOSS_ALIASES.get(normalized_kind, normalized_kind)
+    if resolved_kind != expected_kind:
+        raise ValueError(
+            f"Method {method!r} requires data loss {expected_kind!r}, "
+            f"got {resolved_kind!r}"
+        )
+
+    raw_q = configured.get("q", expected_q)
+    resolved_q = None if raw_q is None else float(raw_q)
+    if expected_q is None and resolved_q is not None:
+        raise ValueError(f"Method {method!r} does not use a q value")
+    if expected_q is not None and (
+        resolved_q is None or not np.isclose(resolved_q, expected_q)
+    ):
+        raise ValueError(f"Method {method!r} requires q={expected_q}, got {resolved_q}")
+    return {"kind": resolved_kind, "q": resolved_q}
+
+
+def pointwise_data_loss(
+    residual: torch.Tensor,
+    resolved_data_loss: dict[str, str | float | None],
+) -> torch.Tensor:
+    kind = str(resolved_data_loss["kind"])
+    if kind == "mse":
+        return residual.square()
+    if kind == "l1":
+        return residual.abs()
+    if kind == "q_gaussian":
+        q = resolved_data_loss["q"]
+        if q is None:
+            raise ValueError("q_gaussian data loss requires a resolved q value")
+        return data_loss_q_gaussian(residual, q=float(q))
+    raise ValueError(f"Unsupported reconstruction data loss: {kind!r}")
+
+
+def corruption_label_semantics(metadata: dict[str, Any]) -> dict[str, str]:
+    corruption = metadata.get("corruption")
+    if not isinstance(corruption, dict):
+        return {
+            "positive": "failed",
+            "negative": "clean",
+            "auroc": "failure_detection_auroc",
+        }
+    explicit = corruption.get("label_semantics")
+    kind = str(corruption.get("kind", "")).lower()
+    legacy_four_gaussian = (
+        "four_gaussian" in kind
+        or "four-gaussian" in kind
+        or "legacy4g" in kind
+        or "legacy_4g" in kind
+    )
+    if isinstance(explicit, dict):
+        positive = str(explicit.get("positive", explicit.get("true", ""))).lower()
+        negative = str(explicit.get("negative", explicit.get("false", ""))).lower()
+        legacy_four_gaussian = legacy_four_gaussian or (
+            "gross" in positive and "background" in negative
+        )
+    if legacy_four_gaussian:
+        return {
+            "positive": "gross_outlier",
+            "negative": "background_only",
+            "auroc": "gross_outlier_detection_auroc",
+        }
+    return {
+        "positive": "failed",
+        "negative": "clean",
+        "auroc": "failure_detection_auroc",
+    }
+
+
+def corruption_metrics_from_metadata(
+    metadata: dict[str, Any],
+) -> dict[str, Any]:
+    corruption = metadata.get("corruption")
+    if not isinstance(corruption, dict):
+        return {}
+    result: dict[str, Any] = {"corruption_metadata": corruption}
+    kind = corruption.get("kind")
+    seed = corruption.get("seed", corruption.get("corruption_seed"))
+    if kind is not None:
+        result["corruption_kind"] = str(kind)
+    if seed is not None:
+        result["corruption_seed"] = int(seed)
+
+    semantics = corruption_label_semantics(metadata)
+    result["corruption_positive_label"] = semantics["positive"]
+    result["corruption_negative_label"] = semantics["negative"]
+    if semantics["positive"] == "gross_outlier":
+        scalar_fields = {
+            "gross_outlier_row_ratio_requested": "gross_row_ratio_requested",
+            "gross_outlier_row_ratio_realized": "gross_row_ratio_realized",
+            "gross_outlier_rows": "n_gross_rows",
+            "training_rows": "n_training_rows",
+            "background_scale_multiplier": "base_scale_multiplier",
+            "gross_scale_multiplier": "gross_scale_multiplier",
+        }
+        for output_key, metadata_key in scalar_fields.items():
+            if metadata_key in corruption:
+                result[output_key] = corruption[metadata_key]
+    else:
+        if "n_failed_spatial_sensors" in corruption:
+            result["failed_spatial_sensors"] = int(
+                corruption["n_failed_spatial_sensors"]
+            )
+        if "failure_fraction_realized" in corruption:
+            result["sensor_failure_fraction"] = float(
+                corruption["failure_fraction_realized"]
+            )
+    return result
 
 
 def update_running_std(
@@ -149,6 +318,7 @@ def train_step(
     running_std=None,
     std_momentum: float = 0.05,
     estimator_weight: float = 1.0,
+    resolved_data_loss: dict[str, str | float | None] | None = None,
     step: int,
 ) -> dict[str, float]:
     model.train()
@@ -179,27 +349,28 @@ def train_step(
     elif method == "pinn_ebm":
         update_running_std(running_std, flat_residual, std_momentum)
         scaled = flat_residual / running_std.detach()
-        _, data_loss = estimator.mean_nll(
-            scaled, detach_residual=False
-        )
+        _, data_loss = estimator.mean_nll(scaled, detach_residual=False)
         estimator_loss = data_loss
-    elif method == "napinn":
+    elif method in NAPINN_METHODS:
+        if resolved_data_loss is None:
+            raise ValueError(f"{method} requires a resolved reconstruction loss")
         update_running_std(running_std, flat_residual, std_momentum)
         scaled = flat_residual / running_std.detach()
         # The estimator sees scalar flattened u/v residuals. Its likelihood
         # fit uses detached residuals, while the PINN receives the gated data
         # gradient. A single optimizer performs one update of every parameter.
-        _, estimator_loss = estimator.mean_nll(
-            scaled.detach(), detach_residual=True
-        )
+        _, estimator_loss = estimator.mean_nll(scaled.detach(), detach_residual=True)
         log_density = estimator(scaled.detach()).detach()
         weights, rejection_loss = gate(log_density)
-        data_loss = (weights * flat_residual.square()).mean() + rejection_loss
+        reconstruction_loss = (
+            weights * pointwise_data_loss(flat_residual, resolved_data_loss)
+        ).mean()
+        data_loss = reconstruction_loss + rejection_loss
     else:
         raise ValueError(method)
 
     total = pde_weight * pde_loss + data_weight * data_loss
-    if method == "napinn":
+    if method in NAPINN_METHODS:
         total = total + estimator_weight * estimator_loss
     finite_or_raise("total loss", total, step)
     optimizer.zero_grad(set_to_none=True)
@@ -209,9 +380,7 @@ def train_step(
             finite_or_raise(f"model gradient {name}", parameter.grad, step)
     for index, parameter in enumerate(experiment.extra_params()):
         if parameter.grad is not None:
-            finite_or_raise(
-                f"experiment gradient {index}", parameter.grad, step
-            )
+            finite_or_raise(f"experiment gradient {index}", parameter.grad, step)
     if method in STAGED_METHODS:
         for name, parameter in estimator.named_parameters():
             if parameter.grad is not None:
@@ -226,7 +395,8 @@ def train_step(
     if method in STAGED_METHODS:
         payload["loss_estimator_nll"] = float(estimator_loss.detach().cpu())
         payload["running_std"] = float(running_std.detach().cpu())
-    if method == "napinn":
+    if method in NAPINN_METHODS:
+        payload["loss_reconstruction"] = float(reconstruction_loss.detach().cpu())
         payload["loss_rejection"] = float(rejection_loss.detach().cpu())
         payload["batch_retained_fraction"] = float(
             (weights.detach() >= 0.5).float().mean().cpu()
@@ -279,12 +449,8 @@ def compute_mad_scalar_screen(
     if labels.any():
         metrics.update(
             {
-                "mad_known_failed_rejection_rate": float(
-                    (~retained)[labels].mean()
-                ),
-                "mad_known_clean_rejection_rate": float(
-                    (~retained)[~labels].mean()
-                ),
+                "mad_known_failed_rejection_rate": float((~retained)[labels].mean()),
+                "mad_known_clean_rejection_rate": float((~retained)[~labels].mean()),
                 "mad_known_failed_scalar_measurements": int(labels.sum()),
                 "mad_known_clean_scalar_measurements": int((~labels).sum()),
             }
@@ -315,17 +481,13 @@ def load_mad_stage1_and_screen(
     stage1_config = checkpoint["config"]
     stage1_method = str(stage1_config.get("method", {}).get("kind", "")).lower()
     if stage1_method != "lad":
-        raise ValueError(
-            f"MAD stage 1 must be LAD-PINN, got {stage1_method!r}"
-        )
+        raise ValueError(f"MAD stage 1 must be LAD-PINN, got {stage1_method!r}")
     stage1_schedule = stage1_config.get("effective_schedule", {})
     if bool(stage1_schedule.get("smoke_test", True)):
         raise ValueError("MAD stage 1 must be a completed non-smoke LAD run")
     stage1_steps = int(stage1_schedule.get("pinn_update_steps", -1))
     if stage1_steps != 30000 or int(checkpoint.get("pinn_step", -1)) != 30000:
-        raise ValueError(
-            "MAD stage 1 must contain exactly 30,000 LAD-PINN updates"
-        )
+        raise ValueError("MAD stage 1 must contain exactly 30,000 LAD-PINN updates")
     if int(stage1_config.get("seed", -1)) != seed:
         raise ValueError(
             f"MAD stage-1 seed {stage1_config.get('seed')} != requested seed {seed}"
@@ -344,9 +506,7 @@ def load_mad_stage1_and_screen(
         experiment.load_state_dict(checkpoint["experiment"])
     model.eval()
     with torch.no_grad():
-        residual = (
-            experiment.y_data - model(experiment.X_data)[:, :2]
-        )
+        residual = experiment.y_data - model(experiment.X_data)[:, :2]
     absolute_residual = residual.detach().cpu().numpy().astype(np.float64)
     absolute_residual = np.abs(absolute_residual)
     mad_cfg = config["mad"]
@@ -380,9 +540,7 @@ def load_mad_stage1_and_screen(
             else None
         ),
         "metrics_sha256": (
-            sha256_file(stage1_metrics_path)
-            if stage1_metrics_path.is_file()
-            else None
+            sha256_file(stage1_metrics_path) if stage1_metrics_path.is_file() else None
         ),
         "method": "lad",
         "seed": seed,
@@ -407,9 +565,7 @@ def sample_mad_batch(
     retained_mask: torch.Tensor,
 ):
     """Sample coordinate rows while preserving independent u/v scalar masks."""
-    eligible_rows = torch.nonzero(
-        retained_mask.any(dim=1), as_tuple=False
-    ).reshape(-1)
+    eligible_rows = torch.nonzero(retained_mask.any(dim=1), as_tuple=False).reshape(-1)
     if eligible_rows.numel() == 0:
         raise ValueError("MAD screening left no eligible coordinate rows")
     sample_positions = torch.randint(
@@ -460,16 +616,21 @@ def initialize_estimator(
     return time.perf_counter() - start
 
 
-def evaluate_gate(model, experiment, estimator, gate, running_std):
+def evaluate_gate(
+    model,
+    experiment,
+    estimator,
+    gate,
+    running_std,
+    label_semantics: dict[str, str],
+):
     if gate is None:
         return {}
     model.eval()
     estimator.eval()
     gate.eval()
     with torch.no_grad():
-        residual = (
-            experiment.y_data - model(experiment.X_data)[:, :2]
-        ).reshape(-1, 1)
+        residual = (experiment.y_data - model(experiment.X_data)[:, :2]).reshape(-1, 1)
         log_density = estimator(residual / running_std)
         weights, _ = gate(log_density)
     metrics = {
@@ -478,49 +639,48 @@ def evaluate_gate(model, experiment, estimator, gate, running_std):
         "n_gated_scalar_measurements": int(weights.numel()),
     }
     labels = experiment.data_corruption_labels.reshape(-1)
-    if bool(labels.any()):
+    if bool(labels.any()) and bool((~labels).any()):
         flat_weights = weights.reshape(-1)
-        failed = labels
-        clean = ~labels
+        positive = labels
+        negative = ~labels
         rejected = flat_weights < 0.5
-        failed_count = int(failed.sum().cpu())
-        clean_count = int(clean.sum().cpu())
+        positive_count = int(positive.sum().cpu())
+        negative_count = int(negative.sum().cpu())
         detection_scores = (1.0 - flat_weights).detach().cpu().numpy()
-        label_array = failed.detach().cpu().numpy()
+        label_array = positive.detach().cpu().numpy()
         order = np.argsort(detection_scores, kind="mergesort")
         sorted_scores = detection_scores[order]
         ranks = np.empty(order.size, dtype=np.float64)
         start = 0
         while start < order.size:
             stop = start + 1
-            while (
-                stop < order.size
-                and sorted_scores[stop] == sorted_scores[start]
-            ):
+            while stop < order.size and sorted_scores[stop] == sorted_scores[start]:
                 stop += 1
             ranks[order[start:stop]] = 0.5 * (start + 1 + stop)
             start = stop
         positive_rank_sum = ranks[label_array].sum()
-        auroc = (
-            positive_rank_sum - failed_count * (failed_count + 1) / 2
-        ) / (failed_count * clean_count)
+        auroc = (positive_rank_sum - positive_count * (positive_count + 1) / 2) / (
+            positive_count * negative_count
+        )
+        positive_name = label_semantics["positive"]
+        negative_name = label_semantics["negative"]
         metrics.update(
             {
-                "known_failed_scalar_measurements": failed_count,
-                "known_clean_scalar_measurements": clean_count,
-                "failed_rejection_rate": float(
-                    rejected[failed].float().mean().cpu()
+                f"known_{positive_name}_scalar_measurements": positive_count,
+                f"known_{negative_name}_scalar_measurements": negative_count,
+                f"{positive_name}_rejection_rate": float(
+                    rejected[positive].float().mean().cpu()
                 ),
-                "clean_rejection_rate": float(
-                    rejected[clean].float().mean().cpu()
+                f"{negative_name}_rejection_rate": float(
+                    rejected[negative].float().mean().cpu()
                 ),
-                "failed_mean_gate_weight": float(
-                    flat_weights[failed].mean().cpu()
+                f"{positive_name}_mean_gate_weight": float(
+                    flat_weights[positive].mean().cpu()
                 ),
-                "clean_mean_gate_weight": float(
-                    flat_weights[clean].mean().cpu()
+                f"{negative_name}_mean_gate_weight": float(
+                    flat_weights[negative].mean().cpu()
                 ),
-                "failure_detection_auroc": float(auroc),
+                label_semantics["auroc"]: float(auroc),
             }
         )
     return metrics
@@ -540,53 +700,68 @@ def rank_auroc(labels: np.ndarray, scores: np.ndarray) -> float:
     start = 0
     while start < order.size:
         stop = start + 1
-        while (
-            stop < order.size
-            and sorted_scores[stop] == sorted_scores[start]
-        ):
+        while stop < order.size and sorted_scores[stop] == sorted_scores[start]:
             stop += 1
         ranks[order[start:stop]] = 0.5 * (start + 1 + stop)
         start = stop
     positive_rank_sum = ranks[labels].sum()
     return float(
-        (
-            positive_rank_sum
-            - positive_count * (positive_count + 1) / 2
-        )
+        (positive_rank_sum - positive_count * (positive_count + 1) / 2)
         / (positive_count * negative_count)
     )
 
 
-def evaluate_estimator(model, experiment, estimator, running_std):
+def evaluate_estimator(
+    model,
+    experiment,
+    estimator,
+    running_std,
+    label_semantics: dict[str, str],
+):
     """Evaluate raw EBM surprise independently of any trainable gate."""
     if estimator is None:
         return {}
     model.eval()
     estimator.eval()
     with torch.no_grad():
-        residual = (
-            experiment.y_data - model(experiment.X_data)[:, :2]
-        ).reshape(-1, 1)
-        log_density = estimator(residual / running_std).reshape(-1)
+        residual = (experiment.y_data - model(experiment.X_data)[:, :2]).reshape(-1, 1)
+        scaled_residual = residual / running_std
+        log_density = estimator(scaled_residual).reshape(-1)
+        normalization_grid = estimator.make_grid()
+        grid_min = normalization_grid.min()
+        grid_max = normalization_grid.max()
+        outside_grid = (scaled_residual < grid_min) | (scaled_residual > grid_max)
     labels = experiment.data_corruption_labels.reshape(-1)
     metrics = {
-        "estimator_mean_negative_log_density": float(
-            (-log_density).mean().cpu()
-        ),
+        "estimator_mean_negative_log_density": float((-log_density).mean().cpu()),
         "n_estimator_scored_scalar_measurements": int(log_density.numel()),
+        "estimator_running_std": float(running_std.cpu()),
+        "estimator_scaled_residual_max_abs": float(
+            scaled_residual.abs().max().cpu()
+        ),
+        "estimator_normalization_grid_min": float(grid_min.cpu()),
+        "estimator_normalization_grid_max": float(grid_max.cpu()),
+        "estimator_scaled_residual_outside_normalization_grid_count": int(
+            outside_grid.sum().cpu()
+        ),
+        "estimator_scaled_residual_outside_normalization_grid_fraction": float(
+            outside_grid.float().mean().cpu()
+        ),
     }
     if bool(labels.any()) and bool((~labels).any()):
         score_array = (-log_density).detach().cpu().numpy()
         label_array = labels.detach().cpu().numpy()
+        positive_name = label_semantics["positive"]
+        negative_name = label_semantics["negative"]
         metrics.update(
             {
-                "estimator_failure_detection_auroc": rank_auroc(
+                f"estimator_{label_semantics['auroc']}": rank_auroc(
                     label_array, score_array
                 ),
-                "estimator_failed_mean_negative_log_density": float(
+                f"estimator_{positive_name}_mean_negative_log_density": float(
                     (-log_density[labels]).mean().cpu()
                 ),
-                "estimator_clean_mean_negative_log_density": float(
+                f"estimator_{negative_name}_mean_negative_log_density": float(
                     (-log_density[~labels]).mean().cpu()
                 ),
             }
@@ -633,10 +808,23 @@ def main(args: argparse.Namespace) -> Path:
         config["seed"] = args.seed
     if args.device is not None:
         config["device"] = args.device
+    # Run artifacts are canonicalized under outputs/.  The experiment YAML
+    # still records historical roots for provenance, but a fresh execution
+    # must not silently return to analysis/results/runs.
+    config.setdefault("output", {})["root"] = str(args.output_root)
 
     method = str(config["method"]["kind"]).lower()
     if method not in ALL_METHODS:
         raise ValueError(f"Unknown method {method!r}; choose {sorted(ALL_METHODS)}")
+    resolved_data_loss = resolve_data_loss(config, method)
+    config["resolved_data_loss"] = resolved_data_loss
+    input_artifact_path = Path(config["data"]["path"]).resolve()
+    if not input_artifact_path.is_file():
+        raise FileNotFoundError(
+            f"RealPDEBench input artifact not found: {input_artifact_path}"
+        )
+    input_artifact_sha256 = sha256_file(input_artifact_path)
+    config["data"]["input_artifact_sha256"] = input_artifact_sha256
     smoke_test = args.smoke_steps is not None
     if smoke_test and args.smoke_steps <= 0:
         raise ValueError("--smoke-steps must be positive")
@@ -689,30 +877,20 @@ def main(args: argparse.Namespace) -> Path:
         warmup_steps = 0
         estimator_init_steps = 0
         joint_steps = (
-            args.smoke_steps
-            if smoke_test
-            else int(config["mad"]["stage2_steps"])
+            args.smoke_steps if smoke_test else int(config["mad"]["stage2_steps"])
         )
         if not smoke_test and joint_steps != 30000:
             raise ValueError("MAD-PINN stage 2 must use exactly 30,000 updates")
     elif method in BASELINE_METHODS:
         warmup_steps = 0
         estimator_init_steps = 0
-        joint_steps = (
-            args.smoke_steps if smoke_test else int(training["total_steps"])
-        )
+        joint_steps = args.smoke_steps if smoke_test else int(training["total_steps"])
     else:
-        warmup_steps = (
-            args.smoke_steps if smoke_test else int(training["warmup_steps"])
-        )
+        warmup_steps = args.smoke_steps if smoke_test else int(training["warmup_steps"])
         estimator_init_steps = (
-            args.smoke_steps
-            if smoke_test
-            else int(training["estimator_init_steps"])
+            args.smoke_steps if smoke_test else int(training["estimator_init_steps"])
         )
-        joint_steps = (
-            args.smoke_steps if smoke_test else int(training["joint_steps"])
-        )
+        joint_steps = args.smoke_steps if smoke_test else int(training["joint_steps"])
     effective_pinn_steps = warmup_steps + joint_steps
     if not smoke_test and effective_pinn_steps != int(training["total_steps"]):
         raise ValueError(
@@ -752,7 +930,12 @@ def main(args: argparse.Namespace) -> Path:
         "hardware": hardware_metadata(device),
         "git": git_metadata(),
         "data_metadata": experiment.metadata,
+        "input_artifact_path": str(input_artifact_path),
+        "input_artifact_sha256": input_artifact_sha256,
+        "resolved_data_loss": resolved_data_loss,
+        "software": package_metadata(),
         "started_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "status": "running",
         "smoke_test": smoke_test,
         "evidence_status": (
             "smoke_test_not_paper_evidence"
@@ -789,7 +972,7 @@ def main(args: argparse.Namespace) -> Path:
         if estimator.__class__.__name__ != "EBM":
             raise ValueError("Canonical real-data staged methods require EBM")
         running_std = torch.ones((), device=device)
-    if method == "napinn":
+    if method in NAPINN_METHODS:
         gate_cfg = config["gate"]
         gate = TrainableLikelihoodGate(
             init_cutoff_sigma=float(gate_cfg["init_cutoff_sigma"]),
@@ -833,9 +1016,7 @@ def main(args: argparse.Namespace) -> Path:
                         retained_mask=mad_retained_mask,
                     )
                 else:
-                    batch = experiment.sample_batch(
-                        n_f=n_f, generator=train_generator
-                    )
+                    batch = experiment.sample_batch(n_f=n_f, generator=train_generator)
                 values = train_step(
                     method=phase_method,
                     model=model,
@@ -853,6 +1034,7 @@ def main(args: argparse.Namespace) -> Path:
                     running_std=running_std,
                     std_momentum=float(config["estimator"]["std_momentum"]),
                     estimator_weight=float(training["estimator_weight"]),
+                    resolved_data_loss=resolved_data_loss,
                     step=global_step,
                 )
                 record = {
@@ -863,8 +1045,7 @@ def main(args: argparse.Namespace) -> Path:
                 }
                 history.write(json.dumps(record, sort_keys=True) + "\n")
                 if log_every > 0 and (
-                    (local_step + 1) % log_every == 0
-                    or local_step + 1 == phase_steps
+                    (local_step + 1) % log_every == 0 or local_step + 1 == phase_steps
                 ):
                     print(
                         f"{phase_name} {local_step + 1}/{phase_steps} "
@@ -873,10 +1054,7 @@ def main(args: argparse.Namespace) -> Path:
                         f"data={values['loss_data']:.6e}",
                         flush=True,
                     )
-                if (
-                    checkpoint_every > 0
-                    and (global_step + 1) % checkpoint_every == 0
-                ):
+                if checkpoint_every > 0 and (global_step + 1) % checkpoint_every == 0:
                     save_checkpoint(
                         out_dir / f"step_{global_step + 1}.pt",
                         model=model,
@@ -894,9 +1072,7 @@ def main(args: argparse.Namespace) -> Path:
     if method in BASELINE_METHODS or method == MAD_METHOD:
         phase_times["joint_sec"] = run_phase(method, joint_steps, method, 0)
     else:
-        phase_times["warmup_sec"] = run_phase(
-            "mse_warmup", warmup_steps, "mse", 0
-        )
+        phase_times["warmup_sec"] = run_phase("mse_warmup", warmup_steps, "mse", 0)
         phase_times["estimator_init_sec"] = initialize_estimator(
             model=model,
             experiment=experiment,
@@ -912,9 +1088,7 @@ def main(args: argparse.Namespace) -> Path:
         # EBM optimizer is used only above and is never called after this point.
         parameter_groups = [
             {
-                "params": (
-                    list(model.parameters()) + list(experiment.extra_params())
-                ),
+                "params": (list(model.parameters()) + list(experiment.extra_params())),
                 "lr": float(training["model_lr"]),
             },
             {
@@ -958,42 +1132,44 @@ def main(args: argparse.Namespace) -> Path:
     evaluation_start = time.perf_counter()
     field_metrics = experiment.eval_on_grid(model)
     physics_metrics = experiment.evaluate_physics(model)
+    label_semantics = corruption_label_semantics(experiment.metadata)
     gate_metrics = evaluate_gate(
-        model, experiment, estimator, gate, running_std
+        model,
+        experiment,
+        estimator,
+        gate,
+        running_std,
+        label_semantics,
     )
     estimator_metrics = evaluate_estimator(
-        model, experiment, estimator, running_std
+        model,
+        experiment,
+        estimator,
+        running_std,
+        label_semantics,
     )
-    effective_reynolds = float(
-        experiment.effective_reynolds().detach().cpu()
-    )
+    effective_reynolds = float(experiment.effective_reynolds().detach().cpu())
     reynolds_metrics = {
         "metadata_reynolds": float(experiment.reynolds),
         "effective_reynolds": effective_reynolds,
         "effective_reynolds_relative_error": float(
-            abs(effective_reynolds - experiment.reynolds)
-            / experiment.reynolds
+            abs(effective_reynolds - experiment.reynolds) / experiment.reynolds
         ),
         "learned_reynolds": bool(experiment.learn_reynolds),
     }
-    corruption = experiment.metadata.get("corruption")
-    corruption_metrics = {}
-    if corruption is not None:
-        corruption_metrics = {
-            "corruption_kind": corruption["kind"],
-            "corruption_seed": int(corruption["seed"]),
-            "failed_spatial_sensors": int(
-                corruption["n_failed_spatial_sensors"]
-            ),
-            "sensor_failure_fraction": float(
-                corruption["failure_fraction_realized"]
-            ),
-        }
+    corruption_metrics = corruption_metrics_from_metadata(experiment.metadata)
     evaluation_sec = time.perf_counter() - evaluation_start
     metrics = {
-        "benchmark": "RealPDEBench Cylinder real PIV",
+        "status": "complete",
+        "benchmark": str(experiment.metadata["dataset"]),
+        "dataset_family": str(
+            experiment.metadata.get("dataset_family", "cylinder")
+        ),
         "method": method,
         "tag": str(config["tag"]),
+        "resolved_data_loss": resolved_data_loss,
+        "reconstruction_loss_kind": resolved_data_loss["kind"],
+        "reconstruction_loss_q": resolved_data_loss["q"],
         "seed": seed,
         "smoke_test": smoke_test,
         "evidence_status": (
@@ -1002,7 +1178,20 @@ def main(args: argparse.Namespace) -> Path:
             else "full_run_complete_unaggregated"
         ),
         "sim_id": experiment.metadata["sim_id"],
+        "physics_interpretation": experiment.metadata.get(
+            "physics_interpretation",
+            "Nominal pressure-latent 2-D incompressible Navier--Stokes.",
+        ),
+        "geometry_exclusion": experiment.metadata.get(
+            "geometry_exclusion", experiment.metadata.get("cylinder_mask")
+        ),
+        "reference_scale_provenance": experiment.metadata.get(
+            "reference_scale_provenance"
+        ),
         "source_sha256": experiment.metadata["source_sha256"],
+        "input_artifact_path": str(input_artifact_path),
+        "input_artifact_sha256": input_artifact_sha256,
+        "software": package_metadata(),
         "sensor_seed": experiment.metadata["sensor_seed"],
         "n_spatial_sensors": experiment.metadata["n_spatial_sensors"],
         "n_frames": experiment.metadata["n_frames"],
@@ -1024,9 +1213,7 @@ def main(args: argparse.Namespace) -> Path:
         metrics.update(
             {
                 **mad_screening_metrics,
-                "mad_stage1_checkpoint_path": mad_stage1_provenance[
-                    "checkpoint_path"
-                ],
+                "mad_stage1_checkpoint_path": mad_stage1_provenance["checkpoint_path"],
                 "mad_stage1_checkpoint_sha256": mad_stage1_provenance[
                     "checkpoint_sha256"
                 ],
@@ -1035,8 +1222,7 @@ def main(args: argparse.Namespace) -> Path:
                 ],
                 "mad_stage2_pinn_update_steps": effective_pinn_steps,
                 "mad_total_pipeline_pinn_update_steps": (
-                    mad_stage1_provenance["pinn_update_steps"]
-                    + effective_pinn_steps
+                    mad_stage1_provenance["pinn_update_steps"] + effective_pinn_steps
                 ),
                 "compute_matching_status": (
                     "additional_stage2_work_not_compute_matched_to_"
@@ -1049,16 +1235,21 @@ def main(args: argparse.Namespace) -> Path:
                 float(stage1_training_wall) + training_wall_sec
             )
     if device.type == "cuda":
-        metrics["gpu_peak_memory_mb"] = (
-            torch.cuda.max_memory_allocated(device) / 1024**2
+        peak_allocated = torch.cuda.max_memory_allocated(device)
+        peak_reserved = torch.cuda.max_memory_reserved(device)
+        metrics.update(
+            {
+                "gpu_peak_memory_allocated_bytes": peak_allocated,
+                "gpu_peak_memory_reserved_bytes": peak_reserved,
+                "gpu_peak_memory_mb": peak_allocated / 1024**2,
+            }
         )
     for key, value in metrics.items():
         if isinstance(value, float) and not np.isfinite(value):
             raise FloatingPointError(f"Final metric {key} is non-finite: {value}")
     write_json(out_dir / "metrics.json", metrics)
-    run_metadata["finished_utc"] = time.strftime(
-        "%Y-%m-%dT%H:%M:%SZ", time.gmtime()
-    )
+    run_metadata["finished_utc"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    run_metadata["status"] = "complete"
     run_metadata["evidence_status"] = metrics["evidence_status"]
     write_json(out_dir / "run_metadata.json", run_metadata)
     print(json.dumps(metrics, indent=2, sort_keys=True))
@@ -1071,9 +1262,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--common-config",
         type=Path,
-        default=Path(
-            "configs/experiment/realpdebench_cylinder_common.yaml"
-        ),
+        default=Path("configs/experiment/realpdebench_cylinder_common.yaml"),
     )
     parser.add_argument(
         "--model-config",
@@ -1083,18 +1272,30 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--exp-config", type=Path, required=True)
     parser.add_argument(
         "--variant-config",
+        "--experiment-config",
+        dest="variant_config",
         type=Path,
-        help="Optional data/condition override merged after the method config.",
+        help=(
+            "Optional dataset/condition experiment overlay merged after the "
+            "method config. --experiment-config is the generic alias."
+        ),
     )
     parser.add_argument("--seed", type=int)
     parser.add_argument("--device")
     parser.add_argument("--run-name")
     parser.add_argument(
+        "--output-root",
+        type=Path,
+        default=Path("outputs/rebuttal/realpde"),
+        help=(
+            "Root for checkpoints, metrics, resolved configs, histories, and "
+            "run metadata. Fresh runs default to outputs/."
+        ),
+    )
+    parser.add_argument(
         "--stage1-checkpoint",
         type=Path,
-        help=(
-            "Completed 30,000-update LAD final.pt required by MAD-PINN stage 2."
-        ),
+        help=("Completed 30,000-update LAD final.pt required by MAD-PINN stage 2."),
     )
     parser.add_argument(
         "--smoke-steps",

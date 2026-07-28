@@ -1,4 +1,4 @@
-import os, time, yaml, argparse, sys
+import os, time, yaml, argparse, sys, json, math
 import torch
 import wandb
 from tqdm import trange
@@ -13,6 +13,11 @@ def load_yaml(path):
 def _save_yaml(path, obj):
     with open(path, "w", encoding="utf-8") as f:
         yaml.safe_dump(obj, f)
+
+def _save_json(path, obj):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(obj, f, indent=2, sort_keys=True)
+        f.write("\n")
 
 def state_to_cpu(state):
     if isinstance(state, torch.Tensor):
@@ -427,6 +432,24 @@ def main(args):
             final_perf["gpu/phase2/max_mem_alloc_mb"] = max(phase2_mem_alloc_history)
 
     wandb_log(final_perf)
+    _save_json(
+        os.path.join(out_dir, "metrics.json"),
+        {
+            "status": "complete",
+            "experiment_name": args.experiment_name,
+            "model_name": args.model_name,
+            "tag": tag,
+            "seed": int(base_cfg["seed"]),
+            "device": str(device),
+            "pinn_update_steps": int(global_step),
+            "field_rMAE": float(rMAE),
+            "field_rMSE": float(rMSE),
+            "best_field_rMSE": (
+                None if not math.isfinite(best_metric) else float(best_metric)
+            ),
+            **final_perf,
+        },
+    )
 
     # Restore best
     if best_model_state:

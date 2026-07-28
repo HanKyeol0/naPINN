@@ -25,14 +25,20 @@ CONFIGS = {
 }
 
 
-def jobs():
+def jobs(phase: str = "all"):
     calibration = list(product([39], [1.0, 10.0, 50.0], CONFIGS))
     held_out = list(product([40, 41, 42], [10.0, 50.0], CONFIGS))
-    return calibration + held_out
+    if phase == "calibration":
+        return calibration
+    if phase == "heldout":
+        return held_out
+    if phase == "all":
+        return calibration + held_out
+    raise ValueError(f"Unknown phase: {phase}")
 
 
 def main(args):
-    all_jobs = jobs()
+    all_jobs = jobs(args.phase)
     shard = [
         job
         for index, job in enumerate(all_jobs)
@@ -47,6 +53,9 @@ def main(args):
     )
     status_path.parent.mkdir(parents=True, exist_ok=True)
     status = {
+        "campaign": "synthetic_pinn_ebm_pde_weight",
+        "phase": args.phase,
+        "expected_phase_jobs": len(all_jobs),
         "gpu": args.gpu,
         "shard_index": args.shard_index,
         "num_shards": args.num_shards,
@@ -120,14 +129,24 @@ if __name__ == "__main__":
     parser.add_argument("--shard-index", type=int, required=True)
     parser.add_argument("--num-shards", type=int, default=7)
     parser.add_argument(
+        "--phase",
+        choices=("calibration", "heldout", "all"),
+        default="all",
+        help=(
+            "Run seed-39 calibration or seeds-40--42 held-out cells "
+            "separately so each phase can use an independent immutable "
+            "output root and strict aggregate."
+        ),
+    )
+    parser.add_argument(
         "--output-root",
         type=Path,
-        default=Path("analysis/results/runs/rebuttal_synthetic"),
+        default=Path("outputs/rebuttal/synthetic"),
     )
     parser.add_argument(
         "--status-root",
         type=Path,
-        default=Path("analysis/results/runs/rebuttal_synthetic_queue"),
+        default=Path("outputs/status/rebuttal_synthetic"),
     )
     parser.add_argument("--fail-fast", action="store_true")
     main(parser.parse_args())

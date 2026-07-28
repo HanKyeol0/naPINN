@@ -1,0 +1,4 @@
+data:
+  path: outputs/rebuttal/realpdebench_multidataset/corrupted/realpdebench_controlled_cylinder_1781_0.5_frames1000-1200_legacy4g_seed41_r15.npz
+output:
+  benchmark: controlled_cylinder_seed41_r15

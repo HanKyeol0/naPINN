@@ -51,7 +51,7 @@ eval:
   pde_seed: 20260725
 
 output:
-  root: "analysis/results/runs/rebuttal_realpde"
+  root: "outputs/rebuttal/realpde"
   benchmark: "cylinder_real_piv"
   log_every: 100
   checkpoint_every: 5000

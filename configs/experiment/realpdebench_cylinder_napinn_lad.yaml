@@ -1,0 +1,10 @@
+tag: "napinn_l1"
+method:
+  kind: napinn_lad
+  description: "naPINN-L1: staged EBM gate with L1 reconstruction and rejection cost"
+data_loss:
+  kind: L1
+estimator:
+  enabled: true
+gate:
+  enabled: true

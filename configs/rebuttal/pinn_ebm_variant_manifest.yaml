@@ -1,0 +1,46 @@
+schema_version: 1
+frozen_at_utc: "2026-07-26"
+purpose: >-
+  Keep three scientifically different PINN-EBM comparisons separate. Results
+  from one strategy must not be labeled as another strategy.
+
+variants:
+  A_upstream_active_0b74f6f:
+    config: configs/rebuttal/pinn_ebm_upstream_active.yaml
+    task: official cylinder_nektar_wake.mat Navier--Stokes
+    architecture: active upstream Net_NS, 4 hidden layers by 30
+    budget: 100000 PINN updates; EBM initialized after 10000 for 2000 updates
+    repetition: one official seed-0 RNG stream with Nrun=5
+    claim_boundary: >-
+      Source-exact at commit 0b74f6f, with the required missing additive-noise
+      configuration supplied and disclosed.
+
+  B_paper_spec_8x20:
+    config: configs/rebuttal/pinn_ebm_paper_spec.yaml
+    task: official cylinder_nektar_wake.mat Navier--Stokes
+    architecture: paper-specified Net_NS, 8 hidden layers by 20
+    budget: 100000 PINN updates; EBM initialized after 10000 for 2000 updates
+    repetition: one official seed-0 RNG stream with Nrun=5
+    claim_boundary: >-
+      Paper-architecture reproduction using explicitly labeled upstream choices;
+      not the active official code because one architecture patch is applied.
+
+  C_compute_matched_current_task:
+    runner: scripts/rebuttal/run_realpdebench.py
+    task: current pressure-latent RealPDEBench Cylinder PIV
+    architecture: current 5 hidden layers by 80, direct u/v/p output
+    batches:
+      data: 2048
+      collocation: 8192
+    budget: >-
+      5000 MSE warm-up PINN updates, 5000 estimator-only updates, and
+      25000 direct-NLL joint PINN updates
+    objective: direct EBM NLL with no reliability gate
+    reporting_seeds: [40, 41, 42]
+    pde_weight_grid:
+      1: configs/experiment/realpdebench_cylinder_pinn_ebm_equal_weight.yaml
+      10: configs/experiment/realpdebench_cylinder_pinn_ebm_weight10.yaml
+      50: configs/experiment/realpdebench_cylinder_pinn_ebm.yaml
+    claim_boundary: >-
+      Objective-faithful, compute-matched comparator on the current task. It is
+      neither an upstream-code nor paper-setting Navier--Stokes reproduction.

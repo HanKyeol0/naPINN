@@ -1,0 +1,10 @@
+tag: mse
+method:
+  kind: mse
+  description: "Vanilla nominal-NS PINN with velocity MSE"
+data_loss:
+  kind: mse
+estimator:
+  enabled: false
+gate:
+  enabled: false

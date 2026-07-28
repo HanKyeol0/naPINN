@@ -154,16 +154,157 @@ def inject_spatial_burst(arrays, metadata, args):
     return clean_u, clean_v, corrupt_u, corrupt_v, labels, record, extra
 
 
+def inject_heteroscedastic(arrays, metadata, args):
+    """State-dependent measurement error whose scale grows with local speed.
+
+    PIV displacement error is not homogeneous: it grows with the particle
+    displacement, so faster regions carry larger absolute error. We therefore
+    set each failed sensor's per-frame noise scale from the local velocity
+    magnitude, which makes the variance vary jointly with position, time, and
+    state instead of being a single constant.
+    """
+    clean_u, clean_v, train, scale = common_scales(arrays)
+    corrupt_u, corrupt_v = clean_u.copy(), clean_v.copy()
+    n_frames = clean_u.shape[0]
+    n_sensors = train.size
+    n_failed = max(1, round(args.failure_fraction * n_sensors))
+    rng = np.random.default_rng(args.seed)
+    failed_positions = np.sort(
+        rng.choice(n_sensors, size=n_failed, replace=False)
+    )
+    flat_u = clean_u.reshape(n_frames, -1)[:, train]
+    flat_v = clean_v.reshape(n_frames, -1)[:, train]
+    speed = np.sqrt(np.square(flat_u) + np.square(flat_v))
+    mean_speed = float(speed.mean())
+    if not np.isfinite(mean_speed) or mean_speed <= 0:
+        raise ValueError(f"Invalid mean speed: {mean_speed}")
+    # sigma_i(t) = base * scale_component * (1 + gain * speed_i(t)/mean_speed)
+    relative_speed = speed[:, failed_positions] / mean_speed
+    gain = np.float32(1.0) + np.float32(args.hetero_gain) * relative_speed
+    sigma = (
+        np.float32(args.hetero_base_std)
+        * scale.astype(np.float32)[None, None, :]
+        * gain[:, :, None]
+    )
+    perturbation = rng.normal(0.0, 1.0, size=sigma.shape).astype(np.float32)
+    perturbation = perturbation * sigma
+    labels = np.zeros((n_frames, n_sensors, 2), dtype=bool)
+    labels[:, failed_positions, :] = True
+    for local_position, sensor_position in enumerate(failed_positions):
+        flat = int(train[sensor_position])
+        row, column = np.unravel_index(flat, clean_u.shape[1:])
+        corrupt_u[:, row, column] += perturbation[:, local_position, 0]
+        corrupt_v[:, row, column] += perturbation[:, local_position, 1]
+    record = {
+        "kind": "state_dependent_heteroscedastic_sensor_error",
+        "seed": args.seed,
+        "scope": "training sensors only; held-out PIV remains unchanged",
+        "failure_fraction_requested": args.failure_fraction,
+        "failure_fraction_realized": n_failed / n_sensors,
+        "n_failed_spatial_sensors": int(n_failed),
+        "n_total_spatial_sensors": int(n_sensors),
+        "failed_sensor_positions_in_training_split": failed_positions.tolist(),
+        "hetero_base_component_std": args.hetero_base_std,
+        "hetero_speed_gain": args.hetero_gain,
+        "scale_law": (
+            "sigma_i(t) = hetero_base_component_std * clean_component_std * "
+            "(1 + hetero_speed_gain * speed_i(t) / mean_training_speed)"
+        ),
+        "mean_training_speed_mps": mean_speed,
+        "realized_sigma_min_mps": sigma.min(axis=(0, 1)).tolist(),
+        "realized_sigma_max_mps": sigma.max(axis=(0, 1)).tolist(),
+        "clean_component_std_mps": scale.tolist(),
+    }
+    extra = {"heteroscedastic_perturbation_mps": perturbation}
+    return clean_u, clean_v, corrupt_u, corrupt_v, labels, record, extra
+
+
+def inject_uv_correlated(arrays, metadata, args):
+    """Measurement error correlated between the two velocity components.
+
+    The existing gross-outlier and drift protocols draw the ``u`` and ``v``
+    perturbations independently. A shared calibration or registration error in
+    PIV biases both components together, so here the per-frame innovation is
+    drawn from a bivariate normal with a fixed off-diagonal correlation and no
+    temporal correlation, which isolates the cross-component effect from the
+    AR(1) condition.
+    """
+    clean_u, clean_v, train, scale = common_scales(arrays)
+    corrupt_u, corrupt_v = clean_u.copy(), clean_v.copy()
+    n_frames = clean_u.shape[0]
+    n_sensors = train.size
+    n_failed = max(1, round(args.failure_fraction * n_sensors))
+    rng = np.random.default_rng(args.seed)
+    failed_positions = np.sort(
+        rng.choice(n_sensors, size=n_failed, replace=False)
+    )
+    rho = float(args.uv_rho)
+    if not -1.0 < rho < 1.0:
+        raise ValueError("uv_rho must lie strictly inside (-1, 1)")
+    correlation = np.array([[1.0, rho], [rho, 1.0]], dtype=np.float64)
+    factor = np.linalg.cholesky(correlation).astype(np.float32)
+    standard = rng.normal(
+        0.0, 1.0, size=(n_frames, n_failed, 2)
+    ).astype(np.float32)
+    correlated = standard @ factor.T
+    perturbation = (
+        np.float32(args.uv_scale_std)
+        * scale.astype(np.float32)[None, None, :]
+        * correlated
+    )
+    labels = np.zeros((n_frames, n_sensors, 2), dtype=bool)
+    labels[:, failed_positions, :] = True
+    for local_position, sensor_position in enumerate(failed_positions):
+        flat = int(train[sensor_position])
+        row, column = np.unravel_index(flat, clean_u.shape[1:])
+        corrupt_u[:, row, column] += perturbation[:, local_position, 0]
+        corrupt_v[:, row, column] += perturbation[:, local_position, 1]
+    realized = float(
+        np.corrcoef(
+            perturbation[:, :, 0].reshape(-1),
+            perturbation[:, :, 1].reshape(-1),
+        )[0, 1]
+    )
+    record = {
+        "kind": "cross_component_correlated_sensor_error",
+        "seed": args.seed,
+        "scope": "training sensors only; held-out PIV remains unchanged",
+        "failure_fraction_requested": args.failure_fraction,
+        "failure_fraction_realized": n_failed / n_sensors,
+        "n_failed_spatial_sensors": int(n_failed),
+        "n_total_spatial_sensors": int(n_sensors),
+        "failed_sensor_positions_in_training_split": failed_positions.tolist(),
+        "uv_correlation_requested": rho,
+        "uv_correlation_realized": realized,
+        "uv_scale_component_std": args.uv_scale_std,
+        "temporal_correlation": "none; innovations are independent across frames",
+        "clean_component_std_mps": scale.tolist(),
+    }
+    extra = {"uv_correlated_perturbation_mps": perturbation}
+    return clean_u, clean_v, corrupt_u, corrupt_v, labels, record, extra
+
+
 def inject(args):
     source = args.input.resolve()
     output = args.output.resolve()
+    manifest_path = output.with_suffix(".manifest.json")
+    if not source.is_file():
+        raise FileNotFoundError(source)
+    if output.exists() or manifest_path.exists():
+        raise FileExistsError(
+            f"Refusing to overwrite derived artifact or sidecar: "
+            f"{output}, {manifest_path}"
+        )
     arrays, metadata = load_clean(source)
     if not 0.0 < args.failure_fraction < 1.0:
         raise ValueError("failure_fraction must be in (0,1)")
-    if args.kind == "ar1":
-        values = inject_ar1(arrays, metadata, args)
-    else:
-        values = inject_spatial_burst(arrays, metadata, args)
+    injectors = {
+        "ar1": inject_ar1,
+        "spatial_burst": inject_spatial_burst,
+        "heteroscedastic": inject_heteroscedastic,
+        "uv_correlated": inject_uv_correlated,
+    }
+    values = injectors[args.kind](arrays, metadata, args)
     clean_u, clean_v, corrupt_u, corrupt_v, labels, record, extra = values
     heldout = arrays["heldout_flat_indices"].astype(np.int64)
     n_frames = clean_u.shape[0]
@@ -197,7 +338,6 @@ def inject(args):
         "derived_npz_sha256": sha256(output),
         "heldout_values_bitwise_equal_to_parent": True,
     }
-    manifest_path = output.with_suffix(".manifest.json")
     manifest_path.write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -216,13 +356,21 @@ def build_parser():
         ),
     )
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--kind", choices=["ar1", "spatial_burst"], required=True)
+    parser.add_argument(
+        "--kind",
+        choices=["ar1", "spatial_burst", "heteroscedastic", "uv_correlated"],
+        required=True,
+    )
     parser.add_argument("--seed", type=int, default=20260726)
     parser.add_argument("--failure-fraction", type=float, default=0.15)
     parser.add_argument("--ar1-rho", type=float, default=0.98)
     parser.add_argument("--ar1-scale-std", type=float, default=3.0)
     parser.add_argument("--burst-fraction", type=float, default=0.20)
     parser.add_argument("--burst-scale-std", type=float, default=5.0)
+    parser.add_argument("--hetero-base-std", type=float, default=1.0)
+    parser.add_argument("--hetero-gain", type=float, default=4.0)
+    parser.add_argument("--uv-rho", type=float, default=0.8)
+    parser.add_argument("--uv-scale-std", type=float, default=3.0)
     return parser
 
 

@@ -1,0 +1,12 @@
+tag: "pinn_ebm_weight10"
+method:
+  kind: pinn_ebm
+  description: >-
+    Compute-matched direct-NLL no-gate PINN-EBM comparator with joint
+    Navier--Stokes PDE weight 10
+training:
+  joint_pde_weight: 10.0
+estimator:
+  enabled: true
+gate:
+  enabled: false
